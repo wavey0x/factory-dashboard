@@ -506,10 +506,12 @@ tbody tr:hover td {
 
 .token-item {
   display: grid;
-  grid-template-columns: var(--token-icon-size) 82px 98px;
+  grid-template-columns: var(--token-icon-size) minmax(52px, max-content) 86px;
   align-items: center;
   column-gap: 8px;
   white-space: nowrap;
+  width: max-content;
+  max-width: 100%;
 }
 
 .token-logo {
@@ -526,6 +528,7 @@ tbody tr:hover td {
   align-items: center;
   gap: 5px;
   width: 100%;
+  max-width: none;
   min-width: 0;
   overflow: hidden;
 }
@@ -541,7 +544,9 @@ tbody tr:hover td {
 .token-balance {
   justify-self: end;
   text-align: right;
-  padding-left: 4px;
+  width: 86px;
+  min-width: 86px;
+  padding-left: 0;
   color: var(--text-primary);
 }
 

@@ -5,9 +5,16 @@ import {Test} from "forge-std/Test.sol";
 import {StdStorage, stdStorage} from "forge-std/StdStorage.sol";
 
 import {AuctionKicker} from "../src/AuctionKicker.sol";
+import {WeiRollCommandLib} from "../src/WeiRollCommandLib.sol";
 import {IERC20} from "../src/interfaces/IERC20.sol";
 import {ITradeHandler} from "../src/interfaces/ITradeHandler.sol";
 import {IAuction} from "../src/interfaces/IAuction.sol";
+
+contract WeiRollCommandLibHarness {
+    function cmdCall(bytes4 sel, uint8 a0, uint8 a1, uint8 a2, address target) external pure returns (bytes32) {
+        return WeiRollCommandLib.cmdCall(sel, a0, a1, a2, target);
+    }
+}
 
 contract AuctionKickerTest is Test {
     using stdStorage for StdStorage;
@@ -21,16 +28,30 @@ contract AuctionKickerTest is Test {
     address internal keeper = makeAddr("keeper");
 
     AuctionKicker internal kicker;
+    WeiRollCommandLibHarness internal commandHarness;
 
     function setUp() public {
         vm.createSelectFork(vm.envString("MAINNET_RPC_URL"));
 
         kicker = new AuctionKicker(TRADE_HANDLER);
+        commandHarness = new WeiRollCommandLibHarness();
         kicker.setKeeper(keeper, true);
 
         address governance = ITradeHandler(TRADE_HANDLER).governance();
         vm.prank(governance);
         ITradeHandler(TRADE_HANDLER).addMech(address(kicker));
+
+        stdstore.target(CRV).sig("allowance(address,address)").with_key(STRATEGY).with_key(TRADE_HANDLER).checked_write(
+            type(uint256).max
+        );
+    }
+
+    function test_cmdCall_packsExpectedShortCommand() public view {
+        bytes32 packed =
+            commandHarness.cmdCall(bytes4(keccak256("transferFrom(address,address,uint256)")), 0, 1, 2, CRV);
+        bytes32 expected = 0x23b872dd01000102ffffffffd533a949740bb3306d119cc777fa900ba034cd52;
+
+        assertEq(packed, expected);
     }
 
     function test_happyPath_transfers_setsPrice_kicks() public {
@@ -52,18 +73,18 @@ contract AuctionKickerTest is Test {
     }
 
     function test_revert_notKeeperOrOwner() public {
-        vm.expectRevert(AuctionKicker.Unauthorized.selector);
+        vm.expectRevert("unauthorized");
         vm.prank(makeAddr("not-authorized"));
         kicker.kick(STRATEGY, AUCTION, CRV, 1e18, 1e18);
     }
 
     function test_revert_startingPriceZero() public {
-        vm.expectRevert(AuctionKicker.StartingPriceZero.selector);
+        vm.expectRevert("starting price zero");
         kicker.kick(STRATEGY, AUCTION, CRV, 1e18, 0);
     }
 
     function test_revert_wantMismatch() public {
-        vm.expectRevert(AuctionKicker.WantMismatch.selector);
+        vm.expectRevert("want mismatch");
         kicker.kick(STRATEGY, ALT_AUCTION, CRV, 1e18, 1e18);
     }
 }

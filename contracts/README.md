@@ -27,6 +27,7 @@ MAINNET_RPC_URL=https://your-mainnet-rpc forge test -vvv
 - The mech must be allowlisted in `TradeHandler.mechs`.
 - Command packing uses TradeHandler VM's short command format:
   `selector(4) | flags(1) | arg slots(6) | out slot(1) | target(20)`.
+- Short-command packing is isolated in `WeiRollCommandLib`.
 - Tests run on a mainnet fork and use:
   - governance impersonation + `TradeHandler.addMech(mech)` to allowlist the mech
   - `deal` to fund strategy CRV balance deterministically
