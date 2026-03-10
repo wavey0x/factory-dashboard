@@ -1,4 +1,4 @@
-from tidal.chain.retry import is_retryable_error
+from factory_dashboard.chain.retry import is_retryable_error
 
 
 class TimeoutLikeError(Exception):

@@ -1,7 +1,7 @@
 import pytest
 
-from tidal.constants import CORE_REWARD_TOKENS
-from tidal.scanner.reward_token_resolver import RewardTokenResolver
+from factory_dashboard.constants import CORE_REWARD_TOKENS
+from factory_dashboard.scanner.reward_token_resolver import RewardTokenResolver
 
 
 class FakeStrategyRewardsReader:

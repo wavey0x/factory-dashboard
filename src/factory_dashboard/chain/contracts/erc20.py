@@ -6,10 +6,10 @@ from eth_abi import decode as abi_decode
 from eth_utils import to_checksum_address
 from hexbytes import HexBytes
 
-from tidal.chain.contracts.abis import ERC20_ABI
-from tidal.chain.contracts.multicall import MulticallClient, MulticallRequest
-from tidal.chain.web3_client import Web3Client
-from tidal.normalizers import normalize_address
+from factory_dashboard.chain.contracts.abis import ERC20_ABI
+from factory_dashboard.chain.contracts.multicall import MulticallClient, MulticallRequest
+from factory_dashboard.chain.web3_client import Web3Client
+from factory_dashboard.normalizers import normalize_address
 
 
 class ERC20Reader:

@@ -1,4 +1,4 @@
-# Tidal Dashboard Refactor Plan
+# Factory Dashboard Refactor Plan
 
 ## Summary
 
@@ -86,7 +86,7 @@ All UI work is complete:
 - Express server deleted. `express` and `cors` removed from `package.json`.
 - npm scripts cleaned: only `dev`, `build`, `preview` remain.
 - `App.jsx` fetches only `/api/dashboard`.
-- Vite proxy configured via `TIDAL_API_PROXY_TARGET` env var.
+- Vite proxy configured via `FACTORY_DASHBOARD_API_PROXY_TARGET` env var.
 - Token logos render directly from `tokenLogoUrl`. No proxy, no disk cache.
 - `ui/.cache/token-logos/` is in `.gitignore`.
 

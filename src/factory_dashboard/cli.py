@@ -1,4 +1,4 @@
-"""CLI entrypoint for tidal."""
+"""CLI entrypoint for factory-dashboard."""
 
 from __future__ import annotations
 
@@ -7,15 +7,15 @@ from pathlib import Path
 
 import typer
 
-from tidal.config import load_settings
-from tidal.errors import ConfigurationError
-from tidal.health import run_healthcheck
-from tidal.logging import configure_logging
-from tidal.migrations import run_migrations
-from tidal.persistence.db import Database
-from tidal.runtime import build_scanner_service, build_web3_client
+from factory_dashboard.config import load_settings
+from factory_dashboard.errors import ConfigurationError
+from factory_dashboard.health import run_healthcheck
+from factory_dashboard.logging import configure_logging
+from factory_dashboard.migrations import run_migrations
+from factory_dashboard.persistence.db import Database
+from factory_dashboard.runtime import build_scanner_service, build_web3_client
 
-app = typer.Typer(help="Tidal scanner CLI")
+app = typer.Typer(help="Factory dashboard scanner CLI")
 db_app = typer.Typer(help="Database commands")
 scan_app = typer.Typer(help="Scanner commands")
 

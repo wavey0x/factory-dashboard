@@ -1,4 +1,4 @@
-# Tidal Dashboard Style Guide
+# Factory Dashboard Style Guide
 
 This style guide defines the visual and accessibility baseline for the `ui` dashboard.
 The system is monochrome, compact, and data-first.

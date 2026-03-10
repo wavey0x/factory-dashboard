@@ -2,10 +2,10 @@ import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
-from tidal.alerts.base import NullAlertSink
-from tidal.constants import ADDITIONAL_DISCOVERY_VAULTS, CORE_REWARD_TOKENS
-from tidal.persistence import models
-from tidal.persistence.repositories import (
+from factory_dashboard.alerts.base import NullAlertSink
+from factory_dashboard.constants import ADDITIONAL_DISCOVERY_VAULTS, CORE_REWARD_TOKENS
+from factory_dashboard.persistence import models
+from factory_dashboard.persistence.repositories import (
     BalanceRepository,
     ScanItemErrorRepository,
     ScanRunRepository,
@@ -14,10 +14,10 @@ from tidal.persistence.repositories import (
     TokenRepository,
     VaultRepository,
 )
-from tidal.scanner.service import ScannerService
-from tidal.scanner.auction_mapper import AuctionMappingRefreshResult
-from tidal.scanner.token_metadata import TokenMetadataService
-from tidal.types import BalancePair, DiscoveredStrategy
+from factory_dashboard.scanner.service import ScannerService
+from factory_dashboard.scanner.auction_mapper import AuctionMappingRefreshResult
+from factory_dashboard.scanner.token_metadata import TokenMetadataService
+from factory_dashboard.types import BalancePair, DiscoveredStrategy
 
 
 class FakeWeb3Client:

@@ -9,8 +9,8 @@ from sqlalchemy import and_, delete, select, update
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import Session
 
-from tidal.persistence import models
-from tidal.types import BalanceResult, ScanItemError, TokenLogoState, TokenMetadata
+from factory_dashboard.persistence import models
+from factory_dashboard.types import BalanceResult, ScanItemError, TokenLogoState, TokenMetadata
 
 
 class StrategyRepository:

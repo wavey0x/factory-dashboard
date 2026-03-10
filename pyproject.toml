@@ -3,7 +3,7 @@ requires = ["hatchling>=1.26.0"]
 build-backend = "hatchling.build"
 
 [project]
-name = "tidal"
+name = "factory-dashboard"
 version = "0.1.0"
 description = "Yearn strategy scanner and reward balance cache"
 readme = "README.md"
@@ -27,10 +27,10 @@ dev = [
 ]
 
 [project.scripts]
-tidal = "tidal.cli:app"
+factory-dashboard = "factory_dashboard.cli:app"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/tidal"]
+packages = ["src/factory_dashboard"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

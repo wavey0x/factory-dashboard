@@ -6,7 +6,7 @@ from decimal import Decimal, getcontext
 
 from eth_utils import is_address
 
-from tidal.errors import AddressNormalizationError
+from factory_dashboard.errors import AddressNormalizationError
 
 getcontext().prec = 78
 

@@ -2,11 +2,11 @@ from decimal import Decimal
 
 import pytest
 
-from tidal.constants import CVX_ADDRESS, CVX_PRICE_ALIAS_ADDRESS, CVX_WRAPPER_ALIAS_ADDRESS
-from tidal.pricing.service import PriceToken, TokenPriceRefreshService
-from tidal.pricing.token_logo import TokenLogoValidationResult
-from tidal.pricing.token_price_agg import TokenPriceQuote
-from tidal.types import TokenLogoState
+from factory_dashboard.constants import CVX_ADDRESS, CVX_PRICE_ALIAS_ADDRESS, CVX_WRAPPER_ALIAS_ADDRESS
+from factory_dashboard.pricing.service import PriceToken, TokenPriceRefreshService
+from factory_dashboard.pricing.token_logo import TokenLogoValidationResult
+from factory_dashboard.pricing.token_price_agg import TokenPriceQuote
+from factory_dashboard.types import TokenLogoState
 
 
 class FakePriceProvider:

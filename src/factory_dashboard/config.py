@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     )
 
     rpc_url: str | None = Field(default=None, alias="RPC_URL")
-    db_path: Path = Field(default=Path("./tidal.db"), alias="DB_PATH")
+    db_path: Path = Field(default=Path("./factory_dashboard.db"), alias="DB_PATH")
     chain_id: int = Field(default=1, alias="CHAIN_ID")
 
     scan_interval_seconds: int = Field(default=300, alias="SCAN_INTERVAL_SECONDS")

@@ -1,4 +1,4 @@
-# Tidal (Phase 1)
+# Factory Dashboard
 
 CLI service for discovering Yearn strategies and caching reward token balances in SQLite.
 
@@ -12,23 +12,23 @@ CLI service for discovering Yearn strategies and caching reward token balances i
 3. Copy `.env.example` to `.env` and set `RPC_URL`.
 4. Run migrations:
    ```bash
-   tidal db migrate
+   factory-dashboard db migrate
    ```
 5. Run one scan:
    ```bash
-   tidal scan once
+   factory-dashboard scan once
    ```
 
 ## Commands
 
-- `tidal db migrate`
-- `tidal scan once`
-- `tidal scan daemon --interval-seconds 300`
-- `tidal healthcheck`
+- `factory-dashboard db migrate`
+- `factory-dashboard scan once`
+- `factory-dashboard scan daemon --interval-seconds 300`
+- `factory-dashboard healthcheck`
 
 ## UI Dashboard
 
-A React dashboard is available in [`ui/`](./ui) for browsing scan results served by an external read-only API backed by `tidal.db`.
+A React dashboard is available in [`ui/`](./ui) for browsing scan results served by an external read-only API backed by `factory_dashboard.db`.
 
 ```bash
 cd ui
@@ -40,8 +40,8 @@ This starts the frontend on `http://localhost:5173`.
 
 For local development, either:
 
-- set `VITE_TIDAL_API_BASE_URL` to your external dashboard API, or
-- keep the default `/api` base path and point the Vite proxy at your local API with `TIDAL_API_PROXY_TARGET`
+- set `VITE_FACTORY_DASHBOARD_API_BASE_URL` to your external dashboard API, or
+- keep the default `/api` base path and point the Vite proxy at your local API with `FACTORY_DASHBOARD_API_PROXY_TARGET`
 
 ## Multicall Batching
 

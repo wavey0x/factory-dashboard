@@ -7,12 +7,12 @@ from dataclasses import dataclass
 
 import structlog
 
-from tidal.alerts.base import AlertSink
-from tidal.constants import ADDITIONAL_DISCOVERY_VAULTS, CORE_REWARD_TOKENS
-from tidal.normalizers import normalize_address, to_decimal_string
-from tidal.pricing.service import PriceToken
-from tidal.time import utcnow, utcnow_iso
-from tidal.types import BalancePair, BalanceResult, ScanItemError, ScanRunResult
+from factory_dashboard.alerts.base import AlertSink
+from factory_dashboard.constants import ADDITIONAL_DISCOVERY_VAULTS, CORE_REWARD_TOKENS
+from factory_dashboard.normalizers import normalize_address, to_decimal_string
+from factory_dashboard.pricing.service import PriceToken
+from factory_dashboard.time import utcnow, utcnow_iso
+from factory_dashboard.types import BalancePair, BalanceResult, ScanItemError, ScanRunResult
 
 logger = structlog.get_logger(__name__)
 

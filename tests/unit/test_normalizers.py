@@ -1,4 +1,4 @@
-from tidal.normalizers import normalize_address, to_decimal_string
+from factory_dashboard.normalizers import normalize_address, to_decimal_string
 
 
 def test_normalize_address_lowercases() -> None:

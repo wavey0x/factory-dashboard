@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from tidal.chain.contracts.erc20 import ERC20Reader
-from tidal.normalizers import normalize_address
-from tidal.time import utcnow_iso
-from tidal.types import TokenMetadata
+from factory_dashboard.chain.contracts.erc20 import ERC20Reader
+from factory_dashboard.normalizers import normalize_address
+from factory_dashboard.time import utcnow_iso
+from factory_dashboard.types import TokenMetadata
 
 
 class TokenMetadataService:

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from tidal.chain.contracts.yearn import YearnCurveFactoryReader
-from tidal.constants import ADDITIONAL_DISCOVERY_STRATEGIES, ADDITIONAL_DISCOVERY_VAULTS
-from tidal.types import DiscoveredStrategy
+from factory_dashboard.chain.contracts.yearn import YearnCurveFactoryReader
+from factory_dashboard.constants import ADDITIONAL_DISCOVERY_STRATEGIES, ADDITIONAL_DISCOVERY_VAULTS
+from factory_dashboard.types import DiscoveredStrategy
 
 
 class StrategyDiscoveryService:

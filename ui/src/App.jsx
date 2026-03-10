@@ -4,7 +4,7 @@ import Big from "big.js";
 const ALL_TOKENS = "__all__";
 const MIN_USD_VISIBLE = new Big("0.01");
 const THEME_SEQUENCE = ["light", "dark"];
-const API_BASE_URL = (import.meta.env.VITE_TIDAL_API_BASE_URL || "/api").replace(/\/$/, "");
+const API_BASE_URL = (import.meta.env.VITE_FACTORY_DASHBOARD_API_BASE_URL || "/api").replace(/\/$/, "");
 
 function apiUrl(path) {
   return `${API_BASE_URL}${path}`;
@@ -132,7 +132,7 @@ function getStoredThemePreference() {
   if (typeof window === "undefined") {
     return null;
   }
-  const stored = window.localStorage.getItem("tidal_theme_preference");
+  const stored = window.localStorage.getItem("factory_dashboard_theme_preference");
   if (stored === "light" || stored === "dark") {
     return stored;
   }
@@ -335,7 +335,7 @@ export default function App() {
   const auctionFilterMenuRef = useRef(null);
 
   const resolvedTheme = themePreference || systemTheme;
-  const headerLogoSrc = resolvedTheme === "dark" ? "/tidal-logo-dark.svg" : "/tidal-logo-light.svg";
+  const headerLogoSrc = resolvedTheme === "dark" ? "/factory-dashboard-logo-dark.svg" : "/factory-dashboard-logo-light.svg";
 
   useEffect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
@@ -370,9 +370,9 @@ export default function App() {
       return;
     }
     if (themePreference) {
-      window.localStorage.setItem("tidal_theme_preference", themePreference);
+      window.localStorage.setItem("factory_dashboard_theme_preference", themePreference);
     } else {
-      window.localStorage.removeItem("tidal_theme_preference");
+      window.localStorage.removeItem("factory_dashboard_theme_preference");
     }
   }, [themePreference]);
 
@@ -673,7 +673,7 @@ export default function App() {
         <div className="header-row">
           <h1 className="header-title">
             <img src={headerLogoSrc} alt="" className="brand-logo" aria-hidden="true" />
-            <span>Tidal - Curve Factory Automation</span>
+            <span>Factory Dashboard - Curve Factory Automation</span>
           </h1>
           <ThemeSwitch
             themePreference={themePreference}

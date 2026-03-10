@@ -7,10 +7,10 @@ from dataclasses import dataclass
 from eth_abi import decode as abi_decode
 from hexbytes import HexBytes
 
-from tidal.chain.contracts.abis import AUCTION_ABI, AUCTION_FACTORY_ABI, STRATEGY_ABI
-from tidal.chain.contracts.multicall import MulticallClient, MulticallRequest
-from tidal.constants import ZERO_ADDRESS
-from tidal.normalizers import normalize_address
+from factory_dashboard.chain.contracts.abis import AUCTION_ABI, AUCTION_FACTORY_ABI, STRATEGY_ABI
+from factory_dashboard.chain.contracts.multicall import MulticallClient, MulticallRequest
+from factory_dashboard.constants import ZERO_ADDRESS
+from factory_dashboard.normalizers import normalize_address
 
 
 @dataclass(slots=True)

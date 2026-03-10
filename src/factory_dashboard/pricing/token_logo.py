@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from tidal.chain.retry import call_with_retries
+from factory_dashboard.chain.retry import call_with_retries
 
 
 @dataclass(slots=True)

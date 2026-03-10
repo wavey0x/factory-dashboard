@@ -8,10 +8,10 @@ from datetime import datetime, timedelta
 
 import httpx
 
-from tidal.constants import PRICE_TOKEN_ALIAS_TO_CANONICAL
-from tidal.normalizers import normalize_address
-from tidal.time import utcnow_iso
-from tidal.types import ScanItemError
+from factory_dashboard.constants import PRICE_TOKEN_ALIAS_TO_CANONICAL
+from factory_dashboard.normalizers import normalize_address
+from factory_dashboard.time import utcnow_iso
+from factory_dashboard.types import ScanItemError
 
 
 @dataclass(slots=True, frozen=True)

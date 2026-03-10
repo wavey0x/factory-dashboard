@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from tidal.pricing.token_logo import TokenLogoValidator
+from factory_dashboard.pricing.token_logo import TokenLogoValidator
 
 
 @pytest.mark.asyncio

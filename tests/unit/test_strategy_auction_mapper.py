@@ -1,8 +1,8 @@
 from eth_abi import encode as abi_encode
 import pytest
 
-from tidal.chain.contracts.multicall import MulticallResult
-from tidal.scanner.auction_mapper import StrategyAuctionMapper
+from factory_dashboard.chain.contracts.multicall import MulticallResult
+from factory_dashboard.scanner.auction_mapper import StrategyAuctionMapper
 
 
 class FakeCall:

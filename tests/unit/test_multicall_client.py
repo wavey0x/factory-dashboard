@@ -1,6 +1,6 @@
 import pytest
 
-from tidal.chain.contracts.multicall import (
+from factory_dashboard.chain.contracts.multicall import (
     MulticallClient,
     MulticallExecutionStats,
     MulticallRequest,

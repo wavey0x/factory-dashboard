@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from tidal.chain.contracts.yearn import StrategyRewardsReader
-from tidal.constants import CORE_REWARD_TOKENS
-from tidal.normalizers import normalize_address
+from factory_dashboard.chain.contracts.yearn import StrategyRewardsReader
+from factory_dashboard.constants import CORE_REWARD_TOKENS
+from factory_dashboard.normalizers import normalize_address
 
 
 class RewardTokenResolver:

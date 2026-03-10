@@ -10,9 +10,9 @@ import structlog
 from eth_utils import to_checksum_address
 from hexbytes import HexBytes
 
-from tidal.chain.contracts.abis import MULTICALL3_ABI
-from tidal.chain.retry import is_retryable_error
-from tidal.normalizers import normalize_address
+from factory_dashboard.chain.contracts.abis import MULTICALL3_ABI
+from factory_dashboard.chain.retry import is_retryable_error
+from factory_dashboard.normalizers import normalize_address
 
 logger = structlog.get_logger(__name__)
 

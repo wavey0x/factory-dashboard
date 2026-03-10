@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from tidal.chain.contracts.erc20 import ERC20Reader
-from tidal.types import BalancePair
+from factory_dashboard.chain.contracts.erc20 import ERC20Reader
+from factory_dashboard.types import BalancePair
 
 
 class BalanceReader:

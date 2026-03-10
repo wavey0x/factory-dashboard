@@ -5,11 +5,11 @@ from __future__ import annotations
 from eth_abi import decode as abi_decode
 from hexbytes import HexBytes
 
-from tidal.chain.contracts.abis import FACTORY_ABI, STRATEGY_ABI, VAULT_ABI
-from tidal.chain.contracts.multicall import MulticallClient, MulticallRequest
-from tidal.chain.web3_client import Web3Client
-from tidal.constants import DEFAULT_MAX_WITHDRAWAL_QUEUE, ZERO_ADDRESS
-from tidal.normalizers import normalize_address
+from factory_dashboard.chain.contracts.abis import FACTORY_ABI, STRATEGY_ABI, VAULT_ABI
+from factory_dashboard.chain.contracts.multicall import MulticallClient, MulticallRequest
+from factory_dashboard.chain.web3_client import Web3Client
+from factory_dashboard.constants import DEFAULT_MAX_WITHDRAWAL_QUEUE, ZERO_ADDRESS
+from factory_dashboard.normalizers import normalize_address
 
 
 class YearnCurveFactoryReader:

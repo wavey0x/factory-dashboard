@@ -1,6 +1,6 @@
 from typer.testing import CliRunner
 
-from tidal.cli import app
+from factory_dashboard.cli import app
 
 
 def test_scan_once_requires_rpc_url(tmp_path, monkeypatch) -> None:

@@ -8,8 +8,8 @@ from typing import Any
 
 import httpx
 
-from tidal.chain.retry import call_with_retries
-from tidal.normalizers import normalize_address
+from factory_dashboard.chain.retry import call_with_retries
+from factory_dashboard.normalizers import normalize_address
 
 
 @dataclass(slots=True)
@@ -88,10 +88,10 @@ class TokenPriceAggProvider:
 
             if isinstance(payload, dict):
                 return {
-                    "_tidal_http_status": 404,
+                    "_fd_http_status": 404,
                     **payload,
                 }
-            return {"_tidal_http_status": 404}
+            return {"_fd_http_status": 404}
         response.raise_for_status()
         return response.json()
 
@@ -138,7 +138,7 @@ def _looks_like_not_found_payload(payload: Any) -> bool:
     if not isinstance(payload, dict):
         return False
 
-    if payload.get("_tidal_http_status") == 404:
+    if payload.get("_fd_http_status") == 404:
         return True
 
     for key in ("error", "message", "detail"):

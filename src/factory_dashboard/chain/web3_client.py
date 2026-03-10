@@ -9,7 +9,7 @@ from eth_utils import to_checksum_address
 from hexbytes import HexBytes
 from web3 import AsyncHTTPProvider, AsyncWeb3
 
-from tidal.chain.retry import call_with_retries
+from factory_dashboard.chain.retry import call_with_retries
 
 
 class Web3Client:

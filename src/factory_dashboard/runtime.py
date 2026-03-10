@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
-from tidal.alerts.base import NullAlertSink
-from tidal.alerts.telegram import TelegramAlertSink
-from tidal.chain.contracts.erc20 import ERC20Reader
-from tidal.chain.contracts.multicall import MulticallClient
-from tidal.chain.contracts.yearn import StrategyRewardsReader, YearnCurveFactoryReader, YearnNameReader
-from tidal.chain.web3_client import Web3Client
-from tidal.config import Settings
-from tidal.constants import (
+from factory_dashboard.alerts.base import NullAlertSink
+from factory_dashboard.alerts.telegram import TelegramAlertSink
+from factory_dashboard.chain.contracts.erc20 import ERC20Reader
+from factory_dashboard.chain.contracts.multicall import MulticallClient
+from factory_dashboard.chain.contracts.yearn import StrategyRewardsReader, YearnCurveFactoryReader, YearnNameReader
+from factory_dashboard.chain.web3_client import Web3Client
+from factory_dashboard.config import Settings
+from factory_dashboard.constants import (
     YEARN_AUCTION_REQUIRED_GOVERNANCE_ADDRESS,
     YEARN_CURVE_FACTORY_ADDRESS,
 )
-from tidal.persistence.repositories import (
+from factory_dashboard.persistence.repositories import (
     BalanceRepository,
     ScanItemErrorRepository,
     ScanRunRepository,
@@ -22,15 +22,15 @@ from tidal.persistence.repositories import (
     TokenRepository,
     VaultRepository,
 )
-from tidal.pricing.token_price_agg import TokenPriceAggProvider
-from tidal.pricing.token_logo import TokenLogoValidator
-from tidal.pricing.service import TokenPriceRefreshService
-from tidal.scanner.balance_reader import BalanceReader
-from tidal.scanner.discovery import StrategyDiscoveryService
-from tidal.scanner.auction_mapper import StrategyAuctionMapper
-from tidal.scanner.reward_token_resolver import RewardTokenResolver
-from tidal.scanner.service import ScannerService
-from tidal.scanner.token_metadata import TokenMetadataService
+from factory_dashboard.pricing.token_price_agg import TokenPriceAggProvider
+from factory_dashboard.pricing.token_logo import TokenLogoValidator
+from factory_dashboard.pricing.service import TokenPriceRefreshService
+from factory_dashboard.scanner.balance_reader import BalanceReader
+from factory_dashboard.scanner.discovery import StrategyDiscoveryService
+from factory_dashboard.scanner.auction_mapper import StrategyAuctionMapper
+from factory_dashboard.scanner.reward_token_resolver import RewardTokenResolver
+from factory_dashboard.scanner.service import ScannerService
+from factory_dashboard.scanner.token_metadata import TokenMetadataService
 
 
 def build_scanner_service(settings: Settings, session) -> ScannerService:

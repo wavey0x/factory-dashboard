@@ -5,7 +5,7 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from tidal.persistence.models import metadata
+from factory_dashboard.persistence.models import metadata
 
 config = context.config
 
