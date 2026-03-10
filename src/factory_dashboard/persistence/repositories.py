@@ -238,26 +238,11 @@ class TokenRepository:
             logo_validated_at=row["logo_validated_at"],
         )
 
-    def set_logo_validation(
-        self,
-        *,
-        address: str,
-        logo_url: str | None,
-        source: str | None,
-        status: str,
-        validated_at: str,
-        error_message: str | None,
-    ) -> None:
+    def set_logo_url(self, *, address: str, logo_url: str | None) -> None:
         self.session.execute(
             update(models.tokens)
             .where(models.tokens.c.address == address)
-            .values(
-                logo_url=logo_url,
-                logo_source=source,
-                logo_status=status,
-                logo_validated_at=validated_at,
-                logo_error_message=error_message,
-            )
+            .values(logo_url=logo_url)
         )
 
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime, timedelta
 
 import httpx
 
@@ -23,12 +22,6 @@ class PriceToken:
 class TokenPriceRefreshService:
     """Refreshes latest token prices once per unique token per scan."""
 
-    _LOGO_RETRY_AFTER = {
-        "FAILED": timedelta(hours=24),
-        "NOT_FOUND": timedelta(days=7),
-        "INVALID": timedelta(days=7),
-    }
-
     def __init__(
         self,
         *,
@@ -37,7 +30,6 @@ class TokenPriceRefreshService:
         concurrency: int,
         delay_seconds: float = 0.5,
         price_provider,
-        logo_validator,
         token_repository,
     ):
         self.chain_id = chain_id
@@ -45,7 +37,6 @@ class TokenPriceRefreshService:
         self.concurrency = max(1, concurrency)
         self.delay_seconds = delay_seconds
         self.price_provider = price_provider
-        self.logo_validator = logo_validator
         self.token_repository = token_repository
 
     async def refresh_many(self, *, run_id: str, tokens: list[PriceToken]) -> tuple[dict[str, int], list[ScanItemError]]:
@@ -103,7 +94,6 @@ class TokenPriceRefreshService:
         for canonical_address, status, price_usd, error_message, logo_url in results:
             original_addresses = canonical_groups.get(canonical_address, [canonical_address])
             fetched_at = utcnow_iso()
-            fetched_at_dt = datetime.fromisoformat(fetched_at)
 
             for original_address in original_addresses:
                 self.token_repository.set_latest_price(
@@ -115,23 +105,10 @@ class TokenPriceRefreshService:
                     run_id=run_id,
                     error_message=error_message,
                 )
-
-            logo_addresses = [
-                address
-                for address in original_addresses
-                if self._should_refresh_logo(address, fetched_at_dt)
-            ]
-            if logo_addresses:
-                logo_result = await self.logo_validator.validate(logo_url)
-                for original_address in logo_addresses:
-                    self.token_repository.set_logo_validation(
-                        address=original_address,
-                        logo_url=logo_result.logo_url,
-                        source=self.logo_validator.source_name,
-                        status=logo_result.status,
-                        validated_at=fetched_at,
-                        error_message=logo_result.error_message,
-                    )
+                self.token_repository.set_logo_url(
+                    address=original_address,
+                    logo_url=logo_url,
+                )
 
             if status == "SUCCESS":
                 stats["tokens_succeeded"] += len(original_addresses)
@@ -152,25 +129,3 @@ class TokenPriceRefreshService:
                 )
 
         return stats, errors
-
-    def _should_refresh_logo(self, address: str, now: datetime) -> bool:
-        state = self.token_repository.get_logo_state(address)
-        if state is None:
-            return True
-        if state.logo_url:
-            return False
-        if state.logo_status is None:
-            return True
-
-        retry_after = self._LOGO_RETRY_AFTER.get(state.logo_status)
-        if retry_after is None:
-            return False
-        if not state.logo_validated_at:
-            return True
-
-        try:
-            validated_at = datetime.fromisoformat(state.logo_validated_at)
-        except ValueError:
-            return True
-
-        return validated_at + retry_after <= now

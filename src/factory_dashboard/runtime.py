@@ -23,7 +23,6 @@ from factory_dashboard.persistence.repositories import (
     VaultRepository,
 )
 from factory_dashboard.pricing.token_price_agg import TokenPriceAggProvider
-from factory_dashboard.pricing.token_logo import TokenLogoValidator
 from factory_dashboard.pricing.service import TokenPriceRefreshService
 from factory_dashboard.scanner.balance_reader import BalanceReader
 from factory_dashboard.scanner.discovery import StrategyDiscoveryService
@@ -91,10 +90,6 @@ def build_scanner_service(settings: Settings, session) -> ScannerService:
             chain_id=settings.chain_id,
             base_url=settings.token_price_agg_base_url,
             api_key=settings.token_price_agg_key,
-            timeout_seconds=settings.price_timeout_seconds,
-            retry_attempts=settings.price_retry_attempts,
-        ),
-        logo_validator=TokenLogoValidator(
             timeout_seconds=settings.price_timeout_seconds,
             retry_attempts=settings.price_retry_attempts,
         ),
