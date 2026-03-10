@@ -155,7 +155,7 @@ async def test_quote_usd_treats_http_404_payload_without_summary_as_not_found() 
         del path
         del params
         return {
-            "_tidal_http_status": 404,
+            "_fd_http_status": 404,
         }
 
     provider._get_price = fake_get_price  # type: ignore[method-assign]  # noqa: SLF001

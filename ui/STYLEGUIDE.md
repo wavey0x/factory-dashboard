@@ -17,7 +17,7 @@ Theme behavior:
 - Default behavior (no saved choice): follow system theme (`prefers-color-scheme`)
 
 Implementation requirements:
-- Persist only explicit user choice in `localStorage` (`tidal_theme_preference`)
+- Persist only explicit user choice in `localStorage` (`factory_dashboard_theme_preference`)
 - Apply explicit overrides with `html[data-theme="light|dark"]`
 - With no saved choice, do not force `data-theme`; use OS preference
 

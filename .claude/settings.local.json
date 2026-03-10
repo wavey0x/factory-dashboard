@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(pip list:*)"
+      "Bash(pip list:*)",
+      "Bash(factory-dashboard --help 2>&1)"
     ]
   }
 }

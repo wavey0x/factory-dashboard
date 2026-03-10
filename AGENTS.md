@@ -2,12 +2,12 @@
 
 ## UI Compliance Guardrails
 
-These rules apply to `/Users/wavey/yearn/tidal/ui`.
+These rules apply to `the `ui/` directory`.
 
 1. Theme behavior:
 - Theme toggle supports user-selected `light` and `dark`.
 - Before first user selection, follow system theme (`prefers-color-scheme`).
-- Persist only explicit user selections in `localStorage` key: `tidal_theme_preference`.
+- Persist only explicit user selections in `localStorage` key: `factory_dashboard_theme_preference`.
 - Apply explicit overrides using `document.documentElement[data-theme]`.
 
 2. Contrast requirements:
@@ -34,7 +34,7 @@ These rules apply to `/Users/wavey/yearn/tidal/ui`.
 - Token entries below `$0.01` (when priced) are hidden.
 
 6. Verify before shipping:
-- Run `npm run build` in `/Users/wavey/yearn/tidal/ui`.
+- Run `npm run build` in `the `ui/` directory`.
 - Check light and dark themes visually.
 - Confirm copy icon animation/contrast in both themes.
 - Re-check palette contrast when token colors change.
