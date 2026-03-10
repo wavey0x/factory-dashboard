@@ -4,9 +4,7 @@ import pytest
 
 from factory_dashboard.constants import CVX_ADDRESS, CVX_PRICE_ALIAS_ADDRESS, CVX_WRAPPER_ALIAS_ADDRESS
 from factory_dashboard.pricing.service import PriceToken, TokenPriceRefreshService
-from factory_dashboard.pricing.token_logo import TokenLogoValidationResult
 from factory_dashboard.pricing.token_price_agg import TokenPriceQuote
-from factory_dashboard.types import TokenLogoState
 
 
 class FakePriceProvider:
@@ -26,33 +24,10 @@ class FakePriceProvider:
         )
 
 
-class FakeLogoValidator:
-    source_name = "token_price_agg_logo_url"
-
-    def __init__(self, default_result: TokenLogoValidationResult):
-        self.default_result = default_result
-        self.calls: list[str | None] = []
-
-    async def validate(self, logo_url: str | None) -> TokenLogoValidationResult:
-        self.calls.append(logo_url)
-        if self.default_result.logo_url is None:
-            return TokenLogoValidationResult(
-                logo_url=None,
-                status=self.default_result.status,
-                error_message=self.default_result.error_message,
-            )
-        return TokenLogoValidationResult(
-            logo_url=logo_url,
-            status=self.default_result.status,
-            error_message=self.default_result.error_message,
-        )
-
-
 class FakeTokenRepository:
-    def __init__(self, logo_states: dict[str, TokenLogoState] | None = None) -> None:
+    def __init__(self) -> None:
         self.updates: list[dict[str, str | None]] = []
         self.logo_updates: list[dict[str, str | None]] = []
-        self.logo_states = logo_states or {}
 
     def set_latest_price(
         self,
@@ -77,34 +52,12 @@ class FakeTokenRepository:
             }
         )
 
-    def get_logo_state(self, address: str) -> TokenLogoState | None:
-        return self.logo_states.get(address)
-
-    def set_logo_validation(
-        self,
-        *,
-        address: str,
-        logo_url: str | None,
-        source: str | None,
-        status: str,
-        validated_at: str,
-        error_message: str | None,
-    ) -> None:
+    def set_logo_url(self, *, address: str, logo_url: str | None) -> None:
         self.logo_updates.append(
             {
                 "address": address,
                 "logo_url": logo_url,
-                "source": source,
-                "status": status,
-                "validated_at": validated_at,
-                "error_message": error_message,
             }
-        )
-        self.logo_states[address] = TokenLogoState(
-            address=address,
-            logo_url=logo_url,
-            logo_status=status,
-            logo_validated_at=validated_at,
         )
 
 
@@ -119,19 +72,11 @@ async def test_price_alias_uses_cvx_quote_for_alias_token_and_persists_logo() ->
             CVX_ADDRESS: "https://cdn.example/cvx.png",
         },
     )
-    logo_validator = FakeLogoValidator(
-        TokenLogoValidationResult(
-            logo_url="https://cdn.example/cvx.png",
-            status="SUCCESS",
-            error_message=None,
-        )
-    )
     service = TokenPriceRefreshService(
         chain_id=1,
         enabled=True,
         concurrency=2,
         price_provider=provider,
-        logo_validator=logo_validator,
         token_repository=repo,
     )
 
@@ -148,15 +93,11 @@ async def test_price_alias_uses_cvx_quote_for_alias_token_and_persists_logo() ->
     assert stats["tokens_seen"] == 3
     assert stats["tokens_succeeded"] == 3
     assert provider.calls == [(CVX_ADDRESS, 18)]
-    assert logo_validator.calls == ["https://cdn.example/cvx.png"]
 
     updates_by_address = {item["address"]: item for item in repo.updates}
     assert updates_by_address[CVX_ADDRESS]["price_usd"] == "3.25"
     assert updates_by_address[CVX_PRICE_ALIAS_ADDRESS]["price_usd"] == "3.25"
     assert updates_by_address[CVX_WRAPPER_ALIAS_ADDRESS]["price_usd"] == "3.25"
-    assert updates_by_address[CVX_ADDRESS]["status"] == "SUCCESS"
-    assert updates_by_address[CVX_PRICE_ALIAS_ADDRESS]["status"] == "SUCCESS"
-    assert updates_by_address[CVX_WRAPPER_ALIAS_ADDRESS]["status"] == "SUCCESS"
 
     logo_updates_by_address = {item["address"]: item for item in repo.logo_updates}
     assert logo_updates_by_address[CVX_ADDRESS]["logo_url"] == "https://cdn.example/cvx.png"
@@ -165,35 +106,19 @@ async def test_price_alias_uses_cvx_quote_for_alias_token_and_persists_logo() ->
 
 
 @pytest.mark.asyncio
-async def test_price_refresh_skips_logo_validation_when_logo_already_cached() -> None:
+async def test_price_refresh_always_updates_logo_url() -> None:
+    """Logo URL from price API is always written, even if it changes."""
     token_address = "0x4e3fbd56cd56c3e72c1403e103b45db9da5b9d2b"
-    repo = FakeTokenRepository(
-        logo_states={
-            token_address: TokenLogoState(
-                address=token_address,
-                logo_url="https://cdn.example/already-cached.png",
-                logo_status="SUCCESS",
-                logo_validated_at="2026-03-10T00:00:00+00:00",
-            )
-        }
-    )
+    repo = FakeTokenRepository()
     provider = FakePriceProvider(
         prices={token_address: Decimal("4.2")},
         logo_urls={token_address: "https://cdn.example/new-logo.png"},
-    )
-    logo_validator = FakeLogoValidator(
-        TokenLogoValidationResult(
-            logo_url="https://cdn.example/new-logo.png",
-            status="SUCCESS",
-            error_message=None,
-        )
     )
     service = TokenPriceRefreshService(
         chain_id=1,
         enabled=True,
         concurrency=1,
         price_provider=provider,
-        logo_validator=logo_validator,
         token_repository=repo,
     )
 
@@ -204,40 +129,22 @@ async def test_price_refresh_skips_logo_validation_when_logo_already_cached() ->
 
     assert errors == []
     assert stats["tokens_succeeded"] == 1
-    assert logo_validator.calls == []
-    assert repo.logo_updates == []
+    assert repo.logo_updates == [{"address": token_address, "logo_url": "https://cdn.example/new-logo.png"}]
 
 
 @pytest.mark.asyncio
-async def test_price_refresh_retries_logo_not_found_after_backoff() -> None:
+async def test_price_refresh_writes_null_logo_when_api_returns_none() -> None:
     token_address = "0x4e3fbd56cd56c3e72c1403e103b45db9da5b9d2b"
-    repo = FakeTokenRepository(
-        logo_states={
-            token_address: TokenLogoState(
-                address=token_address,
-                logo_url=None,
-                logo_status="NOT_FOUND",
-                logo_validated_at="2026-03-01T00:00:00+00:00",
-            )
-        }
-    )
+    repo = FakeTokenRepository()
     provider = FakePriceProvider(
         prices={token_address: None},
         logo_urls={token_address: None},
-    )
-    logo_validator = FakeLogoValidator(
-        TokenLogoValidationResult(
-            logo_url=None,
-            status="NOT_FOUND",
-            error_message=None,
-        )
     )
     service = TokenPriceRefreshService(
         chain_id=1,
         enabled=True,
         concurrency=1,
         price_provider=provider,
-        logo_validator=logo_validator,
         token_repository=repo,
     )
 
@@ -248,5 +155,4 @@ async def test_price_refresh_retries_logo_not_found_after_backoff() -> None:
 
     assert errors == []
     assert stats["tokens_not_found"] == 1
-    assert logo_validator.calls == [None]
-    assert repo.logo_updates[0]["status"] == "NOT_FOUND"
+    assert repo.logo_updates == [{"address": token_address, "logo_url": None}]

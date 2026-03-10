@@ -105,10 +105,11 @@ class TokenPriceRefreshService:
                     run_id=run_id,
                     error_message=error_message,
                 )
-                self.token_repository.set_logo_url(
-                    address=original_address,
-                    logo_url=logo_url,
-                )
+                if logo_url:
+                    self.token_repository.set_logo_url(
+                        address=original_address,
+                        logo_url=logo_url,
+                    )
 
             if status == "SUCCESS":
                 stats["tokens_succeeded"] += len(original_addresses)
