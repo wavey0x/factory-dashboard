@@ -739,6 +739,111 @@ async def test_starting_price_ceil_ensures_nonzero(session):
 
 
 @pytest.mark.asyncio
+async def test_starting_price_ceiling_logs_precision_loss(session):
+    """When ceiling inflates startingPrice >2x, a warning should be logged."""
+    web3_client = _make_web3_client_through_gas_estimate()
+    web3_client.get_transaction_count = AsyncMock(return_value=5)
+    web3_client.send_raw_transaction = AsyncMock(return_value="0xtxhash_prec")
+    web3_client.get_transaction_receipt = AsyncMock(return_value={
+        "status": 1,
+        "gasUsed": 180000,
+        "effectiveGasPrice": int(12 * 1e9),
+        "blockNumber": 70010,
+    })
+
+    signer = MagicMock()
+    signer.address = "0xcccccccccccccccccccccccccccccccccccccccc"
+    signer.checksum_address = "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+    signer.sign_transaction = MagicMock(return_value=b"\x00" * 32)
+
+    # Quote returns ~0.065 want tokens (18 decimals) → ceil(0.065 * 1.1) = ceil(0.0715) = 1
+    # 1 is >2x of 0.0715, so the warning should fire.
+    price_provider = AsyncMock()
+    price_provider.quote = AsyncMock(
+        return_value=QuoteResult(amount_out_raw=65_000_000_000_000_000, token_out_decimals=18)
+    )
+
+    with patch(
+        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+    ) as MockERC20:
+        mock_erc20 = AsyncMock()
+        mock_erc20.read_balance = AsyncMock(return_value=10**20)  # 0.1 tokens
+        MockERC20.return_value = mock_erc20
+
+        with patch("factory_dashboard.transaction_service.kicker.logger") as mock_logger:
+            kicker = _make_kicker(
+                session, web3_client=web3_client, signer=signer,
+                price_provider=price_provider,
+                start_price_buffer_bps=1000,
+                usd_threshold=0.0,
+            )
+            candidate = _make_candidate(
+                price_usd="150.0", normalized_balance="0.1",
+            )
+            result = await kicker.kick(candidate, "run-1")
+
+    assert result.status == "CONFIRMED"
+    assert result.starting_price == "1"
+
+    # Verify the precision loss warning was logged.
+    mock_logger.warning.assert_any_call(
+        "txn_starting_price_precision_loss",
+        strategy=candidate.strategy_address,
+        token=candidate.token_address,
+        exact_want_value=mock_logger.warning.call_args_list[0][1]["exact_want_value"],
+        ceiled_value=1,
+    )
+
+
+@pytest.mark.asyncio
+async def test_starting_price_no_precision_loss_warning_when_normal(session):
+    """When ceiling doesn't inflate >2x, no precision loss warning is logged."""
+    web3_client = _make_web3_client_through_gas_estimate()
+    web3_client.get_transaction_count = AsyncMock(return_value=5)
+    web3_client.send_raw_transaction = AsyncMock(return_value="0xtxhash_noprec")
+    web3_client.get_transaction_receipt = AsyncMock(return_value={
+        "status": 1,
+        "gasUsed": 180000,
+        "effectiveGasPrice": int(12 * 1e9),
+        "blockNumber": 70011,
+    })
+
+    signer = MagicMock()
+    signer.address = "0xcccccccccccccccccccccccccccccccccccccccc"
+    signer.checksum_address = "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+    signer.sign_transaction = MagicMock(return_value=b"\x00" * 32)
+
+    # Quote returns 2500 USDC → ceil(2500 * 1.1) = 2750. Not inflated.
+    price_provider = AsyncMock()
+    price_provider.quote = AsyncMock(
+        return_value=QuoteResult(amount_out_raw=2_500_000_000, token_out_decimals=6)
+    )
+
+    with patch(
+        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+    ) as MockERC20:
+        mock_erc20 = AsyncMock()
+        mock_erc20.read_balance = AsyncMock(return_value=1000 * 10**18)
+        MockERC20.return_value = mock_erc20
+
+        with patch("factory_dashboard.transaction_service.kicker.logger") as mock_logger:
+            kicker = _make_kicker(
+                session, web3_client=web3_client, signer=signer,
+                price_provider=price_provider,
+                start_price_buffer_bps=1000,
+            )
+            candidate = _make_candidate(price_usd="2.5", normalized_balance="1000")
+            result = await kicker.kick(candidate, "run-1")
+
+    assert result.status == "CONFIRMED"
+    assert result.starting_price == "2750"
+
+    # No precision loss warning should have been emitted.
+    for call in mock_logger.warning.call_args_list:
+        assert call[0][0] != "txn_starting_price_precision_loss"
+
+
+@pytest.mark.asyncio
 async def test_starting_price_real_tx_scenario(session):
     """Reproduce the real broken tx: sell ~$0.239 token to USDC, 1000 tokens.
 

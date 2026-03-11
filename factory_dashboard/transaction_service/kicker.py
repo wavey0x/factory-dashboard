@@ -182,6 +182,17 @@ class AuctionKicker:
         amount_out_normalized = Decimal(to_decimal_string(quote_result.amount_out_raw, quote_result.token_out_decimals))
         buffer = Decimal(1) + Decimal(self.start_price_buffer_bps) / Decimal(10_000)
         starting_price_raw = int((amount_out_normalized * buffer).to_integral_value(rounding=ROUND_CEILING))
+
+        exact_value = amount_out_normalized * buffer
+        if exact_value > 0 and starting_price_raw > exact_value * 2:
+            logger.warning(
+                "txn_starting_price_precision_loss",
+                strategy=candidate.strategy_address,
+                token=candidate.token_address,
+                exact_want_value=str(exact_value),
+                ceiled_value=starting_price_raw,
+            )
+
         sell_amount_str = str(sell_amount)
         starting_price_str = str(starting_price_raw)
         usd_value_str = str(live_usd_value)

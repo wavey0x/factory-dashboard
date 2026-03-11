@@ -144,14 +144,27 @@ def _make_confirm_fn() -> Callable[[dict], bool]:
         priority_fee = summary.get("priority_fee_gwei", 0)
         max_fee = summary.get("max_fee_gwei", 0)
 
+        # Detect when ceiling inflated startingPrice significantly.
+        starting_price = int(summary["starting_price"])
+        precision_line = None
+        if quote_amount > 0 and starting_price > quote_amount * 2:
+            precision_line = (
+                f"               \u21b3 lot worth {quote_amount:.4f} want tokens (ceiled per contract)"
+            )
+
         content = [
             f"Kick #{counter}",
             f"  Strategy:    {strategy_name} ({short_address(summary['strategy'])})",
+            f"  Auction:     {short_address(summary['auction'])}",
             f"  Sell amount: {amount_str} {token_sym} (~${usd_value:,.2f})",
             f"  Start quote: {summary['starting_price_display']} | {want_price_str}",
+        ]
+        if precision_line:
+            content.append(precision_line)
+        content.extend([
             f"  Gas est:     {summary['gas_estimate']:,} (~{gas_cost_eth:.4f} ETH)",
             f"  Fees:        priority {priority_fee:.2f} gwei | max {max_fee} gwei",
-        ]
+        ])
 
         width = max(len(line) for line in content)
         border = typer.style
