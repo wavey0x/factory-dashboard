@@ -22,6 +22,9 @@ logger = structlog.get_logger(__name__)
 # Gas estimate buffer: 20% (hardcoded per spec).
 _GAS_ESTIMATE_BUFFER = 1.2
 
+# Fallback priority fee when the RPC call fails.
+_DEFAULT_PRIORITY_FEE_GWEI = 0.1
+
 
 class AuctionKicker:
     """Builds, signs, and sends kick transactions."""
@@ -50,6 +53,15 @@ class AuctionKicker:
         self.start_price_buffer_bps = start_price_buffer_bps
         self.chain_id = chain_id
         self.confirm_fn = confirm_fn
+
+    async def _resolve_priority_fee_wei(self) -> int:
+        cap_wei = self.max_priority_fee_gwei * 10**9
+        try:
+            suggested_wei = await self.web3_client.get_max_priority_fee()
+        except Exception:  # noqa: BLE001
+            fallback_wei = int(_DEFAULT_PRIORITY_FEE_GWEI * 10**9)
+            return min(fallback_wei, cap_wei)
+        return min(suggested_wei, cap_wei)
 
     def _insert_kick_tx(
         self,
@@ -252,7 +264,7 @@ class AuctionKicker:
         # 8. Sign + send → persist SUBMITTED immediately.
         nonce = await self.web3_client.get_transaction_count(self.signer.address)
 
-        priority_fee_wei = self.max_priority_fee_gwei * 10**9
+        priority_fee_wei = await self._resolve_priority_fee_wei()
         max_fee_wei = self.max_gas_price_gwei * 10**9
 
         full_tx = {

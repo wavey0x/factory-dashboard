@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from factory_dashboard.persistence import models
 from factory_dashboard.persistence.repositories import KickTxRepository
-from factory_dashboard.transaction_service.kicker import AuctionKicker
+from factory_dashboard.transaction_service.kicker import AuctionKicker, _DEFAULT_PRIORITY_FEE_GWEI
 from factory_dashboard.transaction_service.types import KickCandidate
 
 
@@ -201,6 +201,7 @@ async def test_kick_confirmed(session):
     web3_client = MagicMock()
     web3_client.get_balance = AsyncMock(return_value=int(1 * 1e18))
     web3_client.get_gas_price = AsyncMock(return_value=int(10 * 1e9))
+    web3_client.get_max_priority_fee = AsyncMock(return_value=int(0.05 * 1e9))
     web3_client.estimate_gas = AsyncMock(return_value=200000)
     web3_client.get_transaction_count = AsyncMock(return_value=5)
     web3_client.send_raw_transaction = AsyncMock(return_value="0xtxhash123")
@@ -250,6 +251,7 @@ async def test_kick_reverted(session):
     web3_client = MagicMock()
     web3_client.get_balance = AsyncMock(return_value=int(1 * 1e18))
     web3_client.get_gas_price = AsyncMock(return_value=int(10 * 1e9))
+    web3_client.get_max_priority_fee = AsyncMock(return_value=int(0.05 * 1e9))
     web3_client.estimate_gas = AsyncMock(return_value=200000)
     web3_client.get_transaction_count = AsyncMock(return_value=5)
     web3_client.send_raw_transaction = AsyncMock(return_value="0xtxhash456")
@@ -293,6 +295,7 @@ async def test_kick_receipt_timeout_stays_submitted(session):
     web3_client = MagicMock()
     web3_client.get_balance = AsyncMock(return_value=int(1 * 1e18))
     web3_client.get_gas_price = AsyncMock(return_value=int(10 * 1e9))
+    web3_client.get_max_priority_fee = AsyncMock(return_value=int(0.05 * 1e9))
     web3_client.estimate_gas = AsyncMock(return_value=200000)
     web3_client.get_transaction_count = AsyncMock(return_value=5)
     web3_client.send_raw_transaction = AsyncMock(return_value="0xtxhash789")
@@ -333,6 +336,7 @@ def _make_web3_client_through_gas_estimate(gas_estimate=200000):
     web3_client = MagicMock()
     web3_client.get_balance = AsyncMock(return_value=int(1 * 1e18))
     web3_client.get_gas_price = AsyncMock(return_value=int(10 * 1e9))
+    web3_client.get_max_priority_fee = AsyncMock(return_value=int(0.05 * 1e9))
     web3_client.estimate_gas = AsyncMock(return_value=gas_estimate)
 
     mock_contract = MagicMock()
@@ -449,3 +453,114 @@ async def test_kick_no_confirm_fn_sends_without_prompt(session):
         result = await kicker.kick(candidate, "run-1")
 
     assert result.status == "CONFIRMED"
+
+
+# ---------------------------------------------------------------------------
+# Priority fee resolution tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_priority_fee_uses_network_suggestion_below_cap(session):
+    """When the network-suggested priority fee is below the cap, use it."""
+    web3_client = _make_web3_client_through_gas_estimate()
+    web3_client.get_max_priority_fee = AsyncMock(return_value=int(0.03 * 1e9))  # 0.03 gwei
+    web3_client.get_transaction_count = AsyncMock(return_value=5)
+    web3_client.send_raw_transaction = AsyncMock(return_value="0xtxhash_low_fee")
+    web3_client.get_transaction_receipt = AsyncMock(return_value={
+        "status": 1,
+        "gasUsed": 180000,
+        "effectiveGasPrice": int(12 * 1e9),
+        "blockNumber": 55555,
+    })
+
+    signer = MagicMock()
+    signer.address = "0xcccccccccccccccccccccccccccccccccccccccc"
+    signer.checksum_address = "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+    signer.sign_transaction = MagicMock(return_value=b"\x00" * 32)
+
+    with patch(
+        "factory_dashboard.chain.contracts.erc20.ERC20Reader"
+    ) as MockERC20:
+        mock_erc20 = AsyncMock()
+        mock_erc20.read_balance = AsyncMock(return_value=10**21)
+        MockERC20.return_value = mock_erc20
+
+        kicker = _make_kicker(session, web3_client=web3_client, signer=signer, max_priority_fee_gwei=2)
+        candidate = _make_candidate()
+        result = await kicker.kick(candidate, "run-1")
+
+    assert result.status == "CONFIRMED"
+    # The signed tx should use the network suggestion (0.03 gwei), not the cap (2 gwei).
+    signed_tx_args = signer.sign_transaction.call_args[0][0]
+    assert signed_tx_args["maxPriorityFeePerGas"] == int(0.03 * 1e9)
+
+
+@pytest.mark.asyncio
+async def test_priority_fee_capped_when_network_exceeds(session):
+    """When the network-suggested priority fee exceeds the cap, use the cap."""
+    web3_client = _make_web3_client_through_gas_estimate()
+    web3_client.get_max_priority_fee = AsyncMock(return_value=int(5 * 1e9))  # 5 gwei > 2 gwei cap
+    web3_client.get_transaction_count = AsyncMock(return_value=5)
+    web3_client.send_raw_transaction = AsyncMock(return_value="0xtxhash_capped")
+    web3_client.get_transaction_receipt = AsyncMock(return_value={
+        "status": 1,
+        "gasUsed": 180000,
+        "effectiveGasPrice": int(12 * 1e9),
+        "blockNumber": 55556,
+    })
+
+    signer = MagicMock()
+    signer.address = "0xcccccccccccccccccccccccccccccccccccccccc"
+    signer.checksum_address = "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+    signer.sign_transaction = MagicMock(return_value=b"\x00" * 32)
+
+    with patch(
+        "factory_dashboard.chain.contracts.erc20.ERC20Reader"
+    ) as MockERC20:
+        mock_erc20 = AsyncMock()
+        mock_erc20.read_balance = AsyncMock(return_value=10**21)
+        MockERC20.return_value = mock_erc20
+
+        kicker = _make_kicker(session, web3_client=web3_client, signer=signer, max_priority_fee_gwei=2)
+        candidate = _make_candidate()
+        result = await kicker.kick(candidate, "run-1")
+
+    assert result.status == "CONFIRMED"
+    signed_tx_args = signer.sign_transaction.call_args[0][0]
+    assert signed_tx_args["maxPriorityFeePerGas"] == 2 * 10**9
+
+
+@pytest.mark.asyncio
+async def test_priority_fee_fallback_on_rpc_failure(session):
+    """When the RPC call for max_priority_fee fails, fall back to default."""
+    web3_client = _make_web3_client_through_gas_estimate()
+    web3_client.get_max_priority_fee = AsyncMock(side_effect=RuntimeError("rpc error"))
+    web3_client.get_transaction_count = AsyncMock(return_value=5)
+    web3_client.send_raw_transaction = AsyncMock(return_value="0xtxhash_fallback")
+    web3_client.get_transaction_receipt = AsyncMock(return_value={
+        "status": 1,
+        "gasUsed": 180000,
+        "effectiveGasPrice": int(12 * 1e9),
+        "blockNumber": 55557,
+    })
+
+    signer = MagicMock()
+    signer.address = "0xcccccccccccccccccccccccccccccccccccccccc"
+    signer.checksum_address = "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+    signer.sign_transaction = MagicMock(return_value=b"\x00" * 32)
+
+    with patch(
+        "factory_dashboard.chain.contracts.erc20.ERC20Reader"
+    ) as MockERC20:
+        mock_erc20 = AsyncMock()
+        mock_erc20.read_balance = AsyncMock(return_value=10**21)
+        MockERC20.return_value = mock_erc20
+
+        kicker = _make_kicker(session, web3_client=web3_client, signer=signer, max_priority_fee_gwei=2)
+        candidate = _make_candidate()
+        result = await kicker.kick(candidate, "run-1")
+
+    assert result.status == "CONFIRMED"
+    signed_tx_args = signer.sign_transaction.call_args[0][0]
+    assert signed_tx_args["maxPriorityFeePerGas"] == int(_DEFAULT_PRIORITY_FEE_GWEI * 1e9)

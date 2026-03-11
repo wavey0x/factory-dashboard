@@ -51,6 +51,12 @@ class Web3Client:
 
         return await call_with_retries(_call, attempts=self.retry_attempts)
 
+    async def get_max_priority_fee(self) -> int:
+        async def _call() -> int:
+            return int(await asyncio.wait_for(self.w3.eth.max_priority_fee, timeout=self.timeout_seconds))
+
+        return await call_with_retries(_call, attempts=self.retry_attempts)
+
     async def get_transaction_count(self, address: str) -> int:
         async def _call() -> int:
             count = await asyncio.wait_for(

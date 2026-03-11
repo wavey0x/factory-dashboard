@@ -1,5 +1,9 @@
 # AGENTS
 
+## Git Commits
+
+- Never add `Co-Authored-By` trailers to commit messages.
+
 ## UI Compliance Guardrails
 
 These rules apply to `the `ui/` directory`.
