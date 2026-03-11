@@ -85,10 +85,7 @@ class Settings(BaseSettings):
     txn_keystore_path: str | None = Field(default=None, alias="TXN_KEYSTORE_PATH")
     txn_keystore_passphrase: str | None = Field(default=None, alias="TXN_KEYSTORE_PASSPHRASE")
     txn_signer_address: str | None = Field(default=None, alias="TXN_SIGNER_ADDRESS")
-    txn_max_kicks_per_run: int = Field(default=10, alias="TXN_MAX_KICKS_PER_RUN")
     txn_cooldown_seconds: int = Field(default=3600, alias="TXN_COOLDOWN_SECONDS")
-    txn_min_signer_balance_eth: float = Field(default=0.05, alias="TXN_MIN_SIGNER_BALANCE_ETH")
-    txn_interval_seconds: int = Field(default=1800, alias="TXN_INTERVAL_SECONDS")
 
     @property
     def resolved_db_path(self) -> Path:

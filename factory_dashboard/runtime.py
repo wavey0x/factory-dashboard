@@ -168,7 +168,6 @@ def build_txn_service(settings: Settings, session, *, confirm_fn=None):
         max_priority_fee_gwei=settings.txn_max_priority_fee_gwei,
         max_gas_limit=settings.txn_max_gas_limit,
         start_price_buffer_bps=settings.txn_start_price_buffer_bps,
-        min_signer_balance_eth=settings.txn_min_signer_balance_eth,
         chain_id=settings.chain_id,
         confirm_fn=confirm_fn,
     )
@@ -183,6 +182,5 @@ def build_txn_service(settings: Settings, session, *, confirm_fn=None):
         usd_threshold=settings.txn_usd_threshold,
         max_data_age_seconds=settings.txn_max_data_age_seconds,
         cooldown_seconds=settings.txn_cooldown_seconds,
-        max_kicks_per_run=settings.txn_max_kicks_per_run,
         lock_path=lock_path,
     )

@@ -91,9 +91,8 @@ def check_pre_send(
     *,
     kick_tx_repository: KickTxRepository,
     cooldown_seconds: int,
-    max_kicks_per_run: int,
 ) -> list[KickDecision]:
-    """Apply cooldown and circuit breaker checks to shortlisted candidates."""
+    """Apply cooldown checks to shortlisted candidates."""
 
     now = datetime.now(timezone.utc)
     min_cooldown_timestamp = datetime.fromtimestamp(
@@ -101,21 +100,8 @@ def check_pre_send(
     ).isoformat()
 
     decisions: list[KickDecision] = []
-    kick_count = 0
 
     for candidate in candidates:
-        if kick_count >= max_kicks_per_run:
-            decisions.append(
-                KickDecision(candidate=candidate, action="SKIP", skip_reason="CIRCUIT_BREAKER")
-            )
-            logger.debug(
-                "txn_candidate_skip",
-                strategy=candidate.strategy_address,
-                token=candidate.token_address,
-                reason="circuit_breaker",
-            )
-            continue
-
         last_kick = kick_tx_repository.last_kick_for_pair(
             candidate.strategy_address, candidate.token_address
         )
@@ -133,6 +119,5 @@ def check_pre_send(
             continue
 
         decisions.append(KickDecision(candidate=candidate, action="KICK"))
-        kick_count += 1
 
     return decisions

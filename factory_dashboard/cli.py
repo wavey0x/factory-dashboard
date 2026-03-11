@@ -190,7 +190,7 @@ def txn_daemon(
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
 
-    sleep_seconds = interval_seconds or settings.txn_interval_seconds
+    sleep_seconds = interval_seconds or 1800
 
     async def _run() -> None:
         while True:

@@ -37,7 +37,6 @@ class AuctionKicker:
         max_priority_fee_gwei: int,
         max_gas_limit: int,
         start_price_buffer_bps: int,
-        min_signer_balance_eth: float,
         chain_id: int,
         confirm_fn: Callable[[dict], bool] | None = None,
     ):
@@ -49,7 +48,6 @@ class AuctionKicker:
         self.max_priority_fee_gwei = max_priority_fee_gwei
         self.max_gas_limit = max_gas_limit
         self.start_price_buffer_bps = start_price_buffer_bps
-        self.min_signer_balance_eth = min_signer_balance_eth
         self.chain_id = chain_id
         self.confirm_fn = confirm_fn
 
@@ -151,29 +149,7 @@ class AuctionKicker:
             "usd_value": usd_value_str,
         }
 
-        # 4. Check signer ETH balance.
-        try:
-            signer_balance_wei = await self.web3_client.get_balance(self.signer.address)
-            signer_balance_eth = signer_balance_wei / 1e18
-        except Exception as exc:  # noqa: BLE001
-            kick_tx_id = self._insert_kick_tx(
-                run_id, candidate, now_iso,
-                status="ERROR", error_message=f"signer balance check failed: {exc}",
-                sell_amount=sell_amount_str, starting_price=starting_price_str, usd_value=usd_value_str,
-            )
-            return KickResult(kick_tx_id=kick_tx_id, status="ERROR", error_message=str(exc))
-
-        if signer_balance_eth < self.min_signer_balance_eth:
-            logger.warning("txn_safety_block", reason="signer_balance_low", balance_eth=signer_balance_eth, **log_ctx)
-            kick_tx_id = self._insert_kick_tx(
-                run_id, candidate, now_iso,
-                status="ERROR",
-                error_message=f"signer balance {signer_balance_eth:.4f} ETH below floor {self.min_signer_balance_eth}",
-                sell_amount=sell_amount_str, starting_price=starting_price_str, usd_value=usd_value_str,
-            )
-            return KickResult(kick_tx_id=kick_tx_id, status="ERROR", error_message="signer balance too low")
-
-        # 5. Check gas price.
+        # 4. Check gas price.
         try:
             gas_price_wei = await self.web3_client.get_gas_price()
             gas_price_gwei = gas_price_wei / 1e9

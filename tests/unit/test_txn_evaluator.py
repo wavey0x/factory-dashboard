@@ -121,7 +121,7 @@ def test_check_pre_send_allows_kick(session):
     repo = KickTxRepository(session)
     candidates = [_make_candidate()]
     decisions = check_pre_send(
-        candidates, kick_tx_repository=repo, cooldown_seconds=3600, max_kicks_per_run=10
+        candidates, kick_tx_repository=repo, cooldown_seconds=3600
     )
     assert len(decisions) == 1
     assert decisions[0].action == "KICK"
@@ -142,7 +142,7 @@ def test_check_pre_send_cooldown_blocks(session):
 
     candidates = [_make_candidate()]
     decisions = check_pre_send(
-        candidates, kick_tx_repository=repo, cooldown_seconds=3600, max_kicks_per_run=10
+        candidates, kick_tx_repository=repo, cooldown_seconds=3600
     )
     assert len(decisions) == 1
     assert decisions[0].action == "SKIP"
@@ -164,7 +164,7 @@ def test_check_pre_send_submitted_blocks(session):
 
     candidates = [_make_candidate()]
     decisions = check_pre_send(
-        candidates, kick_tx_repository=repo, cooldown_seconds=3600, max_kicks_per_run=10
+        candidates, kick_tx_repository=repo, cooldown_seconds=3600
     )
     assert decisions[0].action == "SKIP"
     assert decisions[0].skip_reason == "COOLDOWN"
@@ -184,7 +184,7 @@ def test_check_pre_send_reverted_does_not_block(session):
 
     candidates = [_make_candidate()]
     decisions = check_pre_send(
-        candidates, kick_tx_repository=repo, cooldown_seconds=3600, max_kicks_per_run=10
+        candidates, kick_tx_repository=repo, cooldown_seconds=3600
     )
     assert decisions[0].action == "KICK"
 
@@ -204,22 +204,8 @@ def test_check_pre_send_expired_cooldown_allows(session):
 
     candidates = [_make_candidate()]
     decisions = check_pre_send(
-        candidates, kick_tx_repository=repo, cooldown_seconds=3600, max_kicks_per_run=10
+        candidates, kick_tx_repository=repo, cooldown_seconds=3600
     )
     assert decisions[0].action == "KICK"
 
 
-def test_check_pre_send_circuit_breaker(session):
-    repo = KickTxRepository(session)
-    candidates = [
-        _make_candidate(strategy_address=f"0xstrategy{i}", token_address=f"0xtoken{i}")
-        for i in range(5)
-    ]
-    decisions = check_pre_send(
-        candidates, kick_tx_repository=repo, cooldown_seconds=3600, max_kicks_per_run=2
-    )
-    kick_decisions = [d for d in decisions if d.action == "KICK"]
-    skip_decisions = [d for d in decisions if d.action == "SKIP"]
-    assert len(kick_decisions) == 2
-    assert len(skip_decisions) == 3
-    assert all(d.skip_reason == "CIRCUIT_BREAKER" for d in skip_decisions)

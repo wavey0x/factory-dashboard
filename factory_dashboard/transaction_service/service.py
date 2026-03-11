@@ -30,7 +30,6 @@ class TxnService:
         usd_threshold: float,
         max_data_age_seconds: int,
         cooldown_seconds: int,
-        max_kicks_per_run: int,
         lock_path: Path,
     ):
         self.session = session
@@ -40,7 +39,6 @@ class TxnService:
         self.usd_threshold = usd_threshold
         self.max_data_age_seconds = max_data_age_seconds
         self.cooldown_seconds = cooldown_seconds
-        self.max_kicks_per_run = max_kicks_per_run
         self.lock_path = lock_path
 
     async def run_once(self, *, live: bool) -> TxnRunResult:
@@ -99,7 +97,6 @@ class TxnService:
             candidates,
             kick_tx_repository=self.kick_tx_repository,
             cooldown_seconds=self.cooldown_seconds,
-            max_kicks_per_run=self.max_kicks_per_run,
         )
 
         kicks_attempted = 0

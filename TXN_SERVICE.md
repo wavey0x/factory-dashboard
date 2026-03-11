@@ -37,10 +37,7 @@ TXN_MAX_DATA_AGE_SECONDS=600         # Reject stale scanned_at / price_fetched_a
 TXN_KEYSTORE_PATH=                   # UTC/JSON keystore file
 TXN_KEYSTORE_PASSPHRASE=             # From .env, never committed
 TXN_SIGNER_ADDRESS=                  # Expected address — mismatch = abort
-TXN_MAX_KICKS_PER_RUN=10             # Circuit breaker
 TXN_COOLDOWN_SECONDS=3600            # Per (strategy, token) pair
-TXN_MIN_SIGNER_BALANCE_ETH=0.05      # Skip all kicks if below
-TXN_INTERVAL_SECONDS=1800            # Daemon loop interval
 ```
 
 ---
@@ -135,7 +132,7 @@ Decrypts keystore with passphrase at startup. Verifies derived address matches `
 
 **Pre-send checks** (per candidate):
 - Cooldown: query most recent `kick_txs` row for this (strategy, token). CONFIRMED and SUBMITTED within `TXN_COOLDOWN_SECONDS` block. Other statuses do not.
-- Circuit breaker: stop after `TXN_MAX_KICKS_PER_RUN`.
+- Cooldown: CONFIRMED and SUBMITTED within `TXN_COOLDOWN_SECONDS` block.
 
 ### `kicker.py`
 
@@ -186,9 +183,7 @@ factory-dashboard txn daemon --live     # Live loop with file lock
 4. Strategies without `auction_address` filtered at shortlist.
 5. Gas price > ceiling → skip.
 6. Gas limit = `estimate * 1.2`, capped by `TXN_MAX_GAS_LIMIT`.
-7. Signer ETH below floor → skip all.
-8. Circuit breaker: max kicks per run.
-9. Cooldown per (strategy, token) — CONFIRMED and SUBMITTED block.
+7. Cooldown per (strategy, token) — CONFIRMED and SUBMITTED block.
 10. `fcntl.flock()`: one live process at a time, auto-releases on crash.
 11. `estimateGas` before every send. Revert = skip.
 12. SUBMITTED rows survive crashes and block resends until aged out.

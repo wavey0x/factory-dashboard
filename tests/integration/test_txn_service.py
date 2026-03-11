@@ -83,7 +83,6 @@ def _build_txn_service(session, *, kicker=None, lock_path=None):
         usd_threshold=100.0,
         max_data_age_seconds=600,
         cooldown_seconds=3600,
-        max_kicks_per_run=10,
         lock_path=lock_path,
     )
 

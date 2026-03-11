@@ -60,7 +60,6 @@ def _make_kicker(session, *, web3_client=None, signer=None, **overrides):
         "max_priority_fee_gwei": 2,
         "max_gas_limit": 500000,
         "start_price_buffer_bps": 1000,
-        "min_signer_balance_eth": 0.05,
         "chain_id": 1,
     }
     defaults.update(overrides)
@@ -112,30 +111,6 @@ async def test_kick_balance_read_error(session):
     assert len(rows) == 1
     assert rows[0]["status"] == "ERROR"
     assert "balance read failed" in rows[0]["error_message"]
-
-
-@pytest.mark.asyncio
-async def test_kick_signer_balance_too_low(session):
-    """When signer ETH balance is below floor, should persist ERROR."""
-    web3_client = MagicMock()
-    web3_client.get_balance = AsyncMock(return_value=int(0.01 * 1e18))  # 0.01 ETH
-
-    with patch(
-        "factory_dashboard.chain.contracts.erc20.ERC20Reader"
-    ) as MockERC20:
-        mock_erc20 = AsyncMock()
-        mock_erc20.read_balance = AsyncMock(return_value=10**21)  # 1000 tokens
-        MockERC20.return_value = mock_erc20
-
-        kicker = _make_kicker(session, web3_client=web3_client, min_signer_balance_eth=0.05)
-        candidate = _make_candidate()
-        result = await kicker.kick(candidate, "run-1")
-
-    assert result.status == "ERROR"
-    assert "signer balance too low" in result.error_message
-    rows = session.execute(select(models.kick_txs)).mappings().all()
-    assert len(rows) == 1
-    assert rows[0]["status"] == "ERROR"
 
 
 @pytest.mark.asyncio
