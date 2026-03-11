@@ -84,7 +84,7 @@ class Settings(BaseSettings):
     txn_max_data_age_seconds: int = Field(default=600, alias="TXN_MAX_DATA_AGE_SECONDS")
     txn_keystore_path: str | None = Field(default=None, alias="TXN_KEYSTORE_PATH")
     txn_keystore_passphrase: str | None = Field(default=None, alias="TXN_KEYSTORE_PASSPHRASE")
-    txn_signer_address: str | None = Field(default=None, alias="TXN_SIGNER_ADDRESS")
+
     txn_cooldown_seconds: int = Field(default=3600, alias="TXN_COOLDOWN_SECONDS")
 
     @property

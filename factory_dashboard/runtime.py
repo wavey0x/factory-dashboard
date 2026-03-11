@@ -156,7 +156,6 @@ def build_txn_service(settings: Settings, session, *, confirm_fn=None):
     signer = TransactionSigner(
         settings.txn_keystore_path,
         settings.txn_keystore_passphrase,
-        expected_address=settings.txn_signer_address,
     )
 
     kicker = AuctionKicker(

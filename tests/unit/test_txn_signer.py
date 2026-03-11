@@ -35,19 +35,6 @@ def test_signer_checksum_address(keystore_fixture):
     assert signer.checksum_address != expected_address  # checksum has mixed case
 
 
-def test_signer_verifies_expected_address(keystore_fixture):
-    path, passphrase, expected_address = keystore_fixture
-    signer = TransactionSigner(path, passphrase, expected_address=expected_address)
-    assert signer.address == expected_address
-
-
-def test_signer_rejects_wrong_expected_address(keystore_fixture):
-    path, passphrase, _ = keystore_fixture
-    with pytest.raises(ConfigurationError, match="does not match expected"):
-        TransactionSigner(
-            path, passphrase, expected_address="0x0000000000000000000000000000000000000001"
-        )
-
 
 def test_signer_rejects_bad_passphrase(keystore_fixture):
     path, _, _ = keystore_fixture

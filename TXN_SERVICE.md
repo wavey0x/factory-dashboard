@@ -36,7 +36,6 @@ TXN_START_PRICE_BUFFER_BPS=1000      # +10% above reference price
 TXN_MAX_DATA_AGE_SECONDS=600         # Reject stale scanned_at / price_fetched_at
 TXN_KEYSTORE_PATH=                   # UTC/JSON keystore file
 TXN_KEYSTORE_PASSPHRASE=             # From .env, never committed
-TXN_SIGNER_ADDRESS=                  # Expected address — mismatch = abort
 TXN_COOLDOWN_SECONDS=3600            # Per (strategy, token) pair
 ```
 
@@ -120,7 +119,7 @@ ABI added to existing `chain/contracts/abis.py`. Wired from `runtime.py`. CLI ad
 
 ### `signer.py`
 
-Decrypts keystore with passphrase at startup. Verifies derived address matches `TXN_SIGNER_ADDRESS`. Exposes `sign_transaction()`. Key never logged.
+Decrypts keystore with passphrase at startup. Exposes `sign_transaction()`. Key never logged.
 
 ### `evaluator.py`
 
