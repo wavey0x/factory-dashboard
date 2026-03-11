@@ -28,7 +28,7 @@ class TokenPriceRefreshService:
         chain_id: int,
         enabled: bool,
         concurrency: int,
-        delay_seconds: float = 0.5,
+        delay_seconds: float = 0,
         price_provider,
         token_repository,
     ):
