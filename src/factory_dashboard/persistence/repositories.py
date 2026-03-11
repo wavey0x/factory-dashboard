@@ -380,3 +380,94 @@ class ScanItemErrorRepository:
             )
         )
         return self.session.execute(stmt).first() is not None
+
+
+class TxnRunRepository:
+    def __init__(self, session: Session):
+        self.session = session
+
+    def create(self, row: dict[str, object]) -> None:
+        self.session.execute(insert(models.txn_runs).values(**row))
+        self.session.commit()
+
+    def finalize(
+        self,
+        run_id: str,
+        *,
+        finished_at: str,
+        status: str,
+        candidates_found: int,
+        kicks_attempted: int,
+        kicks_succeeded: int,
+        kicks_failed: int,
+        error_summary: str | None,
+    ) -> None:
+        self.session.execute(
+            models.txn_runs.update()
+            .where(models.txn_runs.c.run_id == run_id)
+            .values(
+                finished_at=finished_at,
+                status=status,
+                candidates_found=candidates_found,
+                kicks_attempted=kicks_attempted,
+                kicks_succeeded=kicks_succeeded,
+                kicks_failed=kicks_failed,
+                error_summary=error_summary,
+            )
+        )
+        self.session.commit()
+
+
+class KickTxRepository:
+    def __init__(self, session: Session):
+        self.session = session
+
+    def insert(self, row: dict[str, object]) -> int:
+        result = self.session.execute(insert(models.kick_txs).values(**row))
+        self.session.commit()
+        return result.lastrowid  # type: ignore[return-value]
+
+    def update_status(
+        self,
+        kick_tx_id: int,
+        *,
+        status: str,
+        tx_hash: str | None = None,
+        gas_used: int | None = None,
+        gas_price_gwei: str | None = None,
+        block_number: int | None = None,
+        error_message: str | None = None,
+    ) -> None:
+        values: dict[str, object] = {"status": status}
+        if tx_hash is not None:
+            values["tx_hash"] = tx_hash
+        if gas_used is not None:
+            values["gas_used"] = gas_used
+        if gas_price_gwei is not None:
+            values["gas_price_gwei"] = gas_price_gwei
+        if block_number is not None:
+            values["block_number"] = block_number
+        if error_message is not None:
+            values["error_message"] = error_message
+        self.session.execute(
+            models.kick_txs.update()
+            .where(models.kick_txs.c.id == kick_tx_id)
+            .values(**values)
+        )
+        self.session.commit()
+
+    def last_kick_for_pair(self, strategy_address: str, token_address: str) -> dict[str, object] | None:
+        stmt = (
+            select(models.kick_txs)
+            .where(
+                models.kick_txs.c.strategy_address == strategy_address,
+                models.kick_txs.c.token_address == token_address,
+                models.kick_txs.c.status.in_(("CONFIRMED", "SUBMITTED")),
+            )
+            .order_by(models.kick_txs.c.created_at.desc())
+            .limit(1)
+        )
+        row = self.session.execute(stmt).mappings().first()
+        if row is None:
+            return None
+        return dict(row)

@@ -141,3 +141,47 @@ def build_web3_client(settings: Settings) -> Web3Client:
         timeout_seconds=settings.rpc_timeout_seconds,
         retry_attempts=settings.rpc_retry_attempts,
     )
+
+
+def build_txn_service(settings: Settings, session):
+    from factory_dashboard.persistence.repositories import KickTxRepository, TxnRunRepository
+    from factory_dashboard.transaction_service.kicker import AuctionKicker
+    from factory_dashboard.transaction_service.service import TxnService
+    from factory_dashboard.transaction_service.signer import TransactionSigner
+
+    web3_client = build_web3_client(settings)
+    txn_run_repository = TxnRunRepository(session)
+    kick_tx_repository = KickTxRepository(session)
+
+    signer = TransactionSigner(
+        settings.txn_keystore_path,
+        settings.txn_keystore_passphrase,
+        expected_address=settings.txn_signer_address,
+    )
+
+    kicker = AuctionKicker(
+        web3_client=web3_client,
+        signer=signer,
+        kick_tx_repository=kick_tx_repository,
+        usd_threshold=settings.txn_usd_threshold,
+        max_gas_price_gwei=settings.txn_max_gas_price_gwei,
+        max_priority_fee_gwei=settings.txn_max_priority_fee_gwei,
+        max_gas_limit=settings.txn_max_gas_limit,
+        start_price_buffer_bps=settings.txn_start_price_buffer_bps,
+        min_signer_balance_eth=settings.txn_min_signer_balance_eth,
+        chain_id=settings.chain_id,
+    )
+
+    lock_path = settings.resolved_db_path.parent / "txn_daemon.lock"
+
+    return TxnService(
+        session=session,
+        kicker=kicker,
+        txn_run_repository=txn_run_repository,
+        kick_tx_repository=kick_tx_repository,
+        usd_threshold=settings.txn_usd_threshold,
+        max_data_age_seconds=settings.txn_max_data_age_seconds,
+        cooldown_seconds=settings.txn_cooldown_seconds,
+        max_kicks_per_run=settings.txn_max_kicks_per_run,
+        lock_path=lock_path,
+    )

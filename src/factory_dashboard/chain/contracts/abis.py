@@ -143,6 +143,43 @@ ERC20_ABI = [
     },
 ]
 
+AUCTION_KICKER_ABI = [
+    {
+        "inputs": [
+            {"internalType": "address", "name": "strategy", "type": "address"},
+            {"internalType": "address", "name": "auction", "type": "address"},
+            {"internalType": "address", "name": "sellToken", "type": "address"},
+            {"internalType": "uint256", "name": "sellAmount", "type": "uint256"},
+            {"internalType": "uint256", "name": "startingPrice", "type": "uint256"},
+        ],
+        "name": "kick",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function",
+    },
+    {
+        "inputs": [],
+        "name": "owner",
+        "outputs": [{"internalType": "address", "name": "", "type": "address"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
+    {
+        "inputs": [{"internalType": "address", "name": "", "type": "address"}],
+        "name": "keeper",
+        "outputs": [{"internalType": "bool", "name": "", "type": "bool"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
+    {
+        "inputs": [],
+        "name": "tradeHandler",
+        "outputs": [{"internalType": "address", "name": "", "type": "address"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
+]
+
 MULTICALL3_ABI = [
     {
         "inputs": [

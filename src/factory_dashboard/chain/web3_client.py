@@ -35,6 +35,66 @@ class Web3Client:
 
         return int(await call_with_retries(_call, attempts=self.retry_attempts))
 
+    async def get_balance(self, address: str) -> int:
+        async def _call() -> int:
+            balance = await asyncio.wait_for(
+                self.w3.eth.get_balance(to_checksum_address(address)),
+                timeout=self.timeout_seconds,
+            )
+            return int(balance)
+
+        return await call_with_retries(_call, attempts=self.retry_attempts)
+
+    async def get_gas_price(self) -> int:
+        async def _call() -> int:
+            return int(await asyncio.wait_for(self.w3.eth.gas_price, timeout=self.timeout_seconds))
+
+        return await call_with_retries(_call, attempts=self.retry_attempts)
+
+    async def get_transaction_count(self, address: str) -> int:
+        async def _call() -> int:
+            count = await asyncio.wait_for(
+                self.w3.eth.get_transaction_count(to_checksum_address(address), "pending"),
+                timeout=self.timeout_seconds,
+            )
+            return int(count)
+
+        return await call_with_retries(_call, attempts=self.retry_attempts)
+
+    async def estimate_gas(self, tx: dict[str, Any]) -> int:
+        async def _call() -> int:
+            estimate = await asyncio.wait_for(
+                self.w3.eth.estimate_gas(tx),
+                timeout=self.timeout_seconds,
+            )
+            return int(estimate)
+
+        return await call_with_retries(_call, attempts=self.retry_attempts)
+
+    async def send_raw_transaction(self, signed_tx: bytes) -> str:
+        async def _call() -> str:
+            tx_hash = await asyncio.wait_for(
+                self.w3.eth.send_raw_transaction(signed_tx),
+                timeout=self.timeout_seconds,
+            )
+            return tx_hash.hex()
+
+        return await call_with_retries(_call, attempts=self.retry_attempts)
+
+    async def get_transaction_receipt(self, tx_hash: str, *, timeout_seconds: int = 120) -> dict[str, Any]:
+        deadline = asyncio.get_event_loop().time() + timeout_seconds
+        while True:
+            try:
+                receipt = await asyncio.wait_for(
+                    self.w3.eth.get_transaction_receipt(HexBytes(tx_hash)),
+                    timeout=self.timeout_seconds,
+                )
+                return dict(receipt)
+            except Exception:  # noqa: BLE001
+                if asyncio.get_event_loop().time() >= deadline:
+                    raise
+                await asyncio.sleep(2)
+
     async def eth_call_raw(
         self,
         target: str,

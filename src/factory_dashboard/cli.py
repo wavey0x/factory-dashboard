@@ -13,14 +13,16 @@ from factory_dashboard.health import run_healthcheck
 from factory_dashboard.logging import configure_logging
 from factory_dashboard.migrations import run_migrations
 from factory_dashboard.persistence.db import Database
-from factory_dashboard.runtime import build_scanner_service, build_web3_client
+from factory_dashboard.runtime import build_scanner_service, build_txn_service, build_web3_client
 
 app = typer.Typer(help="Factory dashboard scanner CLI")
 db_app = typer.Typer(help="Database commands")
 scan_app = typer.Typer(help="Scanner commands")
+txn_app = typer.Typer(help="Transaction service commands")
 
 app.add_typer(db_app, name="db")
 app.add_typer(scan_app, name="scan")
+app.add_typer(txn_app, name="txn")
 
 
 def _require_rpc_url(settings) -> None:
@@ -95,6 +97,79 @@ def scan_daemon(
                         f"scan_complete run_id={result.run_id} status={result.status} "
                         f"pairs={result.pairs_seen} succeeded={result.pairs_succeeded} "
                         f"failed={result.pairs_failed}"
+                    )
+                )
+            await asyncio.sleep(sleep_seconds)
+
+    asyncio.run(_run())
+
+
+def _require_keystore(settings) -> None:
+    if not settings.txn_keystore_path or not settings.txn_keystore_passphrase:
+        raise ConfigurationError("TXN_KEYSTORE_PATH and TXN_KEYSTORE_PASSPHRASE are required for txn commands")
+
+
+@txn_app.command("once")
+def txn_once(
+    live: bool = typer.Option(default=False, help="Send transactions (default: dry-run)"),
+    config: Path | None = typer.Option(default=None, exists=True, file_okay=True, dir_okay=False),
+) -> None:
+    """Run a single transaction evaluation cycle."""
+
+    configure_logging()
+    settings = load_settings(config)
+    try:
+        _require_rpc_url(settings)
+        if live:
+            _require_keystore(settings)
+    except ConfigurationError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    db = Database(settings.database_url)
+    with db.session() as session:
+        txn_service = build_txn_service(settings, session)
+        result = asyncio.run(txn_service.run_once(live=live))
+        typer.echo(
+            (
+                f"txn_complete run_id={result.run_id} status={result.status} "
+                f"candidates={result.candidates_found} attempted={result.kicks_attempted} "
+                f"succeeded={result.kicks_succeeded} failed={result.kicks_failed}"
+            )
+        )
+
+
+@txn_app.command("daemon")
+def txn_daemon(
+    live: bool = typer.Option(default=False, help="Send transactions (default: dry-run)"),
+    interval_seconds: int | None = typer.Option(default=None, min=1),
+    config: Path | None = typer.Option(default=None, exists=True, file_okay=True, dir_okay=False),
+) -> None:
+    """Run the transaction service continuously."""
+
+    configure_logging()
+    settings = load_settings(config)
+    try:
+        _require_rpc_url(settings)
+        if live:
+            _require_keystore(settings)
+    except ConfigurationError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    sleep_seconds = interval_seconds or settings.txn_interval_seconds
+
+    async def _run() -> None:
+        while True:
+            db = Database(settings.database_url)
+            with db.session() as session:
+                txn_service = build_txn_service(settings, session)
+                result = await txn_service.run_once(live=live)
+                typer.echo(
+                    (
+                        f"txn_complete run_id={result.run_id} status={result.status} "
+                        f"candidates={result.candidates_found} attempted={result.kicks_attempted} "
+                        f"succeeded={result.kicks_succeeded} failed={result.kicks_failed}"
                     )
                 )
             await asyncio.sleep(sleep_seconds)

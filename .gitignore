@@ -9,7 +9,6 @@ __pycache__/
 ui/node_modules/
 ui/dist/
 ui/.cache/token-logos/
-strategy_auction_map.json
 contracts/cache/
 contracts/out/
 contracts/broadcast/

@@ -119,6 +119,43 @@ scan_item_errors = Table(
     Column("created_at", String, nullable=False),
 )
 
+txn_runs = Table(
+    "txn_runs",
+    metadata,
+    Column("run_id", String, primary_key=True),
+    Column("started_at", String, nullable=False),
+    Column("finished_at", String, nullable=True),
+    Column("status", String, nullable=False),
+    Column("candidates_found", Integer, nullable=False, server_default="0"),
+    Column("kicks_attempted", Integer, nullable=False, server_default="0"),
+    Column("kicks_succeeded", Integer, nullable=False, server_default="0"),
+    Column("kicks_failed", Integer, nullable=False, server_default="0"),
+    Column("live", Integer, nullable=False, server_default="0"),
+    Column("error_summary", Text, nullable=True),
+)
+
+kick_txs = Table(
+    "kick_txs",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("run_id", String, nullable=False),
+    Column("strategy_address", String, nullable=False),
+    Column("token_address", String, nullable=False),
+    Column("auction_address", String, nullable=False),
+    Column("sell_amount", Text, nullable=True),
+    Column("starting_price", Text, nullable=True),
+    Column("price_usd", Text, nullable=True),
+    Column("usd_value", Text, nullable=True),
+    Column("status", String, nullable=False),
+    Column("tx_hash", String, nullable=True),
+    Column("gas_used", Integer, nullable=True),
+    Column("gas_price_gwei", Text, nullable=True),
+    Column("block_number", Integer, nullable=True),
+    Column("error_message", Text, nullable=True),
+    Column("created_at", String, nullable=False),
+)
+
 Index("ix_strategy_token_balances_strategy_scanned", strategy_token_balances_latest.c.strategy_address, strategy_token_balances_latest.c.scanned_at)
 Index("ix_scan_item_errors_run_id", scan_item_errors.c.run_id)
 Index("ix_scan_item_errors_identity", scan_item_errors.c.strategy_address, scan_item_errors.c.token_address, scan_item_errors.c.stage, scan_item_errors.c.error_code)
+Index("ix_kick_txs_strategy_token_created", kick_txs.c.strategy_address, kick_txs.c.token_address, kick_txs.c.created_at.desc())

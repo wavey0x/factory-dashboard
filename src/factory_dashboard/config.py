@@ -76,6 +76,20 @@ class Settings(BaseSettings):
     telegram_bot_token: str | None = Field(default=None, alias="TELEGRAM_BOT_TOKEN")
     telegram_chat_id: str | None = Field(default=None, alias="TELEGRAM_CHAT_ID")
 
+    txn_usd_threshold: float = Field(default=100.0, alias="TXN_USD_THRESHOLD")
+    txn_max_gas_price_gwei: int = Field(default=50, alias="TXN_MAX_GAS_PRICE_GWEI")
+    txn_max_priority_fee_gwei: int = Field(default=2, alias="TXN_MAX_PRIORITY_FEE_GWEI")
+    txn_max_gas_limit: int = Field(default=500000, alias="TXN_MAX_GAS_LIMIT")
+    txn_start_price_buffer_bps: int = Field(default=1000, alias="TXN_START_PRICE_BUFFER_BPS")
+    txn_max_data_age_seconds: int = Field(default=600, alias="TXN_MAX_DATA_AGE_SECONDS")
+    txn_keystore_path: str | None = Field(default=None, alias="TXN_KEYSTORE_PATH")
+    txn_keystore_passphrase: str | None = Field(default=None, alias="TXN_KEYSTORE_PASSPHRASE")
+    txn_signer_address: str | None = Field(default=None, alias="TXN_SIGNER_ADDRESS")
+    txn_max_kicks_per_run: int = Field(default=10, alias="TXN_MAX_KICKS_PER_RUN")
+    txn_cooldown_seconds: int = Field(default=3600, alias="TXN_COOLDOWN_SECONDS")
+    txn_min_signer_balance_eth: float = Field(default=0.05, alias="TXN_MIN_SIGNER_BALANCE_ETH")
+    txn_interval_seconds: int = Field(default=1800, alias="TXN_INTERVAL_SECONDS")
+
     @property
     def resolved_db_path(self) -> Path:
         db_path = self.db_path

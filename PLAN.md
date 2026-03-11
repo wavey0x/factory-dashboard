@@ -57,11 +57,6 @@ All scanner logic is implemented and tested:
 - Non-null `logo_url` is never overwritten automatically.
 - Price-alias behavior propagates results across alias token rows.
 - `AUCTION_CACHE_PATH` and all JSON read/write logic removed.
-- `strategy_auction_map.json` is in `.gitignore` (file still on disk; can be deleted).
-
-### Remaining cleanup
-
-- Delete `strategy_auction_map.json` from the working directory.
 
 ## External API Contract
 
