@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from pathlib import Path
 
 import typer
@@ -109,7 +110,7 @@ def _require_keystore(settings) -> None:
         raise ConfigurationError("TXN_KEYSTORE_PATH and TXN_KEYSTORE_PASSPHRASE are required for txn commands")
 
 
-def _make_confirm_fn() -> callable:
+def _make_confirm_fn() -> Callable[[dict], bool]:
     """Return a confirm callback with its own kick counter."""
     counter = 0
 
@@ -121,13 +122,14 @@ def _make_confirm_fn() -> callable:
         lines = [
             "\u2500" * 45,
             f"Kick #{counter}",
-            f"  Strategy:  {summary['strategy']}",
-            f"  Token:     {summary['token']}",
-            f"  Auction:   {summary['auction']}",
-            f"  Amount:    {summary['sell_amount']} (raw: {summary['sell_amount_raw']})",
-            f"  USD value: ${float(summary['usd_value']):,.2f}",
-            f"  Price:     ${float(summary['starting_price']):,.4f} (incl. {buffer_pct:.0f}% buffer)",
-            f"  Gas est:   {summary['gas_estimate']:,} (limit: {summary['gas_limit']:,})",
+            f"  Strategy:    {summary['strategy']}",
+            f"  Token:       {summary['token']}",
+            f"  Auction:     {summary['auction']}",
+            f"  Amount:      {summary['sell_amount']}",
+            f"  USD value:   ${float(summary['usd_value']):,.2f}",
+            f"  Want token:  {summary['want_address']}",
+            f"  Start price: {summary['starting_price']} want-token units (incl. {buffer_pct:.0f}% buffer)",
+            f"  Gas est:     {summary['gas_estimate']:,} (limit: {summary['gas_limit']:,})",
             "\u2500" * 45,
         ]
         typer.echo("\n".join(lines))

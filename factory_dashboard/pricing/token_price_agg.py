@@ -19,6 +19,12 @@ class TokenPriceQuote:
     logo_url: str | None = None
 
 
+@dataclass(slots=True)
+class QuoteResult:
+    amount_out_raw: int | None
+    token_out_decimals: int | None
+
+
 class TokenPriceNotFoundError(Exception):
     """Raised when the price API indicates no price is available."""
 
@@ -45,6 +51,48 @@ class TokenPriceAggProvider:
         self.quote_token_address = "usd"
         self.quote_token_decimals = 0
         self._headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+
+    async def quote(self, token_in: str, token_out: str, amount_in: str) -> QuoteResult:
+        """Fetch a direct token_in -> token_out quote via /v1/quote."""
+        params = {
+            "token_in": normalize_address(token_in),
+            "token_out": normalize_address(token_out),
+            "amount_in": amount_in,
+            "chain_id": self.chain_id,
+            "use_underlying": "true",
+        }
+        async with httpx.AsyncClient(
+            base_url=self.base_url,
+            timeout=self.timeout_seconds,
+            headers=self._headers,
+        ) as client:
+            payload = await call_with_retries(
+                lambda: self._get_price(client, "/v1/quote", params),
+                attempts=self.retry_attempts,
+            )
+
+        amount_out_raw = None
+        token_out_decimals = None
+
+        if isinstance(payload, dict):
+            summary = payload.get("summary")
+            if isinstance(summary, dict):
+                high_amount_out = summary.get("high_amount_out")
+                if high_amount_out is not None:
+                    parsed = _to_decimal(high_amount_out)
+                    if parsed is not None:
+                        amount_out_raw = int(parsed)
+
+            token_out_data = payload.get("token_out")
+            if isinstance(token_out_data, dict):
+                raw_decimals = token_out_data.get("decimals")
+                if raw_decimals is not None:
+                    try:
+                        token_out_decimals = int(raw_decimals)
+                    except (ValueError, TypeError):
+                        pass
+
+        return QuoteResult(amount_out_raw=amount_out_raw, token_out_decimals=token_out_decimals)
 
     async def quote_usd(self, token_address: str, token_decimals: int) -> TokenPriceQuote:
         normalized_token = normalize_address(token_address)

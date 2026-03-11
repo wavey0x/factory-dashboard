@@ -14,7 +14,7 @@ class KickCandidate:
     auction_address: str
     normalized_balance: str
     price_usd: str
-    want_price_usd: str
+    want_address: str
     usd_value: float
     decimals: int
 

@@ -56,21 +56,6 @@ def _seed_candidate(session, *, strategy_address="0xstrategy1", token_address="0
         first_seen_at=now,
         last_seen_at=now,
     ))
-    # Want token (e.g. USDC at $1).
-    # Use on_conflict to avoid duplicate if multiple candidates share the same want token.
-    from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-    stmt = sqlite_insert(models.tokens).values(
-        address=want_address,
-        chain_id=1,
-        decimals=6,
-        is_core_reward=0,
-        price_usd="1.0",
-        price_status="SUCCESS",
-        price_fetched_at=now,
-        first_seen_at=now,
-        last_seen_at=now,
-    ).on_conflict_do_nothing(index_elements=[models.tokens.c.address])
-    session.execute(stmt)
     session.execute(insert(models.strategy_token_balances_latest).values(
         strategy_address=strategy_address,
         token_address=token_address,
@@ -263,19 +248,6 @@ async def test_submitted_blocks_resend(session):
 async def test_multiple_candidates_dry_run(session):
     """Multiple candidates should each produce a DRY_RUN row."""
     now = datetime.now(timezone.utc).isoformat()
-
-    # Shared want token.
-    session.execute(insert(models.tokens).values(
-        address="0xwant1",
-        chain_id=1,
-        decimals=6,
-        is_core_reward=0,
-        price_usd="1.0",
-        price_status="SUCCESS",
-        price_fetched_at=now,
-        first_seen_at=now,
-        last_seen_at=now,
-    ))
 
     # Seed two strategies with different tokens.
     for i in range(1, 3):

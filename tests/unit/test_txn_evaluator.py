@@ -47,18 +47,6 @@ def _seed_data(session, *, auction_address="0xauction", want_address="0xwant1", 
         first_seen_at=now.isoformat(),
         last_seen_at=now.isoformat(),
     ))
-    # Want token (e.g. USDC at $1).
-    session.execute(insert(models.tokens).values(
-        address="0xwant1",
-        chain_id=1,
-        decimals=6,
-        is_core_reward=0,
-        price_usd="1.0",
-        price_status="SUCCESS",
-        price_fetched_at=price_fetched_at,
-        first_seen_at=now.isoformat(),
-        last_seen_at=now.isoformat(),
-    ))
     session.execute(insert(models.strategy_token_balances_latest).values(
         strategy_address="0xstrategy1",
         token_address="0xtoken1",
@@ -76,6 +64,7 @@ def test_shortlist_returns_candidates_above_threshold(session):
     assert len(candidates) == 1
     assert candidates[0].strategy_address == "0xstrategy1"
     assert candidates[0].usd_value == pytest.approx(2500.0)
+    assert candidates[0].want_address == "0xwant1"
 
 
 def test_shortlist_filters_below_threshold(session):
@@ -123,7 +112,7 @@ def _make_candidate(**overrides):
         "auction_address": "0xauction1",
         "normalized_balance": "1000",
         "price_usd": "2.5",
-        "want_price_usd": "1.0",
+        "want_address": "0xwant1",
         "usd_value": 2500.0,
         "decimals": 18,
     }

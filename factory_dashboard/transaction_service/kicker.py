@@ -9,10 +9,12 @@ import structlog
 from eth_utils import to_checksum_address
 
 from factory_dashboard.chain.contracts.abis import AUCTION_KICKER_ABI
+from factory_dashboard.chain.contracts.erc20 import ERC20Reader
 from factory_dashboard.chain.web3_client import Web3Client
 from factory_dashboard.constants import AUCTION_KICKER_ADDRESS
 from factory_dashboard.normalizers import normalize_address, to_decimal_string
 from factory_dashboard.persistence.repositories import KickTxRepository
+from factory_dashboard.pricing.token_price_agg import TokenPriceAggProvider
 from factory_dashboard.time import utcnow_iso
 from factory_dashboard.transaction_service.signer import TransactionSigner
 from factory_dashboard.transaction_service.types import KickCandidate, KickResult
@@ -35,6 +37,7 @@ class AuctionKicker:
         web3_client: Web3Client,
         signer: TransactionSigner,
         kick_tx_repository: KickTxRepository,
+        price_provider: TokenPriceAggProvider,
         usd_threshold: float,
         max_gas_price_gwei: int,
         max_priority_fee_gwei: int,
@@ -46,6 +49,7 @@ class AuctionKicker:
         self.web3_client = web3_client
         self.signer = signer
         self.kick_tx_repository = kick_tx_repository
+        self.price_provider = price_provider
         self.usd_threshold = usd_threshold
         self.max_gas_price_gwei = max_gas_price_gwei
         self.max_priority_fee_gwei = max_priority_fee_gwei
@@ -104,8 +108,6 @@ class AuctionKicker:
 
         # 1. Re-read live balance on-chain.
         try:
-            from factory_dashboard.chain.contracts.erc20 import ERC20Reader
-
             erc20 = ERC20Reader(self.web3_client)
             live_balance_raw = await erc20.read_balance(
                 candidate.token_address, candidate.strategy_address
@@ -138,18 +140,31 @@ class AuctionKicker:
                 usd_value=str(live_usd_value),
             )
 
-        # 3. Calculate startingPrice.
-        # startingPrice = total lot value in want-token units, unscaled integer.
-        # Contract math: amountNeeded = startingPrice * 10^want_decimals (in raw want token units).
-        sell_price = Decimal(candidate.price_usd)
-        want_price = Decimal(candidate.want_price_usd)
-        sell_amount_normalized = Decimal(normalized_balance)
-        buffer_multiplier = Decimal(1) + Decimal(self.start_price_buffer_bps) / Decimal(10_000)
-
-        lot_value_in_want = sell_amount_normalized * sell_price / want_price * buffer_multiplier
-        starting_price_raw = int(lot_value_in_want.to_integral_value(rounding=ROUND_CEILING))
-
+        # 3. Fetch fresh sell→want quote for startingPrice.
         sell_amount = live_balance_raw
+        try:
+            quote_result = await self.price_provider.quote(
+                token_in=candidate.token_address,
+                token_out=candidate.want_address,
+                amount_in=str(sell_amount),
+            )
+        except Exception as exc:  # noqa: BLE001
+            kick_tx_id = self._insert_kick_tx(
+                run_id, candidate, now_iso,
+                status="ERROR", error_message=f"quote API failed: {exc}",
+            )
+            return KickResult(kick_tx_id=kick_tx_id, status="ERROR", error_message=str(exc))
+
+        if quote_result.amount_out_raw is None:
+            kick_tx_id = self._insert_kick_tx(
+                run_id, candidate, now_iso,
+                status="ERROR", error_message="no quote available for this pair",
+            )
+            return KickResult(kick_tx_id=kick_tx_id, status="ERROR", error_message="no quote available")
+
+        amount_out_normalized = Decimal(to_decimal_string(quote_result.amount_out_raw, quote_result.token_out_decimals))
+        buffer = Decimal(1) + Decimal(self.start_price_buffer_bps) / Decimal(10_000)
+        starting_price_raw = int((amount_out_normalized * buffer).to_integral_value(rounding=ROUND_CEILING))
         sell_amount_str = str(sell_amount)
         starting_price_str = str(starting_price_raw)
         usd_value_str = str(live_usd_value)
@@ -185,7 +200,7 @@ class AuctionKicker:
             )
             return KickResult(kick_tx_id=kick_tx_id, status="ERROR", error_message="gas price too high")
 
-        # 6. Build transaction and estimateGas.
+        # 5. Build transaction and estimateGas.
         kicker_contract = self.web3_client.contract(AUCTION_KICKER_ADDRESS, AUCTION_KICKER_ABI)
         kick_fn = kicker_contract.functions.kick(
             to_checksum_address(candidate.strategy_address),
@@ -222,7 +237,7 @@ class AuctionKicker:
                 usd_value=usd_value_str,
             )
 
-        # 7. Gas limit = min(estimate * 1.2, max_gas_limit).
+        # 6. Gas limit = min(estimate * 1.2, max_gas_limit).
         gas_limit = min(int(gas_estimate * _GAS_ESTIMATE_BUFFER), self.max_gas_limit)
         if gas_estimate > self.max_gas_limit:
             error_msg = f"gas estimate {gas_estimate} exceeds cap {self.max_gas_limit}"
@@ -234,19 +249,18 @@ class AuctionKicker:
             )
             return KickResult(kick_tx_id=kick_tx_id, status="ERROR", error_message=error_msg)
 
-        # 7b. Interactive confirmation gate.
+        # 7. Interactive confirmation gate.
         if self.confirm_fn is not None:
             summary = {
                 "strategy": candidate.strategy_address,
                 "token": candidate.token_address,
                 "auction": candidate.auction_address,
                 "sell_amount": normalized_balance,
-                "sell_amount_raw": sell_amount_str,
                 "usd_value": usd_value_str,
                 "starting_price": starting_price_str,
-                "starting_price_description": f"{starting_price_raw} want-token units (lot value with {self.start_price_buffer_bps}bp buffer)",
+                "starting_price_display": f"{starting_price_raw} want-token units (lot value with {self.start_price_buffer_bps}bp buffer)",
                 "sell_price_usd": candidate.price_usd,
-                "want_price_usd": candidate.want_price_usd,
+                "want_address": candidate.want_address,
                 "buffer_bps": self.start_price_buffer_bps,
                 "gas_estimate": gas_estimate,
                 "gas_limit": gas_limit,
@@ -266,7 +280,7 @@ class AuctionKicker:
                     usd_value=usd_value_str,
                 )
 
-        # 8. Sign + send → persist SUBMITTED immediately.
+        # 8. Sign + send.
         nonce = await self.web3_client.get_transaction_count(self.signer.address)
 
         priority_fee_wei = await self._resolve_priority_fee_wei()

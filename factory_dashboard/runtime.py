@@ -149,6 +149,8 @@ def build_txn_service(settings: Settings, session, *, confirm_fn=None):
     from factory_dashboard.transaction_service.service import TxnService
     from factory_dashboard.transaction_service.signer import TransactionSigner
 
+    from factory_dashboard.pricing.token_price_agg import TokenPriceAggProvider as _TPA
+
     web3_client = build_web3_client(settings)
     txn_run_repository = TxnRunRepository(session)
     kick_tx_repository = KickTxRepository(session)
@@ -158,10 +160,19 @@ def build_txn_service(settings: Settings, session, *, confirm_fn=None):
         settings.txn_keystore_passphrase,
     )
 
+    price_provider = _TPA(
+        chain_id=settings.chain_id,
+        base_url=settings.token_price_agg_base_url,
+        api_key=settings.token_price_agg_key,
+        timeout_seconds=settings.price_timeout_seconds,
+        retry_attempts=settings.price_retry_attempts,
+    )
+
     kicker = AuctionKicker(
         web3_client=web3_client,
         signer=signer,
         kick_tx_repository=kick_tx_repository,
+        price_provider=price_provider,
         usd_threshold=settings.txn_usd_threshold,
         max_gas_price_gwei=settings.txn_max_gas_price_gwei,
         max_priority_fee_gwei=settings.txn_max_priority_fee_gwei,

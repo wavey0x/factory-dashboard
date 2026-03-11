@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from factory_dashboard.persistence import models
 from factory_dashboard.persistence.repositories import KickTxRepository
+from factory_dashboard.pricing.token_price_agg import QuoteResult
 from factory_dashboard.transaction_service.kicker import AuctionKicker, _DEFAULT_PRIORITY_FEE_GWEI
 from factory_dashboard.transaction_service.types import KickCandidate
 
@@ -21,7 +22,7 @@ def _make_candidate(**overrides):
         "auction_address": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         "normalized_balance": "1000",
         "price_usd": "2.5",
-        "want_price_usd": "1.0",
+        "want_address": "0xdddddddddddddddddddddddddddddddddddddddd",
         "usd_value": 2500.0,
         "decimals": 18,
     }
@@ -42,13 +43,19 @@ def kick_tx_repo(session):
     return KickTxRepository(session)
 
 
-def _make_kicker(session, *, web3_client=None, signer=None, **overrides):
+def _make_kicker(session, *, web3_client=None, signer=None, price_provider=None, **overrides):
     if web3_client is None:
         web3_client = MagicMock()
     if signer is None:
         signer = MagicMock()
         signer.address = "0xcccccccccccccccccccccccccccccccccccccccc"
         signer.checksum_address = "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+    if price_provider is None:
+        price_provider = AsyncMock()
+        # Default: 2500 USDC (6 decimals) → with 10% buffer → startingPrice = 2750.
+        price_provider.quote = AsyncMock(
+            return_value=QuoteResult(amount_out_raw=2_500_000_000, token_out_decimals=6)
+        )
 
     kick_tx_repo = KickTxRepository(session)
 
@@ -56,6 +63,7 @@ def _make_kicker(session, *, web3_client=None, signer=None, **overrides):
         "web3_client": web3_client,
         "signer": signer,
         "kick_tx_repository": kick_tx_repo,
+        "price_provider": price_provider,
         "usd_threshold": 100.0,
         "max_gas_price_gwei": 50,
         "max_priority_fee_gwei": 2,
@@ -73,7 +81,7 @@ async def test_kick_below_threshold_on_live_balance(session):
     web3_client = MagicMock()
 
     with patch(
-        "factory_dashboard.chain.contracts.erc20.ERC20Reader"
+        "factory_dashboard.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         # Return a tiny balance → USD value below threshold.
@@ -96,7 +104,7 @@ async def test_kick_balance_read_error(session):
     web3_client = MagicMock()
 
     with patch(
-        "factory_dashboard.chain.contracts.erc20.ERC20Reader"
+        "factory_dashboard.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(side_effect=RuntimeError("rpc down"))
@@ -122,7 +130,7 @@ async def test_kick_gas_price_too_high(session):
     web3_client.get_gas_price = AsyncMock(return_value=int(100 * 1e9))  # 100 gwei
 
     with patch(
-        "factory_dashboard.chain.contracts.erc20.ERC20Reader"
+        "factory_dashboard.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
@@ -151,7 +159,7 @@ async def test_kick_estimate_failed(session):
     web3_client.estimate_gas = AsyncMock(side_effect=RuntimeError("execution reverted"))
 
     with patch(
-        "factory_dashboard.chain.contracts.erc20.ERC20Reader"
+        "factory_dashboard.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
@@ -182,7 +190,7 @@ async def test_kick_gas_estimate_over_cap(session):
     web3_client.estimate_gas = AsyncMock(return_value=600000)  # exceeds 500000 cap
 
     with patch(
-        "factory_dashboard.chain.contracts.erc20.ERC20Reader"
+        "factory_dashboard.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
@@ -225,7 +233,7 @@ async def test_kick_confirmed(session):
     signer.sign_transaction = MagicMock(return_value=b"\x00" * 32)
 
     with patch(
-        "factory_dashboard.chain.contracts.erc20.ERC20Reader"
+        "factory_dashboard.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
@@ -275,7 +283,7 @@ async def test_kick_reverted(session):
     signer.sign_transaction = MagicMock(return_value=b"\x00" * 32)
 
     with patch(
-        "factory_dashboard.chain.contracts.erc20.ERC20Reader"
+        "factory_dashboard.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
@@ -314,7 +322,7 @@ async def test_kick_receipt_timeout_stays_submitted(session):
     signer.sign_transaction = MagicMock(return_value=b"\x00" * 32)
 
     with patch(
-        "factory_dashboard.chain.contracts.erc20.ERC20Reader"
+        "factory_dashboard.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
@@ -356,7 +364,7 @@ async def test_kick_confirm_fn_declined(session):
     confirm_fn = MagicMock(return_value=False)
 
     with patch(
-        "factory_dashboard.chain.contracts.erc20.ERC20Reader"
+        "factory_dashboard.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
@@ -409,7 +417,7 @@ async def test_kick_confirm_fn_accepted(session):
     confirm_fn = MagicMock(return_value=True)
 
     with patch(
-        "factory_dashboard.chain.contracts.erc20.ERC20Reader"
+        "factory_dashboard.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
@@ -443,7 +451,7 @@ async def test_kick_no_confirm_fn_sends_without_prompt(session):
     signer.sign_transaction = MagicMock(return_value=b"\x00" * 32)
 
     with patch(
-        "factory_dashboard.chain.contracts.erc20.ERC20Reader"
+        "factory_dashboard.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
@@ -481,7 +489,7 @@ async def test_priority_fee_uses_network_suggestion_below_cap(session):
     signer.sign_transaction = MagicMock(return_value=b"\x00" * 32)
 
     with patch(
-        "factory_dashboard.chain.contracts.erc20.ERC20Reader"
+        "factory_dashboard.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
@@ -517,7 +525,7 @@ async def test_priority_fee_capped_when_network_exceeds(session):
     signer.sign_transaction = MagicMock(return_value=b"\x00" * 32)
 
     with patch(
-        "factory_dashboard.chain.contracts.erc20.ERC20Reader"
+        "factory_dashboard.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
@@ -552,7 +560,7 @@ async def test_priority_fee_fallback_on_rpc_failure(session):
     signer.sign_transaction = MagicMock(return_value=b"\x00" * 32)
 
     with patch(
-        "factory_dashboard.chain.contracts.erc20.ERC20Reader"
+        "factory_dashboard.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
@@ -590,8 +598,14 @@ async def test_starting_price_usd_want_token(session):
     signer.checksum_address = "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
     signer.sign_transaction = MagicMock(return_value=b"\x00" * 32)
 
+    # Quote returns 2500 USDC (6 decimals) → with 10% buffer → 2750.
+    price_provider = AsyncMock()
+    price_provider.quote = AsyncMock(
+        return_value=QuoteResult(amount_out_raw=2_500_000_000, token_out_decimals=6)
+    )
+
     with patch(
-        "factory_dashboard.chain.contracts.erc20.ERC20Reader"
+        "factory_dashboard.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         # 1000 tokens with 18 decimals
@@ -600,12 +614,13 @@ async def test_starting_price_usd_want_token(session):
 
         kicker = _make_kicker(
             session, web3_client=web3_client, signer=signer,
+            price_provider=price_provider,
             start_price_buffer_bps=1000,  # 10% buffer
         )
-        # sell token $2.50, want token $1.00, balance 1000
-        # lot_value_in_want = 1000 * 2.5 / 1.0 * 1.1 = 2750
+        # sell token $2.50, balance 1000 → quote returns 2500 USDC
+        # startingPrice = ceil(2500 * 1.1) = 2750
         candidate = _make_candidate(
-            price_usd="2.5", want_price_usd="1.0", normalized_balance="1000",
+            price_usd="2.5", normalized_balance="1000",
         )
         result = await kicker.kick(candidate, "run-1")
 
@@ -631,8 +646,14 @@ async def test_starting_price_non_usd_want_token(session):
     signer.checksum_address = "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
     signer.sign_transaction = MagicMock(return_value=b"\x00" * 32)
 
+    # Quote returns ~0.0797 WETH (18 decimals) → with 10% buffer → ceil = 1.
+    price_provider = AsyncMock()
+    price_provider.quote = AsyncMock(
+        return_value=QuoteResult(amount_out_raw=79_666_666_666_666_667, token_out_decimals=18)
+    )
+
     with patch(
-        "factory_dashboard.chain.contracts.erc20.ERC20Reader"
+        "factory_dashboard.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=1000 * 10**18)
@@ -640,18 +661,16 @@ async def test_starting_price_non_usd_want_token(session):
 
         kicker = _make_kicker(
             session, web3_client=web3_client, signer=signer,
+            price_provider=price_provider,
             start_price_buffer_bps=1000,
         )
-        # sell token $0.239, want token $3000 (WETH), balance 1000
-        # lot_value_in_want = 1000 * 0.239 / 3000 * 1.1 = 0.08763333...
-        # ceil → 1
+        # Quote gives ~0.0797 WETH → ceil(0.0797 * 1.1) = ceil(0.0877) = 1
         candidate = _make_candidate(
-            price_usd="0.239", want_price_usd="3000", normalized_balance="1000",
+            price_usd="0.239", normalized_balance="1000",
         )
         result = await kicker.kick(candidate, "run-1")
 
     assert result.status == "CONFIRMED"
-    # ceil(0.0877) = 1
     assert result.starting_price == "1"
 
 
@@ -673,8 +692,14 @@ async def test_starting_price_ceil_ensures_nonzero(session):
     signer.checksum_address = "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
     signer.sign_transaction = MagicMock(return_value=b"\x00" * 32)
 
+    # Quote returns 10 raw USDC (6 decimals) = 0.00001 USDC → with 10% buffer → ceil = 1.
+    price_provider = AsyncMock()
+    price_provider.quote = AsyncMock(
+        return_value=QuoteResult(amount_out_raw=10, token_out_decimals=6)
+    )
+
     with patch(
-        "factory_dashboard.chain.contracts.erc20.ERC20Reader"
+        "factory_dashboard.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         # Very small balance: 0.001 tokens (1e15 raw with 18 decimals)
@@ -683,14 +708,13 @@ async def test_starting_price_ceil_ensures_nonzero(session):
 
         kicker = _make_kicker(
             session, web3_client=web3_client, signer=signer,
+            price_provider=price_provider,
             start_price_buffer_bps=1000,
             usd_threshold=0.0,  # disable threshold so tiny balance isn't skipped
         )
-        # sell token $0.01, want token $1, balance 0.001
-        # lot_value_in_want = 0.001 * 0.01 / 1.0 * 1.1 = 0.000011
-        # ceil → 1
+        # Quote gives 0.00001 USDC → ceil(0.00001 * 1.1) = ceil(0.000011) = 1
         candidate = _make_candidate(
-            price_usd="0.01", want_price_usd="1.0", normalized_balance="0.001",
+            price_usd="0.01", normalized_balance="0.001",
         )
         result = await kicker.kick(candidate, "run-1")
 
@@ -720,8 +744,14 @@ async def test_starting_price_real_tx_scenario(session):
     signer.checksum_address = "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
     signer.sign_transaction = MagicMock(return_value=b"\x00" * 32)
 
+    # Quote returns 239 USDC (6 decimals) → with 10% buffer → ceil(262.9) = 263.
+    price_provider = AsyncMock()
+    price_provider.quote = AsyncMock(
+        return_value=QuoteResult(amount_out_raw=239_000_000, token_out_decimals=6)
+    )
+
     with patch(
-        "factory_dashboard.chain.contracts.erc20.ERC20Reader"
+        "factory_dashboard.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=1000 * 10**18)
@@ -729,12 +759,12 @@ async def test_starting_price_real_tx_scenario(session):
 
         kicker = _make_kicker(
             session, web3_client=web3_client, signer=signer,
+            price_provider=price_provider,
             start_price_buffer_bps=1000,  # 10%
         )
-        # sell token $0.239, want token USDC $1.0, 1000 tokens
-        # lot_value_in_want = 1000 * 0.239 / 1.0 * 1.1 = 262.9 → ceil = 263
+        # Quote gives 239 USDC → ceil(239 * 1.1) = ceil(262.9) = 263
         candidate = _make_candidate(
-            price_usd="0.239", want_price_usd="1.0", normalized_balance="1000",
+            price_usd="0.239", normalized_balance="1000",
         )
         result = await kicker.kick(candidate, "run-1")
 
@@ -742,3 +772,62 @@ async def test_starting_price_real_tx_scenario(session):
     assert result.starting_price == "263"
     # Verify it's NOT the old broken WAD-scaled value
     assert int(result.starting_price) < 10**6  # sanity: reasonable integer, not 1e17
+
+
+# ---------------------------------------------------------------------------
+# Quote API error tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_kick_quote_api_failure(session):
+    """When quote API raises an exception, should persist ERROR."""
+    web3_client = MagicMock()
+
+    price_provider = AsyncMock()
+    price_provider.quote = AsyncMock(side_effect=RuntimeError("quote service down"))
+
+    with patch(
+        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+    ) as MockERC20:
+        mock_erc20 = AsyncMock()
+        mock_erc20.read_balance = AsyncMock(return_value=10**21)
+        MockERC20.return_value = mock_erc20
+
+        kicker = _make_kicker(session, web3_client=web3_client, price_provider=price_provider)
+        candidate = _make_candidate()
+        result = await kicker.kick(candidate, "run-1")
+
+    assert result.status == "ERROR"
+    assert "quote service down" in result.error_message
+    rows = session.execute(select(models.kick_txs)).mappings().all()
+    assert len(rows) == 1
+    assert "quote API failed" in rows[0]["error_message"]
+
+
+@pytest.mark.asyncio
+async def test_kick_quote_no_amount_out(session):
+    """When quote returns None amount_out_raw, should persist ERROR."""
+    web3_client = MagicMock()
+
+    price_provider = AsyncMock()
+    price_provider.quote = AsyncMock(
+        return_value=QuoteResult(amount_out_raw=None, token_out_decimals=6)
+    )
+
+    with patch(
+        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+    ) as MockERC20:
+        mock_erc20 = AsyncMock()
+        mock_erc20.read_balance = AsyncMock(return_value=10**21)
+        MockERC20.return_value = mock_erc20
+
+        kicker = _make_kicker(session, web3_client=web3_client, price_provider=price_provider)
+        candidate = _make_candidate()
+        result = await kicker.kick(candidate, "run-1")
+
+    assert result.status == "ERROR"
+    assert "no quote available" in result.error_message
+    rows = session.execute(select(models.kick_txs)).mappings().all()
+    assert len(rows) == 1
+    assert "no quote available" in rows[0]["error_message"]

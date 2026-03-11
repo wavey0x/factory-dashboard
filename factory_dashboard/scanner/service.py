@@ -233,8 +233,7 @@ class ScannerService:
             stage_e_stats["strategies_unmapped"] = max(0, len(set(strategy_addresses)) - mapped_count)
             stage_e_stats["source"] = "cache"
 
-        # Ensure want tokens are in the tokens table so the evaluator can price them.
-        want_token_decimals: dict[str, int] = {}
+        # Ensure want tokens are in the tokens table for metadata (decimals/name/symbol).
         want_addresses = set()
         if stage_e_stats["source"] == "fresh":
             want_addresses = {
@@ -255,7 +254,6 @@ class ScannerService:
                 want_meta = await self.token_metadata_service.get_or_fetch(
                     want_address, is_core_reward=False,
                 )
-                want_token_decimals[want_address] = want_meta.decimals
             except Exception as exc:  # noqa: BLE001
                 errors.append(
                     ScanItemError(
@@ -329,9 +327,6 @@ class ScannerService:
         scanned_at = utcnow()
 
         price_token_map = {pair.token_address: pair.decimals for pair in pairs}
-        # Include want tokens so the evaluator can price auction lots.
-        for want_address, decimals in want_token_decimals.items():
-            price_token_map.setdefault(want_address, decimals)
         price_tokens = [
             PriceToken(address=token_address, decimals=decimals)
             for token_address, decimals in price_token_map.items()
