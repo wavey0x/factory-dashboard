@@ -365,22 +365,22 @@ tbody tr:hover td {
 
 .auction-cell {
   white-space: nowrap;
-  width: 172px;
-  min-width: 172px;
-  max-width: 172px;
+  width: 220px;
+  min-width: 220px;
+  max-width: 220px;
 }
 
 .auction-col {
-  width: 172px;
-  min-width: 172px;
-  max-width: 172px;
+  width: 220px;
+  min-width: 220px;
+  max-width: 220px;
 }
 
 .auction-value-slot {
-  display: inline-flex;
-  align-items: center;
-  width: 132px;
-  min-width: 132px;
+  display: flex;
+  flex-direction: column;
+  width: 160px;
+  min-width: 160px;
 }
 
 .last-scan-col {
@@ -612,6 +612,87 @@ tbody tr:hover td {
   100% {
     opacity: 0.5;
   }
+}
+
+.chevron-toggle {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  color: var(--text-faint);
+  font-size: 8px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  transition: transform 160ms ease;
+}
+
+.chevron-toggle:hover {
+  color: var(--text-primary);
+}
+
+.chevron-toggle.is-expanded {
+  transform: rotate(90deg);
+}
+
+.kick-history {
+  margin-top: 3px;
+}
+
+.kick-summary {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.kick-expanded {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-left: 16px;
+}
+
+.kick-row {
+  display: flex;
+  align-items: center;
+}
+
+.kick-row-inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.kick-time {
+  color: var(--text-faint);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.kick-separator {
+  color: var(--text-faint);
+  font-size: 10px;
+}
+
+.kick-status {
+  color: var(--text-faint);
+  font-size: 10px;
+}
+
+.etherscan-link {
+  color: var(--text-secondary);
+  font-size: 10px;
+  text-decoration: none;
+}
+
+.etherscan-link:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
 }
 
 @media (max-width: 900px) {

@@ -5,6 +5,7 @@ const ALL_TOKENS = "__all__";
 const MIN_USD_VISIBLE = new Big("0.01");
 const THEME_SEQUENCE = ["light", "dark"];
 const API_BASE_URL = (import.meta.env.VITE_FACTORY_DASHBOARD_API_BASE_URL || "/api").replace(/\/$/, "");
+const ETHERSCAN_TX_URL = "https://etherscan.io/tx/";
 
 function apiUrl(path) {
   return `${API_BASE_URL}${path}`;
@@ -232,10 +233,75 @@ function EntityIdentity({ primary, secondary, address }) {
   );
 }
 
-function AuctionAddressCell({ address }) {
+function EtherscanTxLink({ txHash }) {
   return (
-    <span className="auction-value-slot">
-      {address ? <AddressCopy address={address} /> : <span className="row-secondary mono">—</span>}
+    <a
+      className="etherscan-link mono"
+      href={`${ETHERSCAN_TX_URL}${txHash}`}
+      title={txHash}
+      target="_blank"
+      rel="noopener noreferrer"
+    >
+      {shortenAddress(txHash)}
+    </a>
+  );
+}
+
+function AuctionAddressCell({ address, kicks, nowMs, isExpanded, onToggleExpand }) {
+  const hasKicks = kicks && kicks.length > 0;
+  const hasChevron = kicks && kicks.length > 1;
+
+  if (!address) {
+    return (
+      <span className="auction-value-slot">
+        <span className="row-secondary mono">—</span>
+      </span>
+    );
+  }
+
+  return (
+    <div className="auction-value-slot">
+      <AddressCopy address={address} />
+      {hasKicks ? (
+        <div className="kick-history">
+          <div className="kick-summary">
+            {hasChevron ? (
+              <button
+                type="button"
+                className={`chevron-toggle ${isExpanded ? "is-expanded" : ""}`}
+                onClick={onToggleExpand}
+                aria-label={isExpanded ? "Collapse kick history" : "Expand kick history"}
+              >
+                ▶
+              </button>
+            ) : null}
+            <KickRow kick={kicks[0]} nowMs={nowMs} />
+          </div>
+          {isExpanded && kicks.length > 1 ? (
+            <div className="kick-expanded">
+              {kicks.slice(1, 5).map((kick, i) => (
+                <div key={kick.txHash || i} className="kick-row">
+                  <KickRow kick={kick} nowMs={nowMs} />
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function KickRow({ kick, nowMs }) {
+  return (
+    <span className="kick-row-inner">
+      <span className="kick-time mono">{formatRelativeTimestamp(kick.createdAt, nowMs)}</span>
+      <span className="kick-separator mono">·</span>
+      {kick.txHash ? (
+        <EtherscanTxLink txHash={kick.txHash} />
+      ) : (
+        <span className="mono kick-status">{kick.status || "pending"}</span>
+      )}
     </span>
   );
 }
@@ -332,6 +398,7 @@ export default function App() {
   const [error, setError] = useState("");
   const [displayMode, setDisplayMode] = useState("usd");
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [expandedKickRows, setExpandedKickRows] = useState(() => new Set());
   const auctionFilterMenuRef = useRef(null);
 
   const resolvedTheme = themePreference || systemTheme;
@@ -660,6 +727,18 @@ export default function App() {
     setIsAuctionFilterMenuOpen(false);
   }
 
+  function toggleKickExpand(strategyAddress) {
+    setExpandedKickRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(strategyAddress)) {
+        next.delete(strategyAddress);
+      } else {
+        next.add(strategyAddress);
+      }
+      return next;
+    });
+  }
+
   function cycleThemePreference() {
     const currentTheme = themePreference || systemTheme;
     const currentIndex = THEME_SEQUENCE.indexOf(currentTheme);
@@ -816,7 +895,13 @@ export default function App() {
                       />
                     </td>
                     <td className="auction-cell">
-                      <AuctionAddressCell address={row.auctionAddress} />
+                      <AuctionAddressCell
+                        address={row.auctionAddress}
+                        kicks={row.kicks}
+                        nowMs={nowMs}
+                        isExpanded={expandedKickRows.has(row.strategyAddress)}
+                        onToggleExpand={() => toggleKickExpand(row.strategyAddress)}
+                      />
                     </td>
                     <td>
                       <TokenBalances
