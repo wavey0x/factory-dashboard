@@ -9,7 +9,7 @@ from alembic.config import Config
 
 
 def run_migrations(database_url: str) -> None:
-    project_root = Path(__file__).resolve().parents[2]
+    project_root = Path(__file__).resolve().parents[1]
     alembic_ini = project_root / "alembic.ini"
     script_location = project_root / "alembic"
 
