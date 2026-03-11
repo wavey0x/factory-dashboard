@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from decimal import Decimal
 
 import structlog
@@ -38,6 +39,7 @@ class AuctionKicker:
         start_price_buffer_bps: int,
         min_signer_balance_eth: float,
         chain_id: int,
+        confirm_fn: Callable[[dict], bool] | None = None,
     ):
         self.web3_client = web3_client
         self.signer = signer
@@ -49,6 +51,7 @@ class AuctionKicker:
         self.start_price_buffer_bps = start_price_buffer_bps
         self.min_signer_balance_eth = min_signer_balance_eth
         self.chain_id = chain_id
+        self.confirm_fn = confirm_fn
 
     def _insert_kick_tx(
         self,
@@ -240,6 +243,35 @@ class AuctionKicker:
                 sell_amount=sell_amount_str, starting_price=starting_price_str, usd_value=usd_value_str,
             )
             return KickResult(kick_tx_id=kick_tx_id, status="ERROR", error_message=error_msg)
+
+        # 7b. Interactive confirmation gate.
+        if self.confirm_fn is not None:
+            summary = {
+                "strategy": candidate.strategy_address,
+                "token": candidate.token_address,
+                "auction": candidate.auction_address,
+                "sell_amount": normalized_balance,
+                "sell_amount_raw": sell_amount_str,
+                "usd_value": usd_value_str,
+                "starting_price": str(starting_price_decimal),
+                "buffer_bps": self.start_price_buffer_bps,
+                "gas_estimate": gas_estimate,
+                "gas_limit": gas_limit,
+            }
+            if not self.confirm_fn(summary):
+                kick_tx_id = self._insert_kick_tx(
+                    run_id, candidate, now_iso,
+                    status="USER_SKIPPED",
+                    sell_amount=sell_amount_str, starting_price=starting_price_str, usd_value=usd_value_str,
+                )
+                return KickResult(
+                    kick_tx_id=kick_tx_id,
+                    status="USER_SKIPPED",
+                    sell_amount=sell_amount_str,
+                    starting_price=starting_price_str,
+                    live_balance_raw=live_balance_raw,
+                    usd_value=usd_value_str,
+                )
 
         # 8. Sign + send → persist SUBMITTED immediately.
         nonce = await self.web3_client.get_transaction_count(self.signer.address)

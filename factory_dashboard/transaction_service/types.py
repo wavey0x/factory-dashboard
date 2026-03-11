@@ -32,7 +32,7 @@ class KickResult:
     """Kicker output — what happened when we tried to kick."""
 
     kick_tx_id: int
-    status: str  # CONFIRMED, REVERTED, SUBMITTED, ESTIMATE_FAILED, ERROR, DRY_RUN
+    status: str  # CONFIRMED, REVERTED, SUBMITTED, ESTIMATE_FAILED, ERROR, DRY_RUN, USER_SKIPPED
     tx_hash: str | None = None
     gas_used: int | None = None
     gas_price_gwei: str | None = None

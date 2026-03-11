@@ -143,7 +143,7 @@ def build_web3_client(settings: Settings) -> Web3Client:
     )
 
 
-def build_txn_service(settings: Settings, session):
+def build_txn_service(settings: Settings, session, *, confirm_fn=None):
     from factory_dashboard.persistence.repositories import KickTxRepository, TxnRunRepository
     from factory_dashboard.transaction_service.kicker import AuctionKicker
     from factory_dashboard.transaction_service.service import TxnService
@@ -170,6 +170,7 @@ def build_txn_service(settings: Settings, session):
         start_price_buffer_bps=settings.txn_start_price_buffer_bps,
         min_signer_balance_eth=settings.txn_min_signer_balance_eth,
         chain_id=settings.chain_id,
+        confirm_fn=confirm_fn,
     )
 
     lock_path = settings.resolved_db_path.parent / "txn_daemon.lock"

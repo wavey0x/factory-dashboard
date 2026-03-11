@@ -351,3 +351,126 @@ async def test_kick_receipt_timeout_stays_submitted(session):
     assert len(rows) == 1
     assert rows[0]["status"] == "SUBMITTED"
     assert rows[0]["tx_hash"] == "0xtxhash789"
+
+
+def _make_web3_client_through_gas_estimate(gas_estimate=200000):
+    """Build a mock web3_client that passes all checks up through gas estimation."""
+    web3_client = MagicMock()
+    web3_client.get_balance = AsyncMock(return_value=int(1 * 1e18))
+    web3_client.get_gas_price = AsyncMock(return_value=int(10 * 1e9))
+    web3_client.estimate_gas = AsyncMock(return_value=gas_estimate)
+
+    mock_contract = MagicMock()
+    mock_kick_fn = MagicMock()
+    mock_kick_fn._encode_transaction_data = MagicMock(return_value="0xdeadbeef")
+    mock_contract.functions.kick = MagicMock(return_value=mock_kick_fn)
+    web3_client.contract = MagicMock(return_value=mock_contract)
+    return web3_client
+
+
+@pytest.mark.asyncio
+async def test_kick_confirm_fn_declined(session):
+    """When confirm_fn returns False, should persist USER_SKIPPED and not send."""
+    web3_client = _make_web3_client_through_gas_estimate()
+
+    confirm_fn = MagicMock(return_value=False)
+
+    with patch(
+        "factory_dashboard.chain.contracts.erc20.ERC20Reader"
+    ) as MockERC20:
+        mock_erc20 = AsyncMock()
+        mock_erc20.read_balance = AsyncMock(return_value=10**21)
+        MockERC20.return_value = mock_erc20
+
+        kicker = _make_kicker(session, web3_client=web3_client, confirm_fn=confirm_fn)
+        candidate = _make_candidate()
+        result = await kicker.kick(candidate, "run-1")
+
+    assert result.status == "USER_SKIPPED"
+    assert result.sell_amount is not None
+    assert result.usd_value is not None
+
+    # confirm_fn should have been called with a summary dict.
+    confirm_fn.assert_called_once()
+    summary = confirm_fn.call_args[0][0]
+    assert "strategy" in summary
+    assert "gas_estimate" in summary
+    assert "gas_limit" in summary
+    assert "buffer_bps" in summary
+    assert isinstance(summary["buffer_bps"], int)
+
+    # Should NOT have tried to send.
+    web3_client.get_transaction_count.assert_not_called()
+    web3_client.send_raw_transaction.assert_not_called()
+
+    rows = session.execute(select(models.kick_txs)).mappings().all()
+    assert len(rows) == 1
+    assert rows[0]["status"] == "USER_SKIPPED"
+
+
+@pytest.mark.asyncio
+async def test_kick_confirm_fn_accepted(session):
+    """When confirm_fn returns True, should proceed to sign and send."""
+    web3_client = _make_web3_client_through_gas_estimate()
+    web3_client.get_transaction_count = AsyncMock(return_value=5)
+    web3_client.send_raw_transaction = AsyncMock(return_value="0xtxhash_confirmed")
+    web3_client.get_transaction_receipt = AsyncMock(return_value={
+        "status": 1,
+        "gasUsed": 180000,
+        "effectiveGasPrice": int(12 * 1e9),
+        "blockNumber": 99999,
+    })
+
+    signer = MagicMock()
+    signer.address = "0xcccccccccccccccccccccccccccccccccccccccc"
+    signer.checksum_address = "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+    signer.sign_transaction = MagicMock(return_value=b"\x00" * 32)
+
+    confirm_fn = MagicMock(return_value=True)
+
+    with patch(
+        "factory_dashboard.chain.contracts.erc20.ERC20Reader"
+    ) as MockERC20:
+        mock_erc20 = AsyncMock()
+        mock_erc20.read_balance = AsyncMock(return_value=10**21)
+        MockERC20.return_value = mock_erc20
+
+        kicker = _make_kicker(session, web3_client=web3_client, signer=signer, confirm_fn=confirm_fn)
+        candidate = _make_candidate()
+        result = await kicker.kick(candidate, "run-1")
+
+    assert result.status == "CONFIRMED"
+    assert result.tx_hash == "0xtxhash_confirmed"
+    confirm_fn.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_kick_no_confirm_fn_sends_without_prompt(session):
+    """When confirm_fn is None (default), should send without prompting."""
+    web3_client = _make_web3_client_through_gas_estimate()
+    web3_client.get_transaction_count = AsyncMock(return_value=5)
+    web3_client.send_raw_transaction = AsyncMock(return_value="0xtxhash_no_confirm")
+    web3_client.get_transaction_receipt = AsyncMock(return_value={
+        "status": 1,
+        "gasUsed": 180000,
+        "effectiveGasPrice": int(12 * 1e9),
+        "blockNumber": 99999,
+    })
+
+    signer = MagicMock()
+    signer.address = "0xcccccccccccccccccccccccccccccccccccccccc"
+    signer.checksum_address = "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+    signer.sign_transaction = MagicMock(return_value=b"\x00" * 32)
+
+    with patch(
+        "factory_dashboard.chain.contracts.erc20.ERC20Reader"
+    ) as MockERC20:
+        mock_erc20 = AsyncMock()
+        mock_erc20.read_balance = AsyncMock(return_value=10**21)
+        MockERC20.return_value = mock_erc20
+
+        kicker = _make_kicker(session, web3_client=web3_client, signer=signer)
+        candidate = _make_candidate()
+        result = await kicker.kick(candidate, "run-1")
+
+    assert result.status == "CONFIRMED"

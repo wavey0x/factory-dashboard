@@ -109,12 +109,43 @@ def _require_keystore(settings) -> None:
         raise ConfigurationError("TXN_KEYSTORE_PATH and TXN_KEYSTORE_PASSPHRASE are required for txn commands")
 
 
+def _make_confirm_fn() -> callable:
+    """Return a confirm callback with its own kick counter."""
+    counter = 0
+
+    def _confirm_kick(summary: dict) -> bool:
+        nonlocal counter
+        counter += 1
+        buffer_pct = summary["buffer_bps"] / 100
+
+        lines = [
+            "\u2500" * 45,
+            f"Kick #{counter}",
+            f"  Strategy:  {summary['strategy']}",
+            f"  Token:     {summary['token']}",
+            f"  Auction:   {summary['auction']}",
+            f"  Amount:    {summary['sell_amount']} (raw: {summary['sell_amount_raw']})",
+            f"  USD value: ${float(summary['usd_value']):,.2f}",
+            f"  Price:     ${float(summary['starting_price']):,.4f} (incl. {buffer_pct:.0f}% buffer)",
+            f"  Gas est:   {summary['gas_estimate']:,} (limit: {summary['gas_limit']:,})",
+            "\u2500" * 45,
+        ]
+        typer.echo("\n".join(lines))
+        return typer.confirm("Send this transaction?", default=False)
+
+    return _confirm_kick
+
+
 @txn_app.command("once")
 def txn_once(
     live: bool = typer.Option(default=False, help="Send transactions (default: dry-run)"),
+    confirm: bool = typer.Option(default=False, help="Interactive confirmation before each kick (implies --live)"),
     config: Path | None = typer.Option(default=None, exists=True, file_okay=True, dir_okay=False),
 ) -> None:
     """Run a single transaction evaluation cycle."""
+
+    if confirm:
+        live = True
 
     configure_logging()
     settings = load_settings(config)
@@ -126,9 +157,11 @@ def txn_once(
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
 
+    confirm_fn = _make_confirm_fn() if confirm else None
+
     db = Database(settings.database_url)
     with db.session() as session:
-        txn_service = build_txn_service(settings, session)
+        txn_service = build_txn_service(settings, session, confirm_fn=confirm_fn)
         result = asyncio.run(txn_service.run_once(live=live))
         typer.echo(
             (
