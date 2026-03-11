@@ -105,7 +105,7 @@ Strategies with no auction, below-threshold balances, and stale data are filtere
 ## Components
 
 ```
-src/factory_dashboard/
+factory_dashboard/
   transaction_service/
     __init__.py
     evaluator.py
