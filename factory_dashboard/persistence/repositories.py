@@ -49,16 +49,25 @@ class StrategyRepository:
             .values(name=name)
         )
 
-    def set_auction_mappings(self, strategy_to_auction: dict[str, str | None], *, updated_at: str) -> None:
+    def set_auction_mappings(
+        self,
+        strategy_to_auction: dict[str, str | None],
+        *,
+        updated_at: str,
+        strategy_to_want: dict[str, str | None] | None = None,
+    ) -> None:
         for strategy_address, auction_address in strategy_to_auction.items():
+            values: dict[str, object] = {
+                "auction_address": auction_address,
+                "auction_updated_at": updated_at,
+                "auction_error_message": None,
+            }
+            if strategy_to_want is not None:
+                values["want_address"] = strategy_to_want.get(strategy_address)
             self.session.execute(
                 update(models.strategies)
                 .where(models.strategies.c.address == strategy_address)
-                .values(
-                    auction_address=auction_address,
-                    auction_updated_at=updated_at,
-                    auction_error_message=None,
-                )
+                .values(**values)
             )
 
     def mark_auction_refresh_failed(self, addresses: list[str], *, updated_at: str, error_message: str) -> None:

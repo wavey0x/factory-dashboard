@@ -201,6 +201,7 @@ class ScannerService:
             self.strategy_repository.set_auction_mappings(
                 mapping_result.strategy_to_auction,
                 updated_at=auction_updated_at,
+                strategy_to_want=mapping_result.strategy_to_want,
             )
             stage_e_stats["auction_count"] = mapping_result.auction_count
             stage_e_stats["governance_allowed_auction_count"] = mapping_result.governance_allowed_auction_count

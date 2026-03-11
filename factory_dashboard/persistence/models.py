@@ -37,6 +37,7 @@ strategies = Table(
     Column("adapter", String, nullable=False, server_default="yearn_curve_strategy"),
     Column("active", Integer, nullable=False, server_default="1"),
     Column("auction_address", String, nullable=True),
+    Column("want_address", String, nullable=True),
     Column("auction_updated_at", String, nullable=True),
     Column("auction_error_message", Text, nullable=True),
     Column("first_seen_at", String, nullable=False),

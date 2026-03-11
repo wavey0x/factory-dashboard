@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from decimal import Decimal
+from decimal import ROUND_CEILING, Decimal
 
 import structlog
 from eth_utils import to_checksum_address
@@ -139,13 +139,15 @@ class AuctionKicker:
             )
 
         # 3. Calculate startingPrice.
-        # TODO(step0): Verify exact units/encoding via fork test.
-        # Assumes startingPrice is price per token in want-token units, WAD-scaled (1e18).
-        price_decimal = Decimal(candidate.price_usd)
+        # startingPrice = total lot value in want-token units, unscaled integer.
+        # Contract math: amountNeeded = startingPrice * 10^want_decimals (in raw want token units).
+        sell_price = Decimal(candidate.price_usd)
+        want_price = Decimal(candidate.want_price_usd)
+        sell_amount_normalized = Decimal(normalized_balance)
         buffer_multiplier = Decimal(1) + Decimal(self.start_price_buffer_bps) / Decimal(10_000)
-        starting_price_decimal = price_decimal * buffer_multiplier
-        # Scale to 1e18 (WAD) — adjust after fork test confirms encoding.
-        starting_price_raw = int(starting_price_decimal * Decimal(10**18))
+
+        lot_value_in_want = sell_amount_normalized * sell_price / want_price * buffer_multiplier
+        starting_price_raw = int(lot_value_in_want.to_integral_value(rounding=ROUND_CEILING))
 
         sell_amount = live_balance_raw
         sell_amount_str = str(sell_amount)
@@ -241,7 +243,10 @@ class AuctionKicker:
                 "sell_amount": normalized_balance,
                 "sell_amount_raw": sell_amount_str,
                 "usd_value": usd_value_str,
-                "starting_price": str(starting_price_decimal),
+                "starting_price": starting_price_str,
+                "starting_price_description": f"{starting_price_raw} want-token units (lot value with {self.start_price_buffer_bps}bp buffer)",
+                "sell_price_usd": candidate.price_usd,
+                "want_price_usd": candidate.want_price_usd,
                 "buffer_bps": self.start_price_buffer_bps,
                 "gas_estimate": gas_estimate,
                 "gas_limit": gas_limit,

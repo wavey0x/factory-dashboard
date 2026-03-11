@@ -105,7 +105,7 @@ class TokenPriceRefreshService:
                     run_id=run_id,
                     error_message=error_message,
                 )
-                if logo_url:
+                if error_message is None:
                     self.token_repository.set_logo_url(
                         address=original_address,
                         logo_url=logo_url,

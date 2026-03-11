@@ -21,6 +21,7 @@ def _make_candidate(**overrides):
         "auction_address": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         "normalized_balance": "1000",
         "price_usd": "2.5",
+        "want_price_usd": "1.0",
         "usd_value": 2500.0,
         "decimals": 18,
     }
@@ -564,3 +565,180 @@ async def test_priority_fee_fallback_on_rpc_failure(session):
     assert result.status == "CONFIRMED"
     signed_tx_args = signer.sign_transaction.call_args[0][0]
     assert signed_tx_args["maxPriorityFeePerGas"] == int(_DEFAULT_PRIORITY_FEE_GWEI * 1e9)
+
+
+# ---------------------------------------------------------------------------
+# Starting price calculation tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_starting_price_usd_want_token(session):
+    """With a $1 want token (USDC), startingPrice = lot value in want units, no WAD."""
+    web3_client = _make_web3_client_through_gas_estimate()
+    web3_client.get_transaction_count = AsyncMock(return_value=5)
+    web3_client.send_raw_transaction = AsyncMock(return_value="0xtxhash_sp1")
+    web3_client.get_transaction_receipt = AsyncMock(return_value={
+        "status": 1,
+        "gasUsed": 180000,
+        "effectiveGasPrice": int(12 * 1e9),
+        "blockNumber": 70000,
+    })
+
+    signer = MagicMock()
+    signer.address = "0xcccccccccccccccccccccccccccccccccccccccc"
+    signer.checksum_address = "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+    signer.sign_transaction = MagicMock(return_value=b"\x00" * 32)
+
+    with patch(
+        "factory_dashboard.chain.contracts.erc20.ERC20Reader"
+    ) as MockERC20:
+        mock_erc20 = AsyncMock()
+        # 1000 tokens with 18 decimals
+        mock_erc20.read_balance = AsyncMock(return_value=1000 * 10**18)
+        MockERC20.return_value = mock_erc20
+
+        kicker = _make_kicker(
+            session, web3_client=web3_client, signer=signer,
+            start_price_buffer_bps=1000,  # 10% buffer
+        )
+        # sell token $2.50, want token $1.00, balance 1000
+        # lot_value_in_want = 1000 * 2.5 / 1.0 * 1.1 = 2750
+        candidate = _make_candidate(
+            price_usd="2.5", want_price_usd="1.0", normalized_balance="1000",
+        )
+        result = await kicker.kick(candidate, "run-1")
+
+    assert result.status == "CONFIRMED"
+    assert result.starting_price == "2750"
+
+
+@pytest.mark.asyncio
+async def test_starting_price_non_usd_want_token(session):
+    """With WETH want token at $3000, startingPrice denominated in WETH units."""
+    web3_client = _make_web3_client_through_gas_estimate()
+    web3_client.get_transaction_count = AsyncMock(return_value=5)
+    web3_client.send_raw_transaction = AsyncMock(return_value="0xtxhash_sp2")
+    web3_client.get_transaction_receipt = AsyncMock(return_value={
+        "status": 1,
+        "gasUsed": 180000,
+        "effectiveGasPrice": int(12 * 1e9),
+        "blockNumber": 70001,
+    })
+
+    signer = MagicMock()
+    signer.address = "0xcccccccccccccccccccccccccccccccccccccccc"
+    signer.checksum_address = "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+    signer.sign_transaction = MagicMock(return_value=b"\x00" * 32)
+
+    with patch(
+        "factory_dashboard.chain.contracts.erc20.ERC20Reader"
+    ) as MockERC20:
+        mock_erc20 = AsyncMock()
+        mock_erc20.read_balance = AsyncMock(return_value=1000 * 10**18)
+        MockERC20.return_value = mock_erc20
+
+        kicker = _make_kicker(
+            session, web3_client=web3_client, signer=signer,
+            start_price_buffer_bps=1000,
+        )
+        # sell token $0.239, want token $3000 (WETH), balance 1000
+        # lot_value_in_want = 1000 * 0.239 / 3000 * 1.1 = 0.08763333...
+        # ceil → 1
+        candidate = _make_candidate(
+            price_usd="0.239", want_price_usd="3000", normalized_balance="1000",
+        )
+        result = await kicker.kick(candidate, "run-1")
+
+    assert result.status == "CONFIRMED"
+    # ceil(0.0877) = 1
+    assert result.starting_price == "1"
+
+
+@pytest.mark.asyncio
+async def test_starting_price_ceil_ensures_nonzero(session):
+    """Very small lot value should ceil to at least 1."""
+    web3_client = _make_web3_client_through_gas_estimate()
+    web3_client.get_transaction_count = AsyncMock(return_value=5)
+    web3_client.send_raw_transaction = AsyncMock(return_value="0xtxhash_sp3")
+    web3_client.get_transaction_receipt = AsyncMock(return_value={
+        "status": 1,
+        "gasUsed": 180000,
+        "effectiveGasPrice": int(12 * 1e9),
+        "blockNumber": 70002,
+    })
+
+    signer = MagicMock()
+    signer.address = "0xcccccccccccccccccccccccccccccccccccccccc"
+    signer.checksum_address = "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+    signer.sign_transaction = MagicMock(return_value=b"\x00" * 32)
+
+    with patch(
+        "factory_dashboard.chain.contracts.erc20.ERC20Reader"
+    ) as MockERC20:
+        mock_erc20 = AsyncMock()
+        # Very small balance: 0.001 tokens (1e15 raw with 18 decimals)
+        mock_erc20.read_balance = AsyncMock(return_value=10**15)
+        MockERC20.return_value = mock_erc20
+
+        kicker = _make_kicker(
+            session, web3_client=web3_client, signer=signer,
+            start_price_buffer_bps=1000,
+            usd_threshold=0.0,  # disable threshold so tiny balance isn't skipped
+        )
+        # sell token $0.01, want token $1, balance 0.001
+        # lot_value_in_want = 0.001 * 0.01 / 1.0 * 1.1 = 0.000011
+        # ceil → 1
+        candidate = _make_candidate(
+            price_usd="0.01", want_price_usd="1.0", normalized_balance="0.001",
+        )
+        result = await kicker.kick(candidate, "run-1")
+
+    assert result.status == "CONFIRMED"
+    assert result.starting_price == "1"
+
+
+@pytest.mark.asyncio
+async def test_starting_price_real_tx_scenario(session):
+    """Reproduce the real broken tx: sell ~$0.239 token to USDC, 1000 tokens.
+
+    Old code: startingPrice = 262763600000000000 (WAD-scaled, astronomically wrong)
+    New code: startingPrice = 263 (correct lot value in USDC units)
+    """
+    web3_client = _make_web3_client_through_gas_estimate()
+    web3_client.get_transaction_count = AsyncMock(return_value=5)
+    web3_client.send_raw_transaction = AsyncMock(return_value="0xtxhash_sp4")
+    web3_client.get_transaction_receipt = AsyncMock(return_value={
+        "status": 1,
+        "gasUsed": 180000,
+        "effectiveGasPrice": int(12 * 1e9),
+        "blockNumber": 70003,
+    })
+
+    signer = MagicMock()
+    signer.address = "0xcccccccccccccccccccccccccccccccccccccccc"
+    signer.checksum_address = "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+    signer.sign_transaction = MagicMock(return_value=b"\x00" * 32)
+
+    with patch(
+        "factory_dashboard.chain.contracts.erc20.ERC20Reader"
+    ) as MockERC20:
+        mock_erc20 = AsyncMock()
+        mock_erc20.read_balance = AsyncMock(return_value=1000 * 10**18)
+        MockERC20.return_value = mock_erc20
+
+        kicker = _make_kicker(
+            session, web3_client=web3_client, signer=signer,
+            start_price_buffer_bps=1000,  # 10%
+        )
+        # sell token $0.239, want token USDC $1.0, 1000 tokens
+        # lot_value_in_want = 1000 * 0.239 / 1.0 * 1.1 = 262.9 → ceil = 263
+        candidate = _make_candidate(
+            price_usd="0.239", want_price_usd="1.0", normalized_balance="1000",
+        )
+        result = await kicker.kick(candidate, "run-1")
+
+    assert result.status == "CONFIRMED"
+    assert result.starting_price == "263"
+    # Verify it's NOT the old broken WAD-scaled value
+    assert int(result.starting_price) < 10**6  # sanity: reasonable integer, not 1e17

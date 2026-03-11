@@ -20,7 +20,7 @@ def session():
         yield s
 
 
-def _seed_data(session, *, auction_address="0xauction", price_status="SUCCESS", price_usd="2.5", scanned_at=None, price_fetched_at=None):
+def _seed_data(session, *, auction_address="0xauction", want_address="0xwant1", price_status="SUCCESS", price_usd="2.5", scanned_at=None, price_fetched_at=None):
     now = datetime.now(timezone.utc)
     scanned_at = scanned_at or now.isoformat()
     price_fetched_at = price_fetched_at or now.isoformat()
@@ -32,6 +32,7 @@ def _seed_data(session, *, auction_address="0xauction", price_status="SUCCESS", 
         adapter="yearn_curve_strategy",
         active=1,
         auction_address=auction_address,
+        want_address=want_address,
         first_seen_at=now.isoformat(),
         last_seen_at=now.isoformat(),
     ))
@@ -42,6 +43,18 @@ def _seed_data(session, *, auction_address="0xauction", price_status="SUCCESS", 
         is_core_reward=1,
         price_usd=price_usd,
         price_status=price_status,
+        price_fetched_at=price_fetched_at,
+        first_seen_at=now.isoformat(),
+        last_seen_at=now.isoformat(),
+    ))
+    # Want token (e.g. USDC at $1).
+    session.execute(insert(models.tokens).values(
+        address="0xwant1",
+        chain_id=1,
+        decimals=6,
+        is_core_reward=0,
+        price_usd="1.0",
+        price_status="SUCCESS",
         price_fetched_at=price_fetched_at,
         first_seen_at=now.isoformat(),
         last_seen_at=now.isoformat(),
@@ -110,6 +123,7 @@ def _make_candidate(**overrides):
         "auction_address": "0xauction1",
         "normalized_balance": "1000",
         "price_usd": "2.5",
+        "want_price_usd": "1.0",
         "usd_value": 2500.0,
         "decimals": 18,
     }

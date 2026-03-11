@@ -28,6 +28,8 @@ def shortlist_candidates(
         now.timestamp() - max_data_age_seconds, tz=timezone.utc
     ).isoformat()
 
+    want_tokens = models.tokens.alias("want_tokens")
+
     stmt = (
         select(
             models.strategy_token_balances_latest.c.strategy_address,
@@ -35,6 +37,7 @@ def shortlist_candidates(
             models.strategies.c.auction_address,
             models.strategy_token_balances_latest.c.normalized_balance,
             models.tokens.c.price_usd,
+            want_tokens.c.price_usd.label("want_price_usd"),
             models.tokens.c.decimals,
             models.strategy_token_balances_latest.c.scanned_at,
             models.tokens.c.price_fetched_at,
@@ -48,12 +51,18 @@ def shortlist_candidates(
                 models.tokens,
                 models.strategy_token_balances_latest.c.token_address
                 == models.tokens.c.address,
+            ).join(
+                want_tokens,
+                models.strategies.c.want_address == want_tokens.c.address,
             )
         )
         .where(
             models.strategies.c.auction_address.isnot(None),
+            models.strategies.c.want_address.isnot(None),
             models.tokens.c.price_status == "SUCCESS",
             models.tokens.c.price_usd.isnot(None),
+            want_tokens.c.price_status == "SUCCESS",
+            want_tokens.c.price_usd.isnot(None),
             models.strategy_token_balances_latest.c.scanned_at >= min_timestamp,
             models.tokens.c.price_fetched_at >= min_timestamp,
         )
@@ -78,6 +87,7 @@ def shortlist_candidates(
                 auction_address=row["auction_address"],
                 normalized_balance=row["normalized_balance"],
                 price_usd=row["price_usd"],
+                want_price_usd=row["want_price_usd"],
                 usd_value=usd_value,
                 decimals=row["decimals"],
             )

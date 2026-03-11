@@ -162,6 +162,7 @@ class FakeStrategyAuctionMapper:
         mapped_count = sum(1 for strategy in strategy_set if self.cached_mapping.get(strategy))
         return AuctionMappingRefreshResult(
             strategy_to_auction={strategy: self.cached_mapping.get(strategy) for strategy in strategy_set},
+            strategy_to_want={strategy: None for strategy in strategy_set},
             auction_count=4,
             governance_allowed_auction_count=2,
             mapped_count=mapped_count,

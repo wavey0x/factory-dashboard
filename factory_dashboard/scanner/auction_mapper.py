@@ -16,6 +16,7 @@ from factory_dashboard.normalizers import normalize_address
 @dataclass(slots=True)
 class AuctionMappingRefreshResult:
     strategy_to_auction: dict[str, str | None]
+    strategy_to_want: dict[str, str | None]
     auction_count: int
     governance_allowed_auction_count: int
     mapped_count: int
@@ -76,6 +77,7 @@ class StrategyAuctionMapper:
 
         return AuctionMappingRefreshResult(
             strategy_to_auction=strategy_to_auction,
+            strategy_to_want=strategy_wants,
             auction_count=len(auction_addresses),
             governance_allowed_auction_count=governance_allowed_auction_count,
             mapped_count=mapped_count,
