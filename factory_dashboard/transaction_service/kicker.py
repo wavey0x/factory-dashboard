@@ -263,7 +263,10 @@ class AuctionKicker:
                 sell_amount=sell_amount_str, starting_price=starting_price_str, usd_value=usd_value_str,
             )
 
-        # 7. Interactive confirmation gate.
+        # 7. Resolve priority fee (needed for both confirmation display and signing).
+        priority_fee_wei = await self._resolve_priority_fee_wei()
+
+        # 8. Interactive confirmation gate.
         if self.confirm_fn is not None:
             buffer_pct = self.start_price_buffer_bps / 100
             want_sym = candidate.want_symbol or "want-token"
@@ -283,6 +286,11 @@ class AuctionKicker:
                 "buffer_bps": self.start_price_buffer_bps,
                 "gas_estimate": gas_estimate,
                 "gas_limit": gas_limit,
+                "quote_amount": str(amount_out_normalized),
+                "gas_price_gwei": gas_price_gwei,
+                "priority_fee_gwei": priority_fee_wei / 1e9,
+                "max_fee_gwei": self.max_gas_price_gwei,
+                "gas_cost_eth": gas_estimate * gas_price_gwei / 1e9,
             }
             if not self.confirm_fn(summary):
                 kick_tx_id = self._insert_kick_tx(
@@ -299,10 +307,9 @@ class AuctionKicker:
                     usd_value=usd_value_str,
                 )
 
-        # 8. Sign + send.
+        # 9. Sign + send.
         nonce = await self.web3_client.get_transaction_count(self.signer.address)
 
-        priority_fee_wei = await self._resolve_priority_fee_wei()
         max_fee_wei = self.max_gas_price_gwei * 10**9
 
         full_tx = {
@@ -336,7 +343,7 @@ class AuctionKicker:
 
         logger.info("txn_kick_submitted", tx_hash=tx_hash, kick_tx_id=kick_tx_id, **log_ctx)
 
-        # 9. Wait for receipt.
+        # 10. Wait for receipt.
         try:
             receipt = await self.web3_client.get_transaction_receipt(tx_hash, timeout_seconds=120)
         except Exception as exc:  # noqa: BLE001
@@ -353,7 +360,7 @@ class AuctionKicker:
                 error_message=f"receipt timeout: {exc}",
             )
 
-        # 10. Update to CONFIRMED or REVERTED.
+        # 11. Update to CONFIRMED or REVERTED.
         receipt_status = receipt.get("status", 0)
         receipt_gas_used = receipt.get("gasUsed")
         effective_gas_price = receipt.get("effectiveGasPrice")

@@ -391,6 +391,17 @@ async def test_kick_confirm_fn_declined(session):
     assert "gas_limit" in summary
     assert "buffer_bps" in summary
     assert isinstance(summary["buffer_bps"], int)
+    # New gas/quote fields.
+    assert "quote_amount" in summary
+    assert "gas_price_gwei" in summary
+    assert "priority_fee_gwei" in summary
+    assert "max_fee_gwei" in summary
+    assert "gas_cost_eth" in summary
+    assert float(summary["quote_amount"]) > 0
+    assert summary["gas_price_gwei"] == 10.0  # 10 gwei from mock
+    assert summary["priority_fee_gwei"] == 0.05  # from mock
+    assert summary["max_fee_gwei"] == 50  # max_gas_price_gwei default
+    assert summary["gas_cost_eth"] == pytest.approx(200000 * 10.0 / 1e9)
 
     # Should NOT have tried to send.
     web3_client.get_transaction_count.assert_not_called()

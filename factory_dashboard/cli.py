@@ -126,14 +126,22 @@ def _make_confirm_fn() -> Callable[[dict], bool]:
         amount = float(summary["sell_amount"])
         amount_str = f"{amount:,.4f}" if amount < 1 else f"{amount:,.2f}"
 
+        # Implied want-token USD price from quote.
+        quote_amount = float(summary["quote_amount"])
+        usd_value = float(summary["usd_value"])
+        want_price_str = f"~${usd_value / quote_amount:,.2f}/{want_sym}" if quote_amount else ""
+
+        gas_cost_eth = summary.get("gas_cost_eth", 0)
+        priority_fee = summary.get("priority_fee_gwei", 0)
+        max_fee = summary.get("max_fee_gwei", 0)
+
         content = [
             f"Kick #{counter}",
             f"  Strategy:    {strategy_name} ({short_address(summary['strategy'])})",
-            f"  Sell token:  {token_sym} ({short_address(summary['token'])})",
-            f"  Sell amount: {amount_str} {token_sym} (~${float(summary['usd_value']):,.2f})",
-            f"  Want token:  {want_sym} ({short_address(summary['want_address'])})",
-            f"  Start price: {summary['starting_price_display']}",
-            f"  Gas est:     {summary['gas_estimate']:,} (limit: {summary['gas_limit']:,})",
+            f"  Sell amount: {amount_str} {token_sym} (~${usd_value:,.2f})",
+            f"  Start quote: {summary['starting_price_display']} | {want_price_str}",
+            f"  Gas est:     {summary['gas_estimate']:,} (~{gas_cost_eth:.4f} ETH)",
+            f"  Fees:        priority {priority_fee:.2f} gwei | max {max_fee} gwei",
         ]
 
         width = max(len(line) for line in content)
