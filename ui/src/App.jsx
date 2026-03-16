@@ -627,8 +627,7 @@ export default function App() {
           totalUsdValue,
         };
       })
-      .filter((row) => showZeroBalance || row.balances.length > 0)
-      .filter((row) => showClosedVaults || row.depositLimit !== "0");
+      .filter((row) => (showZeroBalance || row.balances.length > 0) && (showClosedVaults || row.depositLimit !== "0"));
   }, [rows, showZeroBalance, showClosedVaults]);
 
   const filteredRows = useMemo(() => {

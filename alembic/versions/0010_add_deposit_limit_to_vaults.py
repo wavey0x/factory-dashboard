@@ -1,7 +1,7 @@
 """add deposit_limit to vaults
 
-Revision ID: 0009_add_deposit_limit_to_vaults
-Revises: 0008_add_want_address_to_strategies
+Revision ID: 0010_add_deposit_limit_to_vaults
+Revises: 0009_add_auction_version_to_strategies
 Create Date: 2026-03-16 12:00:00.000000
 
 """
@@ -11,8 +11,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "0009_add_deposit_limit_to_vaults"
-down_revision = "0008_add_want_address_to_strategies"
+revision = "0010_add_deposit_limit_to_vaults"
+down_revision = "0009_add_auction_version_to_strategies"
 branch_labels = None
 depends_on = None
 

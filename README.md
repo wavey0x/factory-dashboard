@@ -1,6 +1,19 @@
 # Factory Dashboard
 
-CLI service for discovering Yearn strategies and caching reward token balances in SQLite.
+Monorepo for the Yearn factory dashboard. It contains the scanner that builds the dataset, the transaction service that acts on it, the dashboard UI, and the supporting contracts and schema shared across those pieces.
+
+## Monorepo Layout
+
+- `factory_dashboard/scanner/`: discovers Yearn vaults and strategies, resolves reward tokens, reads balances, refreshes token prices and auction mappings, and writes the latest dashboard state into SQLite.
+- `factory_dashboard/transaction_service/`: reads the scanner's cached state, selects kick candidates, estimates and submits auction kick transactions, and records transaction runs back into SQLite.
+- `ui/`: React dashboard that renders the cached strategy, token, vault, and auction data from the read-only API.
+- `contracts/`: Foundry project for the on-chain `AuctionKicker` helper contract and its deployment/test scripts.
+- `factory_dashboard/persistence/` and `alembic/`: shared database models, repositories, and migrations used by the scanner and transaction service.
+- `factory_dashboard/chain/`, `factory_dashboard/pricing/`, and `factory_dashboard/runtime.py`: shared chain readers, pricing integrations, and service wiring used across the backend components.
+
+Out of scope for this repo:
+
+- the read-only dashboard API that serves `GET /factory-dashboard` from the SQLite database lives separately
 
 ## Quick Start
 
@@ -13,7 +26,7 @@ CLI service for discovering Yearn strategies and caching reward token balances i
    ```bash
    pip install -e ".[dev]"
    ```
-3. Copy `.env.example` to `.env` and set `RPC_URL`.
+3. Edit `scanner.yaml` to configure operational settings. Copy `.env.example` to `.env` and set `RPC_URL`.
 4. Run migrations:
    ```bash
    factory-dashboard db migrate
@@ -76,32 +89,18 @@ The source endpoint is:
 
 The scanner uses `summary.high_price` from the response as the persisted USD value.
 
-Price refresh is bounded by:
+Price refresh is bounded by `price_concurrency`, `price_timeout_seconds`, and `price_retry_attempts` in `scanner.yaml`.
 
-- `PRICE_CONCURRENCY`
-- `PRICE_TIMEOUT_SECONDS`
-- `PRICE_RETRY_ATTEMPTS`
-
-Optional pricing env overrides:
-
-- `TOKEN_PRICE_AGG_BASE_URL`
-- `TOKEN_PRICE_AGG_KEY`
+The pricing endpoint and API key are configured via `token_price_agg_base_url` in `scanner.yaml` and `TOKEN_PRICE_AGG_KEY` in `.env`.
 
 Each scan also backfills validated token logo URLs into `tokens.logo_url` using `token.logo_url` from the same price response.
 
 ## Strategy Auction Mapping
 
 Each scan refreshes strategy-to-auction mappings directly into the `strategies` table.
-Mappings are resolved by matching `strategy.want()` with `auction.want()` for auctions returned by:
+Auctions are fetched via `getAllAuctions()` on the `auction_factory_address` configured in `scanner.yaml`. Matches are resolved by comparing each auction's `receiver` with the strategy address, and the `auction_version` field tracks the factory that produced each auction.
 
-- `getAllAuctions()` on `AUCTION_FACTORY_ADDRESS` (default `0xe87af17acba165686e5aa7de2cec523864c25712`)
-
-Only auctions with governance `0xb634316e06cc0b358437cbadd4dc94f1d3a92b3b` are considered matches.
-
-Optional env overrides:
-
-- `AUCTION_FACTORY_ADDRESS`
-- `MULTICALL_AUCTION_BATCH_CALLS`
+Tuning knobs: `auction_factory_address` and `multicall_auction_batch_calls` in `scanner.yaml`.
 
 ## Dashboard API
 

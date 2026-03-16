@@ -1,4 +1,11 @@
-"""Runtime configuration loading."""
+"""Runtime configuration loading.
+
+Precedence (highest wins): env vars > YAML config > Python defaults.
+
+Secrets (RPC_URL, keystore, Telegram tokens, etc.) live in ``.env`` and are
+promoted to real environment variables by ``load_dotenv()`` before the
+Settings model is constructed.  Operational knobs live in ``scanner.yaml``.
+"""
 
 from __future__ import annotations
 
@@ -6,17 +13,21 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from dotenv import load_dotenv
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Application settings loaded from `.env` and optional config file."""
+    """Application settings.
+
+    Env vars (including ``.env`` via dotenv) take highest priority,
+    then YAML config values, then the defaults declared here.
+    """
 
     model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
         extra="ignore",
+        populate_by_name=True,
     )
 
     rpc_url: str | None = Field(default=None, alias="RPC_URL")
@@ -107,8 +118,25 @@ def _load_yaml_config(path: Path) -> dict[str, Any]:
     return raw
 
 
+_DEFAULT_CONFIG_PATH = Path("scanner.yaml")
+
+
 def load_settings(config_path: Path | None = None) -> Settings:
-    """Load settings from env, optionally overriding with a YAML config file."""
+    """Load settings from YAML config with env-var overrides for secrets.
+
+    1. ``load_dotenv()`` promotes ``.env`` secrets to real env vars.
+    2. YAML values are passed as init kwargs (lower priority than env vars).
+    3. Env vars always win — so secrets in ``.env`` override any YAML key.
+
+    When no explicit path is given, falls back to ``scanner.yaml`` in the
+    current working directory if it exists.
+    """
+    load_dotenv()
+
+    if config_path is None:
+        candidate = Path.cwd() / _DEFAULT_CONFIG_PATH
+        if candidate.is_file():
+            config_path = candidate
 
     if config_path is None:
         return Settings()
