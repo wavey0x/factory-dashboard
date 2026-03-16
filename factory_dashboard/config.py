@@ -4,7 +4,7 @@ Precedence (highest wins): env vars > YAML config > Python defaults.
 
 Secrets (RPC_URL, keystore, Telegram tokens, etc.) live in ``.env`` and are
 promoted to real environment variables by ``load_dotenv()`` before the
-Settings model is constructed.  Operational knobs live in ``scanner.yaml``.
+Settings model is constructed.  Operational knobs live in ``config.yaml``.
 """
 
 from __future__ import annotations
@@ -88,10 +88,12 @@ class Settings(BaseSettings):
     telegram_chat_id: str | None = Field(default=None, alias="TELEGRAM_CHAT_ID")
 
     txn_usd_threshold: float = Field(default=100.0, alias="TXN_USD_THRESHOLD")
-    txn_max_gas_price_gwei: int = Field(default=50, alias="TXN_MAX_GAS_PRICE_GWEI")
+    txn_max_fee_per_gas_gwei: int = Field(default=50, alias="TXN_MAX_FEE_PER_GAS_GWEI")
+    txn_max_base_fee_gwei: float = Field(default=0.5, alias="TXN_MAX_BASE_FEE_GWEI")
     txn_max_priority_fee_gwei: int = Field(default=2, alias="TXN_MAX_PRIORITY_FEE_GWEI")
     txn_max_gas_limit: int = Field(default=500000, alias="TXN_MAX_GAS_LIMIT")
     txn_start_price_buffer_bps: int = Field(default=1000, alias="TXN_START_PRICE_BUFFER_BPS")
+    txn_min_price_buffer_bps: int = Field(default=500, alias="TXN_MIN_PRICE_BUFFER_BPS")
     txn_max_data_age_seconds: int = Field(default=600, alias="TXN_MAX_DATA_AGE_SECONDS")
     txn_keystore_path: str | None = Field(default=None, alias="TXN_KEYSTORE_PATH")
     txn_keystore_passphrase: str | None = Field(default=None, alias="TXN_KEYSTORE_PASSPHRASE")
@@ -118,7 +120,7 @@ def _load_yaml_config(path: Path) -> dict[str, Any]:
     return raw
 
 
-_DEFAULT_CONFIG_PATH = Path("scanner.yaml")
+_DEFAULT_CONFIG_PATH = Path("config.yaml")
 
 
 def load_settings(config_path: Path | None = None) -> Settings:
@@ -128,7 +130,7 @@ def load_settings(config_path: Path | None = None) -> Settings:
     2. YAML values are passed as init kwargs (lower priority than env vars).
     3. Env vars always win — so secrets in ``.env`` override any YAML key.
 
-    When no explicit path is given, falls back to ``scanner.yaml`` in the
+    When no explicit path is given, falls back to ``config.yaml`` in the
     current working directory if it exists.
     """
     load_dotenv()

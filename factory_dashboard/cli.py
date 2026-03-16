@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import Callable
 from pathlib import Path
 
+import structlog
 import typer
 
 from factory_dashboard.config import load_settings
@@ -16,6 +17,8 @@ from factory_dashboard.migrations import run_migrations
 from factory_dashboard.normalizers import short_address
 from factory_dashboard.persistence.db import Database
 from factory_dashboard.runtime import build_scanner_service, build_txn_service, build_web3_client
+
+logger = structlog.get_logger(__name__)
 
 app = typer.Typer(help="Factory dashboard scanner CLI")
 db_app = typer.Typer(help="Database commands")
@@ -154,7 +157,7 @@ def _make_confirm_fn() -> Callable[[dict], bool]:
 
         gas_cost_eth = summary.get("gas_cost_eth", 0)
         priority_fee = summary.get("priority_fee_gwei", 0)
-        max_fee = summary.get("max_fee_gwei", 0)
+        max_fee = summary.get("max_fee_per_gas_gwei", 0)
 
         # Detect when ceiling inflated startingPrice significantly.
         starting_price = int(summary["starting_price"])
@@ -218,9 +221,26 @@ def txn_once(
 
     confirm_fn = _make_confirm_fn() if confirm else None
 
+    skip_base_fee_check = False
+    web3_client = build_web3_client(settings) if live else None
+    if web3_client is not None:
+        base_fee_wei = asyncio.run(web3_client.get_base_fee())
+        base_fee_gwei = base_fee_wei / 1e9
+        if base_fee_gwei > settings.txn_max_base_fee_gwei:
+            typer.echo(
+                f"Warning: base fee is {base_fee_gwei:.2f} gwei (limit: {settings.txn_max_base_fee_gwei} gwei)"
+            )
+            typer.confirm("Continue despite high gas?", default=False, abort=True)
+            skip_base_fee_check = True
+
     db = Database(settings.database_url)
     with db.session() as session:
-        txn_service = build_txn_service(settings, session, confirm_fn=confirm_fn)
+        txn_service = build_txn_service(
+            settings, session,
+            confirm_fn=confirm_fn,
+            skip_base_fee_check=skip_base_fee_check,
+            web3_client=web3_client,
+        )
         result = asyncio.run(txn_service.run_once(live=live))
         typer.echo(
             (
@@ -253,9 +273,25 @@ def txn_daemon(
 
     async def _run() -> None:
         while True:
+            web3_client = build_web3_client(settings)
+            try:
+                base_fee_wei = await web3_client.get_base_fee()
+                base_fee_gwei = base_fee_wei / 1e9
+            except Exception:  # noqa: BLE001
+                base_fee_gwei = 0.0
+
+            if base_fee_gwei > settings.txn_max_base_fee_gwei:
+                logger.info(
+                    "txn_daemon_skip_high_base_fee",
+                    base_fee_gwei=f"{base_fee_gwei:.2f}",
+                    limit_gwei=settings.txn_max_base_fee_gwei,
+                )
+                await asyncio.sleep(sleep_seconds)
+                continue
+
             db = Database(settings.database_url)
             with db.session() as session:
-                txn_service = build_txn_service(settings, session)
+                txn_service = build_txn_service(settings, session, web3_client=web3_client)
                 result = await txn_service.run_once(live=live)
                 typer.echo(
                     (

@@ -65,10 +65,12 @@ def _make_kicker(session, *, web3_client=None, signer=None, price_provider=None,
         "kick_tx_repository": kick_tx_repo,
         "price_provider": price_provider,
         "usd_threshold": 100.0,
-        "max_gas_price_gwei": 50,
+        "max_fee_per_gas_gwei": 50,
+        "max_base_fee_gwei": 0.5,
         "max_priority_fee_gwei": 2,
         "max_gas_limit": 500000,
         "start_price_buffer_bps": 1000,
+        "min_price_buffer_bps": 500,
         "chain_id": 1,
     }
     defaults.update(overrides)
@@ -123,11 +125,11 @@ async def test_kick_balance_read_error(session):
 
 
 @pytest.mark.asyncio
-async def test_kick_gas_price_too_high(session):
-    """When gas price exceeds ceiling, should persist ERROR."""
+async def test_kick_base_fee_too_high(session):
+    """When base fee exceeds limit, should persist ERROR."""
     web3_client = MagicMock()
     web3_client.get_balance = AsyncMock(return_value=int(1 * 1e18))  # 1 ETH
-    web3_client.get_gas_price = AsyncMock(return_value=int(100 * 1e9))  # 100 gwei
+    web3_client.get_base_fee = AsyncMock(return_value=int(1 * 1e9))  # 1 gwei > 0.5 limit
 
     with patch(
         "factory_dashboard.transaction_service.kicker.ERC20Reader"
@@ -136,13 +138,13 @@ async def test_kick_gas_price_too_high(session):
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
         MockERC20.return_value = mock_erc20
 
-        kicker = _make_kicker(session, web3_client=web3_client, max_gas_price_gwei=50)
+        kicker = _make_kicker(session, web3_client=web3_client, max_base_fee_gwei=0.5)
         candidate = _make_candidate()
         result = await kicker.kick(candidate, "run-1")
 
     assert result.status == "ERROR"
-    assert "gas price" in result.error_message
-    assert "exceeds ceiling" in result.error_message
+    assert "base fee" in result.error_message
+    assert "exceeds limit" in result.error_message
 
 
 @pytest.mark.asyncio
@@ -150,7 +152,7 @@ async def test_kick_estimate_failed(session):
     """When estimateGas fails, should persist ESTIMATE_FAILED."""
     web3_client = MagicMock()
     web3_client.get_balance = AsyncMock(return_value=int(1 * 1e18))
-    web3_client.get_gas_price = AsyncMock(return_value=int(10 * 1e9))
+    web3_client.get_base_fee = AsyncMock(return_value=int(0.1 * 1e9))
 
     mock_contract = MagicMock()
     mock_kick_fn = MagicMock()
@@ -181,7 +183,7 @@ async def test_kick_gas_estimate_over_cap(session):
     """When gas estimate exceeds max_gas_limit, should persist ERROR."""
     web3_client = MagicMock()
     web3_client.get_balance = AsyncMock(return_value=int(1 * 1e18))
-    web3_client.get_gas_price = AsyncMock(return_value=int(10 * 1e9))
+    web3_client.get_base_fee = AsyncMock(return_value=int(0.1 * 1e9))
 
     mock_contract = MagicMock()
     mock_kick_fn = MagicMock()
@@ -210,7 +212,7 @@ async def test_kick_confirmed(session):
     """Full happy path: estimate → sign → send → receipt confirmed."""
     web3_client = MagicMock()
     web3_client.get_balance = AsyncMock(return_value=int(1 * 1e18))
-    web3_client.get_gas_price = AsyncMock(return_value=int(10 * 1e9))
+    web3_client.get_base_fee = AsyncMock(return_value=int(0.1 * 1e9))
     web3_client.get_max_priority_fee = AsyncMock(return_value=int(0.05 * 1e9))
     web3_client.estimate_gas = AsyncMock(return_value=200000)
     web3_client.get_transaction_count = AsyncMock(return_value=5)
@@ -260,7 +262,7 @@ async def test_kick_reverted(session):
     """Receipt shows reverted → status should be REVERTED."""
     web3_client = MagicMock()
     web3_client.get_balance = AsyncMock(return_value=int(1 * 1e18))
-    web3_client.get_gas_price = AsyncMock(return_value=int(10 * 1e9))
+    web3_client.get_base_fee = AsyncMock(return_value=int(0.1 * 1e9))
     web3_client.get_max_priority_fee = AsyncMock(return_value=int(0.05 * 1e9))
     web3_client.estimate_gas = AsyncMock(return_value=200000)
     web3_client.get_transaction_count = AsyncMock(return_value=5)
@@ -304,7 +306,7 @@ async def test_kick_receipt_timeout_stays_submitted(session):
     """When receipt times out, row stays SUBMITTED."""
     web3_client = MagicMock()
     web3_client.get_balance = AsyncMock(return_value=int(1 * 1e18))
-    web3_client.get_gas_price = AsyncMock(return_value=int(10 * 1e9))
+    web3_client.get_base_fee = AsyncMock(return_value=int(0.1 * 1e9))
     web3_client.get_max_priority_fee = AsyncMock(return_value=int(0.05 * 1e9))
     web3_client.estimate_gas = AsyncMock(return_value=200000)
     web3_client.get_transaction_count = AsyncMock(return_value=5)
@@ -345,7 +347,7 @@ def _make_web3_client_through_gas_estimate(gas_estimate=200000):
     """Build a mock web3_client that passes all checks up through gas estimation."""
     web3_client = MagicMock()
     web3_client.get_balance = AsyncMock(return_value=int(1 * 1e18))
-    web3_client.get_gas_price = AsyncMock(return_value=int(10 * 1e9))
+    web3_client.get_base_fee = AsyncMock(return_value=int(0.1 * 1e9))
     web3_client.get_max_priority_fee = AsyncMock(return_value=int(0.05 * 1e9))
     web3_client.estimate_gas = AsyncMock(return_value=gas_estimate)
 
@@ -387,21 +389,25 @@ async def test_kick_confirm_fn_declined(session):
     assert "token_symbol" in summary
     assert "want_symbol" in summary
     assert "starting_price_display" in summary
+    assert "minimum_price" in summary
+    assert "minimum_price_display" in summary
     assert "gas_estimate" in summary
     assert "gas_limit" in summary
     assert "buffer_bps" in summary
+    assert "min_buffer_bps" in summary
     assert isinstance(summary["buffer_bps"], int)
+    assert isinstance(summary["min_buffer_bps"], int)
     # New gas/quote fields.
     assert "quote_amount" in summary
-    assert "gas_price_gwei" in summary
+    assert "base_fee_gwei" in summary
     assert "priority_fee_gwei" in summary
-    assert "max_fee_gwei" in summary
+    assert "max_fee_per_gas_gwei" in summary
     assert "gas_cost_eth" in summary
     assert float(summary["quote_amount"]) > 0
-    assert summary["gas_price_gwei"] == 10.0  # 10 gwei from mock
+    assert summary["base_fee_gwei"] == 0.1  # 0.1 gwei from mock
     assert summary["priority_fee_gwei"] == 0.05  # from mock
-    assert summary["max_fee_gwei"] == 50  # max_gas_price_gwei default
-    assert summary["gas_cost_eth"] == pytest.approx(200000 * 10.0 / 1e9)
+    assert summary["max_fee_per_gas_gwei"] == 50  # max_fee_per_gas_gwei default
+    assert summary["gas_cost_eth"] == pytest.approx(200000 * 0.1 / 1e9)
 
     # Should NOT have tried to send.
     web3_client.get_transaction_count.assert_not_called()
@@ -952,3 +958,105 @@ async def test_kick_quote_no_amount_out(session):
     rows = session.execute(select(models.kick_txs)).mappings().all()
     assert len(rows) == 1
     assert "no quote available" in rows[0]["error_message"]
+
+
+# ---------------------------------------------------------------------------
+# Minimum price derivation tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_minimum_price_derived_from_quote(session):
+    """minimumPrice = floor(quote * 0.95) with default 500 bps (5%) buffer."""
+    web3_client = _make_web3_client_through_gas_estimate()
+    web3_client.get_transaction_count = AsyncMock(return_value=5)
+    web3_client.send_raw_transaction = AsyncMock(return_value="0xtxhash_mp1")
+    web3_client.get_transaction_receipt = AsyncMock(return_value={
+        "status": 1,
+        "gasUsed": 180000,
+        "effectiveGasPrice": int(12 * 1e9),
+        "blockNumber": 80000,
+    })
+
+    signer = MagicMock()
+    signer.address = "0xcccccccccccccccccccccccccccccccccccccccc"
+    signer.checksum_address = "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+    signer.sign_transaction = MagicMock(return_value=b"\x00" * 32)
+
+    # Quote returns 2500 USDC (6 decimals).
+    # startingPrice = ceil(2500 * 1.10) = 2750
+    # minimumPrice  = floor(2500 * 0.95) = 2375
+    price_provider = AsyncMock()
+    price_provider.quote = AsyncMock(
+        return_value=QuoteResult(amount_out_raw=2_500_000_000, token_out_decimals=6)
+    )
+
+    with patch(
+        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+    ) as MockERC20:
+        mock_erc20 = AsyncMock()
+        mock_erc20.read_balance = AsyncMock(return_value=1000 * 10**18)
+        MockERC20.return_value = mock_erc20
+
+        kicker = _make_kicker(
+            session, web3_client=web3_client, signer=signer,
+            price_provider=price_provider,
+            start_price_buffer_bps=1000,
+            min_price_buffer_bps=500,
+        )
+        candidate = _make_candidate(price_usd="2.5", normalized_balance="1000")
+        result = await kicker.kick(candidate, "run-1")
+
+    assert result.status == "CONFIRMED"
+    assert result.starting_price == "2750"
+    assert result.minimum_price == "2375"
+
+    rows = session.execute(select(models.kick_txs)).mappings().all()
+    assert len(rows) == 1
+    assert rows[0]["minimum_price"] == "2375"
+
+
+@pytest.mark.asyncio
+async def test_minimum_price_clamps_to_zero(session):
+    """When quote is tiny, minimumPrice should clamp to 0 rather than go negative."""
+    web3_client = _make_web3_client_through_gas_estimate()
+    web3_client.get_transaction_count = AsyncMock(return_value=5)
+    web3_client.send_raw_transaction = AsyncMock(return_value="0xtxhash_mp2")
+    web3_client.get_transaction_receipt = AsyncMock(return_value={
+        "status": 1,
+        "gasUsed": 180000,
+        "effectiveGasPrice": int(12 * 1e9),
+        "blockNumber": 80001,
+    })
+
+    signer = MagicMock()
+    signer.address = "0xcccccccccccccccccccccccccccccccccccccccc"
+    signer.checksum_address = "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+    signer.sign_transaction = MagicMock(return_value=b"\x00" * 32)
+
+    # Quote returns 10 raw USDC (6 decimals) = 0.00001 USDC.
+    # floor(0.00001 * 0.95) = floor(0.0000095) = 0
+    price_provider = AsyncMock()
+    price_provider.quote = AsyncMock(
+        return_value=QuoteResult(amount_out_raw=10, token_out_decimals=6)
+    )
+
+    with patch(
+        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+    ) as MockERC20:
+        mock_erc20 = AsyncMock()
+        mock_erc20.read_balance = AsyncMock(return_value=10**15)
+        MockERC20.return_value = mock_erc20
+
+        kicker = _make_kicker(
+            session, web3_client=web3_client, signer=signer,
+            price_provider=price_provider,
+            start_price_buffer_bps=1000,
+            min_price_buffer_bps=500,
+            usd_threshold=0.0,
+        )
+        candidate = _make_candidate(price_usd="0.01", normalized_balance="0.001")
+        result = await kicker.kick(candidate, "run-1")
+
+    assert result.status == "CONFIRMED"
+    assert result.minimum_price == "0"

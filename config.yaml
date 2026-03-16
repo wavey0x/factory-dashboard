@@ -37,9 +37,11 @@ telegram_alerts_enabled: false
 
 # ── Transaction Service ──────────────────────────────
 txn_usd_threshold: 100
-txn_max_gas_price_gwei: 50
+txn_max_fee_per_gas_gwei: 50
+txn_max_base_fee_gwei: 0.5
 txn_max_priority_fee_gwei: 2
 txn_max_gas_limit: 500000
 txn_start_price_buffer_bps: 1000
+txn_min_price_buffer_bps: 500
 txn_max_data_age_seconds: 600
 txn_cooldown_seconds: 3600

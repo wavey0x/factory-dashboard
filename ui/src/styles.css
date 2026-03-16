@@ -169,7 +169,7 @@ body {
 
 .controls {
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(320px, 2.2fr) minmax(180px, 0.9fr) auto auto;
   gap: 12px;
   align-items: end;
   border-bottom: 1px solid var(--divider-subtle);
@@ -183,6 +183,23 @@ body {
   font-size: 11px;
   letter-spacing: 0.03em;
   text-transform: uppercase;
+}
+
+.control {
+  min-width: 0;
+}
+
+.control-search {
+  min-width: 0;
+}
+
+.control-token {
+  min-width: 0;
+  max-width: 240px;
+}
+
+.control-token select {
+  text-overflow: ellipsis;
 }
 
 .controls select,

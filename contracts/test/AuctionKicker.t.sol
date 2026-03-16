@@ -22,12 +22,12 @@ contract AuctionKickerTest is Test {
     event OwnerUpdated(address indexed owner);
     event KeeperUpdated(address indexed account, bool allowed);
     event Kicked(
-        address indexed strategy, address indexed auction, address sellToken, uint256 sellAmount, uint256 startingPrice
+        address indexed strategy, address indexed auction, address sellToken, uint256 sellAmount, uint256 startingPrice, uint256 minimumPrice
     );
 
     address internal constant TRADE_HANDLER = 0xb634316E06cC0B358437CbadD4dC94F1D3a92B3b;
-    address internal constant AUCTION = 0x9D252f3da6E1c59EF1804657b59fC4129f70eD04;
-    address internal constant ALT_AUCTION = 0x2232Fd50CBF9d500B4b624Bfe126F09caf3d24B8;
+    address internal constant AUCTION = 0x785cf728913e92DC5b24162DCBeE7A41E7de5747;
+    address internal constant ALT_AUCTION = 0x1721A935063EcFBc1542f15E028e7c2FCe52B169;
     address internal constant STRATEGY = 0x9AD3047D578e79187f0FaEEf26729097a4973325;
     address internal constant CRV = 0xD533a949740bb3306d119CC777fa900bA034cd52;
 
@@ -51,6 +51,10 @@ contract AuctionKickerTest is Test {
         stdstore.target(CRV).sig("allowance(address,address)").with_key(STRATEGY).with_key(TRADE_HANDLER).checked_write(
             type(uint256).max
         );
+
+        // Enable CRV in the 1.0.4 auction (governance == TRADE_HANDLER).
+        vm.prank(TRADE_HANDLER);
+        IAuction(AUCTION).enable(CRV);
     }
 
     function test_constructor_emitsOwnerUpdated() public {
@@ -91,6 +95,7 @@ contract AuctionKickerTest is Test {
     function test_happyPath_transfers_setsPrice_kicks() public {
         uint256 amount = 100e18;
         uint256 startingPrice = 2e18;
+        uint256 minimumPrice = 1e18;
 
         uint256 strategyBaseBalance = IERC20(CRV).balanceOf(STRATEGY);
         uint256 auctionStartBalance = IERC20(CRV).balanceOf(AUCTION);
@@ -99,29 +104,59 @@ contract AuctionKickerTest is Test {
         vm.warp(block.timestamp + 8 days);
 
         vm.expectEmit(true, true, false, true);
-        emit Kicked(STRATEGY, AUCTION, CRV, amount, startingPrice);
+        emit Kicked(STRATEGY, AUCTION, CRV, amount, startingPrice, minimumPrice);
 
         vm.prank(keeper);
-        kicker.kick(STRATEGY, AUCTION, CRV, amount, startingPrice);
+        kicker.kick(STRATEGY, AUCTION, CRV, amount, startingPrice, minimumPrice);
 
         assertEq(IERC20(CRV).balanceOf(STRATEGY), strategyBaseBalance);
         assertEq(IERC20(CRV).balanceOf(AUCTION), auctionStartBalance + amount);
         assertEq(IAuction(AUCTION).startingPrice(), startingPrice);
+        assertEq(IAuction(AUCTION).minimumPrice(), minimumPrice);
     }
 
     function test_revert_notKeeperOrOwner() public {
         vm.expectRevert("unauthorized");
         vm.prank(makeAddr("not-authorized"));
-        kicker.kick(STRATEGY, AUCTION, CRV, 1e18, 1e18);
+        kicker.kick(STRATEGY, AUCTION, CRV, 1e18, 1e18, 0);
     }
 
     function test_revert_startingPriceZero() public {
         vm.expectRevert("starting price zero");
-        kicker.kick(STRATEGY, AUCTION, CRV, 1e18, 0);
+        kicker.kick(STRATEGY, AUCTION, CRV, 1e18, 0, 0);
     }
 
     function test_revert_wantMismatch() public {
         vm.expectRevert("want mismatch");
-        kicker.kick(STRATEGY, ALT_AUCTION, CRV, 1e18, 1e18);
+        kicker.kick(STRATEGY, ALT_AUCTION, CRV, 1e18, 1e18, 0);
+    }
+
+    function test_revert_receiverMismatch() public {
+        // Stub ALT_AUCTION.want() to return strategy's want so the want check passes.
+        address strategyWant = IAuction(AUCTION).want();
+        vm.mockCall(
+            ALT_AUCTION,
+            abi.encodeWithSelector(IAuction.want.selector),
+            abi.encode(strategyWant)
+        );
+
+        vm.expectRevert("receiver mismatch");
+        kicker.kick(STRATEGY, ALT_AUCTION, CRV, 1e18, 1e18, 0);
+    }
+
+    function test_minimumPrice_zeroAllowed() public {
+        uint256 amount = 100e18;
+        uint256 startingPrice = 2e18;
+        uint256 minimumPrice = 0;
+
+        uint256 strategyBaseBalance = IERC20(CRV).balanceOf(STRATEGY);
+        deal(CRV, STRATEGY, strategyBaseBalance + amount);
+
+        vm.warp(block.timestamp + 8 days);
+
+        vm.prank(keeper);
+        kicker.kick(STRATEGY, AUCTION, CRV, amount, startingPrice, minimumPrice);
+
+        assertEq(IAuction(AUCTION).minimumPrice(), 0);
     }
 }

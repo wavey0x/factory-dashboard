@@ -172,6 +172,7 @@ AUCTION_KICKER_ABI = [
             {"internalType": "address", "name": "sellToken", "type": "address"},
             {"internalType": "uint256", "name": "sellAmount", "type": "uint256"},
             {"internalType": "uint256", "name": "startingPrice", "type": "uint256"},
+            {"internalType": "uint256", "name": "minimumPrice", "type": "uint256"},
         ],
         "name": "kick",
         "outputs": [],

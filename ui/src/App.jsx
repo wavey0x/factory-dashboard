@@ -234,15 +234,16 @@ function EntityIdentity({ primary, secondary, address }) {
 }
 
 function EtherscanTxLink({ txHash }) {
+  const normalized = txHash.startsWith("0x") ? txHash : `0x${txHash}`;
   return (
     <a
       className="etherscan-link mono"
-      href={`${ETHERSCAN_TX_URL}${txHash}`}
-      title={txHash}
+      href={`${ETHERSCAN_TX_URL}${normalized}`}
+      title={normalized}
       target="_blank"
       rel="noopener noreferrer"
     >
-      {shortenAddress(txHash)}
+      {shortenAddress(normalized)}
     </a>
   );
 }
@@ -771,7 +772,16 @@ export default function App() {
       </section>
 
       <section className="controls">
-        <label>
+        <label className="control control-search">
+          <span>Search</span>
+          <input
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            placeholder="strategy, vault, auction, token symbol, address"
+          />
+        </label>
+
+        <label className="control control-token">
           <span>Token</span>
           <select
             value={selectedToken}
@@ -786,22 +796,13 @@ export default function App() {
           </select>
         </label>
 
-        <label>
-          <span>Search</span>
-          <input
-            value={searchTerm}
-            onChange={(event) => setSearchTerm(event.target.value)}
-            placeholder="strategy, vault, auction, token symbol, address"
-          />
-        </label>
-
         <label className="zero-balance-toggle">
           <input
             type="checkbox"
             checked={showZeroBalance}
             onChange={(e) => setShowZeroBalance(e.target.checked)}
           />
-          <span>Show strategies with 0 reward balances</span>
+          <span>Show strats with 0 rewards</span>
         </label>
 
         <label className="zero-balance-toggle">
@@ -810,7 +811,7 @@ export default function App() {
             checked={showClosedVaults}
             onChange={(e) => setShowClosedVaults(e.target.checked)}
           />
-          <span>Show vaults with 0 deposit limit</span>
+          <span>Show retired vaults</span>
         </label>
       </section>
 

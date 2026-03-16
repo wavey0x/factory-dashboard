@@ -5,9 +5,10 @@ allowlisted in TradeHandler and then atomically:
 
 1. transfer CRV from a strategy to the Auction
 2. set Auction starting price
-3. kick the Auction
+3. set Auction minimum price
+4. kick the Auction
 
-The mech builds a fixed 3-step Weiroll command program from typed inputs and
+The mech builds a fixed 4-step Weiroll command program from typed inputs and
 does not accept arbitrary command/state payloads. `kick(...)` receives an
 auction parameter and validates `auction.want() == strategy.want()`. The
 TradeHandler is hardcoded to

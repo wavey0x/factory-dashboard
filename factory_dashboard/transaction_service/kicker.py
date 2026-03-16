@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from decimal import ROUND_CEILING, Decimal
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 
 import structlog
 from eth_utils import to_checksum_address
@@ -39,10 +39,12 @@ class AuctionKicker:
         kick_tx_repository: KickTxRepository,
         price_provider: TokenPriceAggProvider,
         usd_threshold: float,
-        max_gas_price_gwei: int,
+        max_fee_per_gas_gwei: int,
+        max_base_fee_gwei: float | None,
         max_priority_fee_gwei: int,
         max_gas_limit: int,
         start_price_buffer_bps: int,
+        min_price_buffer_bps: int,
         chain_id: int,
         confirm_fn: Callable[[dict], bool] | None = None,
     ):
@@ -51,10 +53,12 @@ class AuctionKicker:
         self.kick_tx_repository = kick_tx_repository
         self.price_provider = price_provider
         self.usd_threshold = usd_threshold
-        self.max_gas_price_gwei = max_gas_price_gwei
+        self.max_fee_per_gas_gwei = max_fee_per_gas_gwei
+        self.max_base_fee_gwei = max_base_fee_gwei
         self.max_priority_fee_gwei = max_priority_fee_gwei
         self.max_gas_limit = max_gas_limit
         self.start_price_buffer_bps = start_price_buffer_bps
+        self.min_price_buffer_bps = min_price_buffer_bps
         self.chain_id = chain_id
         self.confirm_fn = confirm_fn
 
@@ -77,6 +81,7 @@ class AuctionKicker:
         error_message: str | None = None,
         sell_amount: str | None = None,
         starting_price: str | None = None,
+        minimum_price: str | None = None,
         usd_value: str | None = None,
         tx_hash: str | None = None,
     ) -> int:
@@ -95,6 +100,8 @@ class AuctionKicker:
             row["sell_amount"] = sell_amount
         if starting_price is not None:
             row["starting_price"] = starting_price
+        if minimum_price is not None:
+            row["minimum_price"] = minimum_price
         if usd_value is not None:
             row["usd_value"] = usd_value
         if tx_hash is not None:
@@ -111,13 +118,15 @@ class AuctionKicker:
         error_message: str,
         sell_amount: str | None = None,
         starting_price: str | None = None,
+        minimum_price: str | None = None,
         usd_value: str | None = None,
     ) -> KickResult:
         """Insert a kick_tx row and return a terminal KickResult."""
         kick_tx_id = self._insert_kick_tx(
             run_id, candidate, now_iso,
             status=status, error_message=error_message,
-            sell_amount=sell_amount, starting_price=starting_price, usd_value=usd_value,
+            sell_amount=sell_amount, starting_price=starting_price,
+            minimum_price=minimum_price, usd_value=usd_value,
         )
         return KickResult(kick_tx_id=kick_tx_id, status=status, error_message=error_message)
 
@@ -193,8 +202,12 @@ class AuctionKicker:
                 ceiled_value=starting_price_raw,
             )
 
+        min_buffer = Decimal(1) - Decimal(self.min_price_buffer_bps) / Decimal(10_000)
+        minimum_price_raw = max(0, int((amount_out_normalized * min_buffer).to_integral_value(rounding=ROUND_FLOOR)))
+
         sell_amount_str = str(sell_amount)
         starting_price_str = str(starting_price_raw)
+        minimum_price_str = str(minimum_price_raw)
         usd_value_str = str(live_usd_value)
 
         log_ctx = {
@@ -203,27 +216,30 @@ class AuctionKicker:
             "auction": candidate.auction_address,
             "sell_amount": sell_amount_str,
             "starting_price": starting_price_str,
+            "minimum_price": minimum_price_str,
             "usd_value": usd_value_str,
         }
 
-        # 4. Check gas price.
+        # 4. Check base fee.
         try:
-            gas_price_wei = await self.web3_client.get_gas_price()
-            gas_price_gwei = gas_price_wei / 1e9
+            base_fee_wei = await self.web3_client.get_base_fee()
+            base_fee_gwei = base_fee_wei / 1e9
         except Exception as exc:  # noqa: BLE001
             return self._fail(
                 run_id, candidate, now_iso,
-                status=KickStatus.ERROR, error_message=f"gas price check failed: {exc}",
-                sell_amount=sell_amount_str, starting_price=starting_price_str, usd_value=usd_value_str,
+                status=KickStatus.ERROR, error_message=f"base fee check failed: {exc}",
+                sell_amount=sell_amount_str, starting_price=starting_price_str,
+                minimum_price=minimum_price_str, usd_value=usd_value_str,
             )
 
-        if gas_price_gwei > self.max_gas_price_gwei:
-            logger.warning("txn_safety_block", reason="gas_price_high", gas_gwei=gas_price_gwei, **log_ctx)
+        if self.max_base_fee_gwei is not None and base_fee_gwei > self.max_base_fee_gwei:
+            logger.warning("txn_safety_block", reason="base_fee_high", base_fee_gwei=base_fee_gwei, **log_ctx)
             return self._fail(
                 run_id, candidate, now_iso,
                 status=KickStatus.ERROR,
-                error_message=f"gas price {gas_price_gwei:.1f} gwei exceeds ceiling {self.max_gas_price_gwei}",
-                sell_amount=sell_amount_str, starting_price=starting_price_str, usd_value=usd_value_str,
+                error_message=f"base fee {base_fee_gwei:.2f} gwei exceeds limit {self.max_base_fee_gwei}",
+                sell_amount=sell_amount_str, starting_price=starting_price_str,
+                minimum_price=minimum_price_str, usd_value=usd_value_str,
             )
 
         # 5. Build transaction and estimateGas.
@@ -234,6 +250,7 @@ class AuctionKicker:
             to_checksum_address(candidate.token_address),
             sell_amount,
             starting_price_raw,
+            minimum_price_raw,
         )
         tx_data = kick_fn._encode_transaction_data()
 
@@ -251,7 +268,8 @@ class AuctionKicker:
             kick_tx_id = self._insert_kick_tx(
                 run_id, candidate, now_iso,
                 status=KickStatus.ESTIMATE_FAILED, error_message=str(exc),
-                sell_amount=sell_amount_str, starting_price=starting_price_str, usd_value=usd_value_str,
+                sell_amount=sell_amount_str, starting_price=starting_price_str,
+                minimum_price=minimum_price_str, usd_value=usd_value_str,
             )
             return KickResult(
                 kick_tx_id=kick_tx_id,
@@ -259,6 +277,7 @@ class AuctionKicker:
                 error_message=str(exc),
                 sell_amount=sell_amount_str,
                 starting_price=starting_price_str,
+                minimum_price=minimum_price_str,
                 live_balance_raw=live_balance_raw,
                 usd_value=usd_value_str,
             )
@@ -271,7 +290,8 @@ class AuctionKicker:
             return self._fail(
                 run_id, candidate, now_iso,
                 status=KickStatus.ERROR, error_message=error_msg,
-                sell_amount=sell_amount_str, starting_price=starting_price_str, usd_value=usd_value_str,
+                sell_amount=sell_amount_str, starting_price=starting_price_str,
+                minimum_price=minimum_price_str, usd_value=usd_value_str,
             )
 
         # 7. Resolve priority fee (needed for both confirmation display and signing).
@@ -280,6 +300,7 @@ class AuctionKicker:
         # 8. Interactive confirmation gate.
         if self.confirm_fn is not None:
             buffer_pct = self.start_price_buffer_bps / 100
+            min_buffer_pct = self.min_price_buffer_bps / 100
             want_sym = candidate.want_symbol or "want-token"
             summary = {
                 "strategy": candidate.strategy_address,
@@ -291,29 +312,34 @@ class AuctionKicker:
                 "usd_value": usd_value_str,
                 "starting_price": starting_price_str,
                 "starting_price_display": f"{starting_price_raw:,} {want_sym} (incl. {buffer_pct:.0f}% buffer)",
+                "minimum_price": minimum_price_str,
+                "minimum_price_display": f"{minimum_price_raw:,} {want_sym} (minus {min_buffer_pct:.0f}% buffer)",
                 "sell_price_usd": candidate.price_usd,
                 "want_address": candidate.want_address,
                 "want_symbol": candidate.want_symbol,
                 "buffer_bps": self.start_price_buffer_bps,
+                "min_buffer_bps": self.min_price_buffer_bps,
                 "gas_estimate": gas_estimate,
                 "gas_limit": gas_limit,
                 "quote_amount": str(amount_out_normalized),
-                "gas_price_gwei": gas_price_gwei,
+                "base_fee_gwei": base_fee_gwei,
                 "priority_fee_gwei": priority_fee_wei / 1e9,
-                "max_fee_gwei": self.max_gas_price_gwei,
-                "gas_cost_eth": gas_estimate * gas_price_gwei / 1e9,
+                "max_fee_per_gas_gwei": self.max_fee_per_gas_gwei,
+                "gas_cost_eth": gas_estimate * base_fee_gwei / 1e9,
             }
             if not self.confirm_fn(summary):
                 kick_tx_id = self._insert_kick_tx(
                     run_id, candidate, now_iso,
                     status=KickStatus.USER_SKIPPED,
-                    sell_amount=sell_amount_str, starting_price=starting_price_str, usd_value=usd_value_str,
+                    sell_amount=sell_amount_str, starting_price=starting_price_str,
+                    minimum_price=minimum_price_str, usd_value=usd_value_str,
                 )
                 return KickResult(
                     kick_tx_id=kick_tx_id,
                     status=KickStatus.USER_SKIPPED,
                     sell_amount=sell_amount_str,
                     starting_price=starting_price_str,
+                    minimum_price=minimum_price_str,
                     live_balance_raw=live_balance_raw,
                     usd_value=usd_value_str,
                 )
@@ -321,7 +347,7 @@ class AuctionKicker:
         # 9. Sign + send.
         nonce = await self.web3_client.get_transaction_count(self.signer.address)
 
-        max_fee_wei = self.max_gas_price_gwei * 10**9
+        max_fee_wei = self.max_fee_per_gas_gwei * 10**9
 
         full_tx = {
             "to": to_checksum_address(AUCTION_KICKER_ADDRESS),
@@ -342,14 +368,16 @@ class AuctionKicker:
             return self._fail(
                 run_id, candidate, now_iso,
                 status=KickStatus.ERROR, error_message=f"send failed: {exc}",
-                sell_amount=sell_amount_str, starting_price=starting_price_str, usd_value=usd_value_str,
+                sell_amount=sell_amount_str, starting_price=starting_price_str,
+                minimum_price=minimum_price_str, usd_value=usd_value_str,
             )
 
         # Persist SUBMITTED immediately after broadcast.
         kick_tx_id = self._insert_kick_tx(
             run_id, candidate, now_iso,
             status=KickStatus.SUBMITTED, tx_hash=tx_hash,
-            sell_amount=sell_amount_str, starting_price=starting_price_str, usd_value=usd_value_str,
+            sell_amount=sell_amount_str, starting_price=starting_price_str,
+            minimum_price=minimum_price_str, usd_value=usd_value_str,
         )
 
         logger.info("txn_kick_submitted", tx_hash=tx_hash, kick_tx_id=kick_tx_id, **log_ctx)
@@ -366,6 +394,7 @@ class AuctionKicker:
                 tx_hash=tx_hash,
                 sell_amount=sell_amount_str,
                 starting_price=starting_price_str,
+                minimum_price=minimum_price_str,
                 live_balance_raw=live_balance_raw,
                 usd_value=usd_value_str,
                 error_message=f"receipt timeout: {exc}",
@@ -408,6 +437,7 @@ class AuctionKicker:
             block_number=receipt_block,
             sell_amount=sell_amount_str,
             starting_price=starting_price_str,
+            minimum_price=minimum_price_str,
             live_balance_raw=live_balance_raw,
             usd_value=usd_value_str,
         )

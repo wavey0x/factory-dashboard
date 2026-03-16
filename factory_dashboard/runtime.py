@@ -143,7 +143,14 @@ def build_web3_client(settings: Settings) -> Web3Client:
     )
 
 
-def build_txn_service(settings: Settings, session, *, confirm_fn=None):
+def build_txn_service(
+    settings: Settings,
+    session,
+    *,
+    confirm_fn=None,
+    skip_base_fee_check: bool = False,
+    web3_client: Web3Client | None = None,
+):
     from factory_dashboard.persistence.repositories import KickTxRepository, TxnRunRepository
     from factory_dashboard.transaction_service.kicker import AuctionKicker
     from factory_dashboard.transaction_service.service import TxnService
@@ -151,7 +158,8 @@ def build_txn_service(settings: Settings, session, *, confirm_fn=None):
 
     from factory_dashboard.pricing.token_price_agg import TokenPriceAggProvider as _TPA
 
-    web3_client = build_web3_client(settings)
+    if web3_client is None:
+        web3_client = build_web3_client(settings)
     txn_run_repository = TxnRunRepository(session)
     kick_tx_repository = KickTxRepository(session)
 
@@ -174,10 +182,12 @@ def build_txn_service(settings: Settings, session, *, confirm_fn=None):
         kick_tx_repository=kick_tx_repository,
         price_provider=price_provider,
         usd_threshold=settings.txn_usd_threshold,
-        max_gas_price_gwei=settings.txn_max_gas_price_gwei,
+        max_fee_per_gas_gwei=settings.txn_max_fee_per_gas_gwei,
+        max_base_fee_gwei=None if skip_base_fee_check else settings.txn_max_base_fee_gwei,
         max_priority_fee_gwei=settings.txn_max_priority_fee_gwei,
         max_gas_limit=settings.txn_max_gas_limit,
         start_price_buffer_bps=settings.txn_start_price_buffer_bps,
+        min_price_buffer_bps=settings.txn_min_price_buffer_bps,
         chain_id=settings.chain_id,
         confirm_fn=confirm_fn,
     )

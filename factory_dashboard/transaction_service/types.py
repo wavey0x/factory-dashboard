@@ -66,6 +66,7 @@ class KickResult:
     error_message: str | None = None
     sell_amount: str | None = None
     starting_price: str | None = None
+    minimum_price: str | None = None
     live_balance_raw: int | None = None
     usd_value: str | None = None
 

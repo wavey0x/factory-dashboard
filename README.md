@@ -26,7 +26,7 @@ Out of scope for this repo:
    ```bash
    pip install -e ".[dev]"
    ```
-3. Edit `scanner.yaml` to configure operational settings. Copy `.env.example` to `.env` and set `RPC_URL`.
+3. Edit `config.yaml` to configure operational settings. Copy `.env.example` to `.env` and set `RPC_URL`.
 4. Run migrations:
    ```bash
    factory-dashboard db migrate
@@ -89,18 +89,18 @@ The source endpoint is:
 
 The scanner uses `summary.high_price` from the response as the persisted USD value.
 
-Price refresh is bounded by `price_concurrency`, `price_timeout_seconds`, and `price_retry_attempts` in `scanner.yaml`.
+Price refresh is bounded by `price_concurrency`, `price_timeout_seconds`, and `price_retry_attempts` in `config.yaml`.
 
-The pricing endpoint and API key are configured via `token_price_agg_base_url` in `scanner.yaml` and `TOKEN_PRICE_AGG_KEY` in `.env`.
+The pricing endpoint and API key are configured via `token_price_agg_base_url` in `config.yaml` and `TOKEN_PRICE_AGG_KEY` in `.env`.
 
 Each scan also backfills validated token logo URLs into `tokens.logo_url` using `token.logo_url` from the same price response.
 
 ## Strategy Auction Mapping
 
 Each scan refreshes strategy-to-auction mappings directly into the `strategies` table.
-Auctions are fetched via `getAllAuctions()` on the `auction_factory_address` configured in `scanner.yaml`. Matches are resolved by comparing each auction's `receiver` with the strategy address, and the `auction_version` field tracks the factory that produced each auction.
+Auctions are fetched via `getAllAuctions()` on the `auction_factory_address` configured in `config.yaml`. Matches are resolved by comparing each auction's `receiver` with the strategy address, and the `auction_version` field tracks the factory that produced each auction.
 
-Tuning knobs: `auction_factory_address` and `multicall_auction_batch_calls` in `scanner.yaml`.
+Tuning knobs: `auction_factory_address` and `multicall_auction_batch_calls` in `config.yaml`.
 
 ## Dashboard API
 

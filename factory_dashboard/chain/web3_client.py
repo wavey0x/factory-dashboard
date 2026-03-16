@@ -51,6 +51,16 @@ class Web3Client:
 
         return await call_with_retries(_call, attempts=self.retry_attempts)
 
+    async def get_base_fee(self) -> int:
+        async def _call() -> int:
+            block = await asyncio.wait_for(
+                self.w3.eth.get_block("latest"),
+                timeout=self.timeout_seconds,
+            )
+            return int(block["baseFeePerGas"])
+
+        return await call_with_retries(_call, attempts=self.retry_attempts)
+
     async def get_max_priority_fee(self) -> int:
         async def _call() -> int:
             return int(await asyncio.wait_for(self.w3.eth.max_priority_fee, timeout=self.timeout_seconds))
@@ -83,7 +93,7 @@ class Web3Client:
                 self.w3.eth.send_raw_transaction(signed_tx),
                 timeout=self.timeout_seconds,
             )
-            return tx_hash.hex()
+            return "0x" + tx_hash.hex()
 
         return await call_with_retries(_call, attempts=self.retry_attempts)
 

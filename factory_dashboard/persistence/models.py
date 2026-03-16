@@ -147,6 +147,7 @@ kick_txs = Table(
     Column("auction_address", String, nullable=False),
     Column("sell_amount", Text, nullable=True),
     Column("starting_price", Text, nullable=True),
+    Column("minimum_price", Text, nullable=True),
     Column("price_usd", Text, nullable=True),
     Column("usd_value", Text, nullable=True),
     Column("status", String, nullable=False),
