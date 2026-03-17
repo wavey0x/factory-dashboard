@@ -102,6 +102,7 @@ class Settings(BaseSettings):
     txn_keystore_passphrase: str | None = Field(default=None, alias="TXN_KEYSTORE_PASSPHRASE")
 
     txn_cooldown_seconds: int = Field(default=3600, alias="TXN_COOLDOWN_SECONDS")
+    txn_require_curve_quote: bool = Field(default=True, alias="TXN_REQUIRE_CURVE_QUOTE")
 
     @property
     def resolved_db_path(self) -> Path:

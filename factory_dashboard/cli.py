@@ -22,7 +22,7 @@ logger = structlog.get_logger(__name__)
 
 app = typer.Typer(help="Factory dashboard scanner CLI")
 db_app = typer.Typer(help="Database commands")
-scan_app = typer.Typer(help="Scanner commands")
+scan_app = typer.Typer(help="Scanner commands", invoke_without_command=True)
 txn_app = typer.Typer(help="Transaction service commands", invoke_without_command=True)
 
 app.add_typer(db_app, name="db")
@@ -47,11 +47,8 @@ def db_migrate(
     typer.echo("migrations applied")
 
 
-@scan_app.command("once")
-def scan_once(
-    config: Path | None = typer.Option(default=None, exists=True, file_okay=True, dir_okay=False),
-) -> None:
-    """Run a single scan cycle."""
+def _run_scan_once(*, config: Path | None) -> None:
+    """Execute a single scan cycle."""
 
     configure_logging()
     settings = load_settings(config)
@@ -93,6 +90,17 @@ def scan_once(
                 f"elapsed={elapsed:.1f}s"
             )
         )
+
+
+@scan_app.callback()
+def scan(
+    ctx: typer.Context,
+    config: Path | None = typer.Option(default=None, exists=True, file_okay=True, dir_okay=False),
+) -> None:
+    """Run a single scan cycle."""
+    if ctx.invoked_subcommand is not None:
+        return
+    _run_scan_once(config=config)
 
 
 @scan_app.command("daemon")
@@ -159,6 +167,8 @@ def _make_confirm_fn() -> Callable[[dict], bool]:
             want_price_str = f"~${usd_value / quote_amount:,.2f}/{want_sym}" if quote_amount else ""
 
             starting_price = int(k["starting_price"])
+            minimum_price = int(k["minimum_price"])
+            min_usd_str = f"~${usd_value / minimum_price:,.2f}/{want_sym}" if minimum_price else ""
             precision_line = None
             if quote_amount > 0 and starting_price > quote_amount * 2:
                 precision_line = f"               \u21b3 ceiled lot based on {quote_amount:.4f} quote"
@@ -169,6 +179,7 @@ def _make_confirm_fn() -> Callable[[dict], bool]:
                 f"  Auction:     {k['auction']}",
                 f"  Sell amount: {amount_str} {token_sym} (~${usd_value:,.2f})",
                 f"  Start quote: {k['starting_price_display']} | {want_price_str}",
+                f"  Min price:   {k['minimum_price_display']} | {min_usd_str}",
             ]
             if precision_line:
                 content.append(precision_line)

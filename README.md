@@ -33,13 +33,13 @@ Out of scope for this repo:
    ```
 5. Run one scan:
    ```bash
-   factory-dashboard scan once
+   factory-dashboard scan
    ```
 
 ## Commands
 
 - `factory-dashboard db migrate`
-- `factory-dashboard scan once`
+- `factory-dashboard scan`
 - `factory-dashboard scan daemon --interval-seconds 300`
 - `factory-dashboard txn` — dry-run evaluation of kick candidates
 - `factory-dashboard txn --live` — evaluate and send individual kick() transactions per candidate

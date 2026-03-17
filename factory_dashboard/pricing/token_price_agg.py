@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -23,6 +23,12 @@ class TokenPriceQuote:
 class QuoteResult:
     amount_out_raw: int | None
     token_out_decimals: int | None
+    provider_statuses: dict[str, str | None] = field(default_factory=dict)
+    raw_response: dict | None = None
+
+    def curve_quote_available(self) -> bool:
+        """True if the Curve provider contributed to this quote."""
+        return "curve" in self.provider_statuses and self.provider_statuses["curve"] is None
 
 
 class TokenPriceNotFoundError(Exception):
@@ -104,7 +110,19 @@ class TokenPriceAggProvider:
                     except (ValueError, TypeError):
                         pass
 
-        return QuoteResult(amount_out_raw=amount_out_raw, token_out_decimals=token_out_decimals)
+        provider_statuses = {}
+        providers = payload.get("providers")
+        if isinstance(providers, dict):
+            for name, entry in providers.items():
+                if isinstance(entry, dict):
+                    provider_statuses[name] = entry.get("status")
+
+        return QuoteResult(
+            amount_out_raw=amount_out_raw,
+            token_out_decimals=token_out_decimals,
+            provider_statuses=provider_statuses,
+            raw_response=payload if isinstance(payload, dict) else None,
+        )
 
     async def quote_usd(self, token_address: str, token_decimals: int) -> TokenPriceQuote:
         normalized_token = normalize_address(token_address)

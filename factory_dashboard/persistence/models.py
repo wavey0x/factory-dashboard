@@ -156,6 +156,14 @@ kick_txs = Table(
     Column("gas_price_gwei", Text, nullable=True),
     Column("block_number", Integer, nullable=True),
     Column("error_message", Text, nullable=True),
+    Column("quote_amount", Text, nullable=True),
+    Column("quote_response_json", Text, nullable=True),
+    Column("start_price_buffer_bps", Integer, nullable=True),
+    Column("min_price_buffer_bps", Integer, nullable=True),
+    Column("token_symbol", String, nullable=True),
+    Column("want_address", String, nullable=True),
+    Column("want_symbol", String, nullable=True),
+    Column("normalized_balance", Text, nullable=True),
     Column("created_at", String, nullable=False),
 )
 

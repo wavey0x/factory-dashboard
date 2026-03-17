@@ -9,7 +9,7 @@ def test_scan_once_requires_rpc_url(tmp_path, monkeypatch) -> None:
     config_path.write_text("RPC_URL: ''\nDB_PATH: ./test.db\n", encoding="utf-8")
 
     runner = CliRunner()
-    result = runner.invoke(app, ["scan", "once", "--config", str(config_path)])
+    result = runner.invoke(app, ["scan", "--config", str(config_path)])
 
     assert result.exit_code == 1
     assert "RPC_URL is required" in result.output

@@ -191,6 +191,7 @@ def build_txn_service(
         min_price_buffer_bps=settings.txn_min_price_buffer_bps,
         chain_id=settings.chain_id,
         confirm_fn=confirm_fn,
+        require_curve_quote=settings.txn_require_curve_quote,
     )
 
     lock_path = settings.resolved_db_path.parent / "txn_daemon.lock"

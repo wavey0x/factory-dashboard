@@ -10,6 +10,8 @@ from sqlalchemy.orm import Session
 
 from factory_dashboard.persistence import models
 from factory_dashboard.persistence.repositories import KickTxRepository
+import json
+
 from factory_dashboard.pricing.token_price_agg import QuoteResult
 from factory_dashboard.transaction_service.kicker import AuctionKicker, _DEFAULT_PRIORITY_FEE_GWEI
 from factory_dashboard.transaction_service.types import KickCandidate, KickResult, PreparedKick
@@ -73,7 +75,7 @@ def _make_kicker(session, *, web3_client=None, signer=None, price_provider=None,
         price_provider = AsyncMock()
         # Default: 2500 USDC (6 decimals) → with 10% buffer → startingPrice = 2750.
         price_provider.quote = AsyncMock(
-            return_value=QuoteResult(amount_out_raw=2_500_000_000, token_out_decimals=6)
+            return_value=QuoteResult(amount_out_raw=2_500_000_000, token_out_decimals=6, provider_statuses={"curve": None})
         )
 
     kick_tx_repo = KickTxRepository(session)
@@ -91,6 +93,7 @@ def _make_kicker(session, *, web3_client=None, signer=None, price_provider=None,
         "min_price_buffer_bps": 500,
         "auction_kicker_address": "0x2a76c6aD151AF2EDbe16755Fc3BFf67176f01071",
         "chain_id": 1,
+        "require_curve_quote": True,
     }
     defaults.update(overrides)
     return AuctionKicker(**defaults)
@@ -647,7 +650,7 @@ async def test_starting_price_usd_want_token(session):
     # Quote returns 2500 USDC (6 decimals) → with 10% buffer → 2750.
     price_provider = AsyncMock()
     price_provider.quote = AsyncMock(
-        return_value=QuoteResult(amount_out_raw=2_500_000_000, token_out_decimals=6)
+        return_value=QuoteResult(amount_out_raw=2_500_000_000, token_out_decimals=6, provider_statuses={"curve": None})
     )
 
     with patch(
@@ -695,7 +698,7 @@ async def test_starting_price_non_usd_want_token(session):
     # Quote returns ~0.0797 WETH (18 decimals) → with 10% buffer → ceil = 1.
     price_provider = AsyncMock()
     price_provider.quote = AsyncMock(
-        return_value=QuoteResult(amount_out_raw=79_666_666_666_666_667, token_out_decimals=18)
+        return_value=QuoteResult(amount_out_raw=79_666_666_666_666_667, token_out_decimals=18, provider_statuses={"curve": None})
     )
 
     with patch(
@@ -741,7 +744,7 @@ async def test_starting_price_ceil_ensures_nonzero(session):
     # Quote returns 10 raw USDC (6 decimals) = 0.00001 USDC → with 10% buffer → ceil = 1.
     price_provider = AsyncMock()
     price_provider.quote = AsyncMock(
-        return_value=QuoteResult(amount_out_raw=10, token_out_decimals=6)
+        return_value=QuoteResult(amount_out_raw=10, token_out_decimals=6, provider_statuses={"curve": None})
     )
 
     with patch(
@@ -790,7 +793,7 @@ async def test_starting_price_ceiling_logs_precision_loss(session):
     # 1 is >2x of 0.0715, so the warning should fire.
     price_provider = AsyncMock()
     price_provider.quote = AsyncMock(
-        return_value=QuoteResult(amount_out_raw=65_000_000_000_000_000, token_out_decimals=18)
+        return_value=QuoteResult(amount_out_raw=65_000_000_000_000_000, token_out_decimals=18, provider_statuses={"curve": None})
     )
 
     with patch(
@@ -846,7 +849,7 @@ async def test_starting_price_no_precision_loss_warning_when_normal(session):
     # Quote returns 2500 USDC → ceil(2500 * 1.1) = 2750. Not inflated.
     price_provider = AsyncMock()
     price_provider.quote = AsyncMock(
-        return_value=QuoteResult(amount_out_raw=2_500_000_000, token_out_decimals=6)
+        return_value=QuoteResult(amount_out_raw=2_500_000_000, token_out_decimals=6, provider_statuses={"curve": None})
     )
 
     with patch(
@@ -898,7 +901,7 @@ async def test_starting_price_real_tx_scenario(session):
     # Quote returns 239 USDC (6 decimals) → with 10% buffer → ceil(262.9) = 263.
     price_provider = AsyncMock()
     price_provider.quote = AsyncMock(
-        return_value=QuoteResult(amount_out_raw=239_000_000, token_out_decimals=6)
+        return_value=QuoteResult(amount_out_raw=239_000_000, token_out_decimals=6, provider_statuses={"curve": None})
     )
 
     with patch(
@@ -963,7 +966,7 @@ async def test_kick_quote_no_amount_out(session):
 
     price_provider = AsyncMock()
     price_provider.quote = AsyncMock(
-        return_value=QuoteResult(amount_out_raw=None, token_out_decimals=6)
+        return_value=QuoteResult(amount_out_raw=None, token_out_decimals=6, provider_statuses={"curve": None})
     )
 
     with patch(
@@ -1012,7 +1015,7 @@ async def test_minimum_price_derived_from_quote(session):
     # minimumPrice  = floor(2500 * 0.95) = 2375
     price_provider = AsyncMock()
     price_provider.quote = AsyncMock(
-        return_value=QuoteResult(amount_out_raw=2_500_000_000, token_out_decimals=6)
+        return_value=QuoteResult(amount_out_raw=2_500_000_000, token_out_decimals=6, provider_statuses={"curve": None})
     )
 
     with patch(
@@ -1062,7 +1065,7 @@ async def test_minimum_price_clamps_to_zero(session):
     # floor(0.00001 * 0.95) = floor(0.0000095) = 0
     price_provider = AsyncMock()
     price_provider.quote = AsyncMock(
-        return_value=QuoteResult(amount_out_raw=10, token_out_decimals=6)
+        return_value=QuoteResult(amount_out_raw=10, token_out_decimals=6, provider_statuses={"curve": None})
     )
 
     with patch(
@@ -1365,3 +1368,215 @@ async def test_execute_batch_confirm_summary_schema(session):
     assert "quote_amount" in kick
     assert "buffer_bps" in kick
     assert "min_buffer_bps" in kick
+
+
+# ---------------------------------------------------------------------------
+# Curve quote requirement tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_prepare_kick_curve_unavailable_skips(session):
+    """When require_curve_quote=True and Curve is down, prepare_kick returns ERROR."""
+    web3_client = MagicMock()
+
+    price_provider = AsyncMock()
+    price_provider.quote = AsyncMock(
+        return_value=QuoteResult(
+            amount_out_raw=2_500_000_000,
+            token_out_decimals=6,
+            provider_statuses={"curve": "timeout", "defillama": None},
+        )
+    )
+
+    with patch(
+        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+    ) as MockERC20:
+        mock_erc20 = AsyncMock()
+        mock_erc20.read_balance = AsyncMock(return_value=10**21)
+        MockERC20.return_value = mock_erc20
+
+        kicker = _make_kicker(
+            session, web3_client=web3_client, price_provider=price_provider,
+            require_curve_quote=True,
+        )
+        candidate = _make_candidate()
+        result = await kicker.prepare_kick(candidate, "run-1")
+
+    assert isinstance(result, KickResult)
+    assert result.status == "ERROR"
+    assert "curve quote unavailable" in result.error_message
+
+
+@pytest.mark.asyncio
+async def test_prepare_kick_curve_available_proceeds(session):
+    """When require_curve_quote=True and Curve succeeded, prepare_kick returns PreparedKick."""
+    web3_client = MagicMock()
+
+    price_provider = AsyncMock()
+    price_provider.quote = AsyncMock(
+        return_value=QuoteResult(
+            amount_out_raw=2_500_000_000,
+            token_out_decimals=6,
+            provider_statuses={"curve": None, "defillama": None},
+        )
+    )
+
+    with patch(
+        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+    ) as MockERC20:
+        mock_erc20 = AsyncMock()
+        mock_erc20.read_balance = AsyncMock(return_value=10**21)
+        MockERC20.return_value = mock_erc20
+
+        kicker = _make_kicker(
+            session, web3_client=web3_client, price_provider=price_provider,
+            require_curve_quote=True,
+        )
+        candidate = _make_candidate()
+        result = await kicker.prepare_kick(candidate, "run-1")
+
+    assert isinstance(result, PreparedKick)
+
+
+@pytest.mark.asyncio
+async def test_prepare_kick_curve_not_required_proceeds(session):
+    """When require_curve_quote=False, Curve failure does not block the kick."""
+    web3_client = MagicMock()
+
+    price_provider = AsyncMock()
+    price_provider.quote = AsyncMock(
+        return_value=QuoteResult(
+            amount_out_raw=2_500_000_000,
+            token_out_decimals=6,
+            provider_statuses={"curve": "timeout"},
+        )
+    )
+
+    with patch(
+        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+    ) as MockERC20:
+        mock_erc20 = AsyncMock()
+        mock_erc20.read_balance = AsyncMock(return_value=10**21)
+        MockERC20.return_value = mock_erc20
+
+        kicker = _make_kicker(
+            session, web3_client=web3_client, price_provider=price_provider,
+            require_curve_quote=False,
+        )
+        candidate = _make_candidate()
+        result = await kicker.prepare_kick(candidate, "run-1")
+
+    assert isinstance(result, PreparedKick)
+
+
+# ---------------------------------------------------------------------------
+# Kick price audit logging tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_confirmed_kick_persists_audit_columns(session):
+    """A CONFIRMED kick should persist all price audit columns."""
+    web3_client = _make_web3_client_through_gas_estimate()
+    web3_client.get_transaction_count = AsyncMock(return_value=5)
+    web3_client.send_raw_transaction = AsyncMock(return_value="0xtxhash_audit")
+    web3_client.get_transaction_receipt = AsyncMock(return_value={
+        "status": 1,
+        "gasUsed": 180000,
+        "effectiveGasPrice": int(12 * 1e9),
+        "blockNumber": 12345,
+    })
+
+    signer = MagicMock()
+    signer.address = "0xcccccccccccccccccccccccccccccccccccccccc"
+    signer.checksum_address = "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+    signer.sign_transaction = MagicMock(return_value=b"\x00" * 32)
+
+    fake_response = {
+        "summary": {"high_amount_out": "2500000000"},
+        "providers": {"curve": {"status": None}, "defillama": {"status": None}},
+        "token_out": {"decimals": 6},
+    }
+    price_provider = AsyncMock()
+    price_provider.quote = AsyncMock(
+        return_value=QuoteResult(
+            amount_out_raw=2_500_000_000,
+            token_out_decimals=6,
+            provider_statuses={"curve": None},
+            raw_response=fake_response,
+        )
+    )
+
+    with patch(
+        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+    ) as MockERC20:
+        mock_erc20 = AsyncMock()
+        mock_erc20.read_balance = AsyncMock(return_value=10**21)
+        MockERC20.return_value = mock_erc20
+
+        kicker = _make_kicker(
+            session, web3_client=web3_client, signer=signer,
+            price_provider=price_provider,
+            start_price_buffer_bps=1000,
+            min_price_buffer_bps=500,
+        )
+        candidate = _make_candidate(
+            token_symbol="CRV",
+            want_address="0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+            want_symbol="USDC",
+        )
+        result = await kicker.kick(candidate, "run-audit")
+
+    assert result.status == "CONFIRMED"
+
+    rows = session.execute(select(models.kick_txs)).mappings().all()
+    assert len(rows) == 1
+    row = rows[0]
+
+    assert row["quote_amount"] == "2500"
+    assert row["quote_response_json"] is not None
+    parsed = json.loads(row["quote_response_json"])
+    assert parsed["summary"]["high_amount_out"] == "2500000000"
+    assert "curve" in parsed["providers"]
+
+    assert row["start_price_buffer_bps"] == 1000
+    assert row["min_price_buffer_bps"] == 500
+    assert row["token_symbol"] == "CRV"
+    assert row["want_address"] == "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+    assert row["want_symbol"] == "USDC"
+    assert row["normalized_balance"] is not None
+
+
+@pytest.mark.asyncio
+async def test_pre_quote_error_has_null_pricing_columns(session):
+    """An ERROR before the quote phase should leave pricing audit columns NULL."""
+    web3_client = MagicMock()
+
+    with patch(
+        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+    ) as MockERC20:
+        mock_erc20 = AsyncMock()
+        mock_erc20.read_balance = AsyncMock(side_effect=RuntimeError("rpc down"))
+        MockERC20.return_value = mock_erc20
+
+        kicker = _make_kicker(session, web3_client=web3_client)
+        candidate = _make_candidate(token_symbol="CRV", want_symbol="USDC")
+        result = await kicker.kick(candidate, "run-prequote")
+
+    assert result.status == "ERROR"
+
+    rows = session.execute(select(models.kick_txs)).mappings().all()
+    assert len(rows) == 1
+    row = rows[0]
+
+    # Pricing columns should be NULL (no quote was fetched).
+    assert row["quote_amount"] is None
+    assert row["quote_response_json"] is None
+    assert row["start_price_buffer_bps"] is None
+    assert row["min_price_buffer_bps"] is None
+    assert row["normalized_balance"] is None
+
+    # Token identity columns should still be populated from the candidate.
+    assert row["token_symbol"] == "CRV"
+    assert row["want_symbol"] == "USDC"

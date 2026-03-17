@@ -59,6 +59,7 @@ class PreparedKick:
     live_balance_raw: int
     normalized_balance: str
     quote_amount_str: str
+    quote_response_json: str | None = None
 
 
 @dataclass(slots=True)

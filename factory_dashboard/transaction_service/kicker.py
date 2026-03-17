@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 
@@ -52,6 +53,7 @@ class AuctionKicker:
         min_price_buffer_bps: int,
         chain_id: int,
         confirm_fn: Callable[[dict], bool] | None = None,
+        require_curve_quote: bool = True,
     ):
         self.web3_client = web3_client
         self.signer = signer
@@ -67,6 +69,7 @@ class AuctionKicker:
         self.min_price_buffer_bps = min_price_buffer_bps
         self.chain_id = chain_id
         self.confirm_fn = confirm_fn
+        self.require_curve_quote = require_curve_quote
 
     async def _resolve_priority_fee_wei(self) -> int:
         cap_wei = self.max_priority_fee_gwei * 10**9
@@ -90,6 +93,11 @@ class AuctionKicker:
         minimum_price: str | None = None,
         usd_value: str | None = None,
         tx_hash: str | None = None,
+        quote_amount: str | None = None,
+        quote_response_json: str | None = None,
+        start_price_buffer_bps: int | None = None,
+        min_price_buffer_bps: int | None = None,
+        normalized_balance: str | None = None,
     ) -> int:
         row: dict[str, object] = {
             "run_id": run_id,
@@ -99,6 +107,9 @@ class AuctionKicker:
             "price_usd": candidate.price_usd,
             "status": status,
             "created_at": now_iso,
+            "token_symbol": candidate.token_symbol,
+            "want_address": candidate.want_address,
+            "want_symbol": candidate.want_symbol,
         }
         if error_message is not None:
             row["error_message"] = error_message
@@ -112,6 +123,16 @@ class AuctionKicker:
             row["usd_value"] = usd_value
         if tx_hash is not None:
             row["tx_hash"] = tx_hash
+        if quote_amount is not None:
+            row["quote_amount"] = quote_amount
+        if quote_response_json is not None:
+            row["quote_response_json"] = quote_response_json
+        if start_price_buffer_bps is not None:
+            row["start_price_buffer_bps"] = start_price_buffer_bps
+        if min_price_buffer_bps is not None:
+            row["min_price_buffer_bps"] = min_price_buffer_bps
+        if normalized_balance is not None:
+            row["normalized_balance"] = normalized_balance
         return self.kick_tx_repository.insert(row)
 
     def _fail(
@@ -126,6 +147,11 @@ class AuctionKicker:
         starting_price: str | None = None,
         minimum_price: str | None = None,
         usd_value: str | None = None,
+        quote_amount: str | None = None,
+        quote_response_json: str | None = None,
+        start_price_buffer_bps: int | None = None,
+        min_price_buffer_bps: int | None = None,
+        normalized_balance: str | None = None,
     ) -> KickResult:
         """Insert a kick_tx row and return a terminal KickResult."""
         kick_tx_id = self._insert_kick_tx(
@@ -133,6 +159,10 @@ class AuctionKicker:
             status=status, error_message=error_message,
             sell_amount=sell_amount, starting_price=starting_price,
             minimum_price=minimum_price, usd_value=usd_value,
+            quote_amount=quote_amount, quote_response_json=quote_response_json,
+            start_price_buffer_bps=start_price_buffer_bps,
+            min_price_buffer_bps=min_price_buffer_bps,
+            normalized_balance=normalized_balance,
         )
         return KickResult(kick_tx_id=kick_tx_id, status=status, error_message=error_message)
 
@@ -152,6 +182,11 @@ class AuctionKicker:
                 status=status, error_message=error_message,
                 sell_amount=pk.sell_amount_str, starting_price=pk.starting_price_str,
                 minimum_price=pk.minimum_price_str, usd_value=pk.usd_value_str,
+                quote_amount=pk.quote_amount_str,
+                quote_response_json=pk.quote_response_json,
+                start_price_buffer_bps=self.start_price_buffer_bps,
+                min_price_buffer_bps=self.min_price_buffer_bps,
+                normalized_balance=pk.normalized_balance,
             )
             for pk in prepared_kicks
         ]
@@ -220,6 +255,14 @@ class AuctionKicker:
                 status=KickStatus.ERROR, error_message="no quote available for this pair",
             )
 
+        if self.require_curve_quote and not quote_result.curve_quote_available():
+            curve_status = quote_result.provider_statuses.get("curve", "not present")
+            return self._fail(
+                run_id, candidate, now_iso,
+                status=KickStatus.ERROR,
+                error_message=f"curve quote unavailable (status: {curve_status})",
+            )
+
         amount_out_normalized = Decimal(to_decimal_string(quote_result.amount_out_raw, quote_result.token_out_decimals))
         buffer = Decimal(1) + Decimal(self.start_price_buffer_bps) / Decimal(10_000)
         starting_price_raw = int((amount_out_normalized * buffer).to_integral_value(rounding=ROUND_CEILING))
@@ -237,6 +280,13 @@ class AuctionKicker:
         min_buffer = Decimal(1) - Decimal(self.min_price_buffer_bps) / Decimal(10_000)
         minimum_price_raw = max(0, int((amount_out_normalized * min_buffer).to_integral_value(rounding=ROUND_FLOOR)))
 
+        quote_response_json = None
+        if quote_result.raw_response is not None:
+            try:
+                quote_response_json = json.dumps(quote_result.raw_response)
+            except (TypeError, ValueError):
+                pass
+
         return PreparedKick(
             candidate=candidate,
             sell_amount=sell_amount,
@@ -249,6 +299,7 @@ class AuctionKicker:
             live_balance_raw=live_balance_raw,
             normalized_balance=normalized_balance,
             quote_amount_str=str(amount_out_normalized),
+            quote_response_json=quote_response_json,
         )
 
     # ------------------------------------------------------------------
@@ -361,6 +412,11 @@ class AuctionKicker:
                         status=KickStatus.USER_SKIPPED,
                         sell_amount=pk.sell_amount_str, starting_price=pk.starting_price_str,
                         minimum_price=pk.minimum_price_str, usd_value=pk.usd_value_str,
+                        quote_amount=pk.quote_amount_str,
+                        quote_response_json=pk.quote_response_json,
+                        start_price_buffer_bps=self.start_price_buffer_bps,
+                        min_price_buffer_bps=self.min_price_buffer_bps,
+                        normalized_balance=pk.normalized_balance,
                     )
                     results.append(KickResult(
                         kick_tx_id=kick_tx_id,
@@ -406,6 +462,11 @@ class AuctionKicker:
                 status=KickStatus.SUBMITTED, tx_hash=tx_hash,
                 sell_amount=pk.sell_amount_str, starting_price=pk.starting_price_str,
                 minimum_price=pk.minimum_price_str, usd_value=pk.usd_value_str,
+                quote_amount=pk.quote_amount_str,
+                quote_response_json=pk.quote_response_json,
+                start_price_buffer_bps=self.start_price_buffer_bps,
+                min_price_buffer_bps=self.min_price_buffer_bps,
+                normalized_balance=pk.normalized_balance,
             )
             kick_tx_ids.append(kick_tx_id)
 
