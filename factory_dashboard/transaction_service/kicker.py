@@ -252,18 +252,23 @@ class AuctionKicker:
         )
 
     # ------------------------------------------------------------------
-    # Phase 2: Execute batch
+    # Phase 2: Execute (shared core + thin wrappers)
     # ------------------------------------------------------------------
 
-    async def execute_batch(
-        self, prepared_kicks: list[PreparedKick], run_id: str,
+    async def _execute_tx(
+        self,
+        prepared_kicks: list[PreparedKick],
+        tx_data: bytes,
+        kicker_address: str,
+        run_id: str,
     ) -> list[KickResult]:
-        """Send a batch of prepared kicks in a single transaction."""
+        """Send pre-encoded tx_data and handle gas, confirmation, signing,
+        receipt waiting, and DB persistence.  Contract-function-agnostic."""
 
         now_iso = utcnow_iso()
         batch_size = len(prepared_kicks)
 
-        # 1. Check base fee (once for the batch).
+        # 1. Check base fee.
         try:
             base_fee_wei = await self.web3_client.get_base_fee()
             base_fee_gwei = base_fee_wei / 1e9
@@ -280,25 +285,6 @@ class AuctionKicker:
                 error_message=f"base fee {base_fee_gwei:.2f} gwei exceeds limit {self.max_base_fee_gwei}",
             )
 
-        # 2. Build batchKick calldata.
-        kicker_address = to_checksum_address(self.auction_kicker_address)
-        kicker_contract = self.web3_client.contract(kicker_address, AUCTION_KICKER_ABI)
-
-        kick_tuples = [
-            (
-                to_checksum_address(pk.candidate.strategy_address),
-                to_checksum_address(pk.candidate.auction_address),
-                to_checksum_address(pk.candidate.token_address),
-                pk.sell_amount,
-                pk.starting_price_raw,
-                pk.minimum_price_raw,
-            )
-            for pk in prepared_kicks
-        ]
-
-        batch_fn = kicker_contract.functions.batchKick(kick_tuples)
-        tx_data = batch_fn._encode_transaction_data()
-
         tx_params = {
             "from": self.signer.checksum_address,
             "to": kicker_address,
@@ -306,7 +292,7 @@ class AuctionKicker:
             "chainId": self.chain_id,
         }
 
-        # 3. Estimate gas (once on the batch).
+        # 2. Estimate gas.
         try:
             gas_estimate = await self.web3_client.estimate_gas(tx_params)
         except Exception as exc:  # noqa: BLE001
@@ -325,10 +311,10 @@ class AuctionKicker:
                 error_message=f"gas estimate {gas_estimate} exceeds batch cap {batch_gas_cap}",
             )
 
-        # 4. Resolve priority fee.
+        # 3. Resolve priority fee.
         priority_fee_wei = await self._resolve_priority_fee_wei()
 
-        # 5. Interactive confirmation gate.
+        # 4. Interactive confirmation gate.
         if self.confirm_fn is not None:
             kick_summaries = []
             for pk in prepared_kicks:
@@ -387,7 +373,7 @@ class AuctionKicker:
                     ))
                 return results
 
-        # 6. Sign + send.
+        # 5. Sign + send.
         nonce = await self.web3_client.get_transaction_count(self.signer.address)
         max_fee_wei = self.max_fee_per_gas_gwei * 10**9
 
@@ -412,7 +398,7 @@ class AuctionKicker:
                 status=KickStatus.ERROR, error_message=f"send failed: {exc}",
             )
 
-        # 7. Persist SUBMITTED rows (all share the same tx_hash).
+        # 6. Persist SUBMITTED rows (all share the same tx_hash).
         kick_tx_ids = []
         for pk in prepared_kicks:
             kick_tx_id = self._insert_kick_tx(
@@ -425,7 +411,7 @@ class AuctionKicker:
 
         logger.info("txn_batch_submitted", tx_hash=tx_hash, batch_size=batch_size)
 
-        # 8. Wait for receipt.
+        # 7. Wait for receipt.
         try:
             receipt = await self.web3_client.get_transaction_receipt(tx_hash, timeout_seconds=120)
         except Exception as exc:  # noqa: BLE001
@@ -445,7 +431,7 @@ class AuctionKicker:
                 for i, pk in enumerate(prepared_kicks)
             ]
 
-        # 9. Update all rows to CONFIRMED or REVERTED.
+        # 8. Update all rows to CONFIRMED or REVERTED.
         receipt_status = receipt.get("status", 0)
         receipt_gas_used = receipt.get("gasUsed")
         effective_gas_price = receipt.get("effectiveGasPrice")
@@ -483,6 +469,47 @@ class AuctionKicker:
             ))
         return results
 
+    def _kicker_contract(self) -> tuple:
+        """Return (checksum_address, contract_instance) for the AuctionKicker."""
+        addr = to_checksum_address(self.auction_kicker_address)
+        return addr, self.web3_client.contract(addr, AUCTION_KICKER_ABI)
+
+    @staticmethod
+    def _kick_args(pk: PreparedKick) -> tuple:
+        """Extract the 6 positional args shared by kick() and batchKick()."""
+        return (
+            to_checksum_address(pk.candidate.strategy_address),
+            to_checksum_address(pk.candidate.auction_address),
+            to_checksum_address(pk.candidate.token_address),
+            pk.sell_amount,
+            pk.starting_price_raw,
+            pk.minimum_price_raw,
+        )
+
+    async def execute_batch(
+        self, prepared_kicks: list[PreparedKick], run_id: str,
+    ) -> list[KickResult]:
+        """Send a batch of prepared kicks in a single batchKick transaction."""
+
+        kicker_address, kicker_contract = self._kicker_contract()
+        kick_tuples = [self._kick_args(pk) for pk in prepared_kicks]
+
+        tx_data = kicker_contract.functions.batchKick(kick_tuples)._encode_transaction_data()
+        return await self._execute_tx(prepared_kicks, tx_data, kicker_address, run_id)
+
+    async def execute_single(
+        self, prepared_kick: PreparedKick, run_id: str,
+    ) -> KickResult:
+        """Send a single prepared kick as an individual kick() transaction."""
+
+        kicker_address, kicker_contract = self._kicker_contract()
+        tx_data = kicker_contract.functions.kick(
+            *self._kick_args(prepared_kick),
+        )._encode_transaction_data()
+
+        results = await self._execute_tx([prepared_kick], tx_data, kicker_address, run_id)
+        return results[0]
+
     # ------------------------------------------------------------------
     # Convenience wrapper (single-kick API)
     # ------------------------------------------------------------------
@@ -492,5 +519,4 @@ class AuctionKicker:
         result = await self.prepare_kick(candidate, run_id)
         if isinstance(result, KickResult):
             return result
-        batch_results = await self.execute_batch([result], run_id)
-        return batch_results[0]
+        return await self.execute_single(result, run_id)

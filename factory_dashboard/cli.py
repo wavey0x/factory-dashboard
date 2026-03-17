@@ -23,7 +23,7 @@ logger = structlog.get_logger(__name__)
 app = typer.Typer(help="Factory dashboard scanner CLI")
 db_app = typer.Typer(help="Database commands")
 scan_app = typer.Typer(help="Scanner commands")
-txn_app = typer.Typer(help="Transaction service commands")
+txn_app = typer.Typer(help="Transaction service commands", invoke_without_command=True)
 
 app.add_typer(db_app, name="db")
 app.add_typer(scan_app, name="scan")
@@ -215,13 +215,8 @@ def _make_confirm_fn() -> Callable[[dict], bool]:
     return _confirm_batch
 
 
-@txn_app.command("once")
-def txn_once(
-    live: bool = typer.Option(default=False, help="Send transactions (default: dry-run)"),
-    confirm: bool = typer.Option(default=False, help="Interactive confirmation before each kick (implies --live)"),
-    config: Path | None = typer.Option(default=None, exists=True, file_okay=True, dir_okay=False),
-) -> None:
-    """Run a single transaction evaluation cycle."""
+def _run_txn_once(*, live: bool, confirm: bool, config: Path | None, batch: bool) -> None:
+    """Execute a single transaction evaluation cycle."""
 
     if confirm:
         live = True
@@ -258,7 +253,7 @@ def txn_once(
             skip_base_fee_check=skip_base_fee_check,
             web3_client=web3_client,
         )
-        result = asyncio.run(txn_service.run_once(live=live))
+        result = asyncio.run(txn_service.run_once(live=live, batch=batch))
         typer.echo(
             (
                 f"txn_complete run_id={result.run_id} status={result.status} "
@@ -268,9 +263,24 @@ def txn_once(
         )
 
 
+@txn_app.callback()
+def txn(
+    ctx: typer.Context,
+    live: bool = typer.Option(default=False, help="Send transactions (default: dry-run)"),
+    confirm: bool = typer.Option(default=False, help="Interactive confirmation before each kick (implies --live)"),
+    batch: bool = typer.Option(default=False, help="Send a single batchKick() instead of individual kick() per candidate"),
+    config: Path | None = typer.Option(default=None, exists=True, file_okay=True, dir_okay=False),
+) -> None:
+    """Evaluate kick candidates and send transactions."""
+    if ctx.invoked_subcommand is not None:
+        return
+    _run_txn_once(live=live, confirm=confirm, config=config, batch=batch)
+
+
 @txn_app.command("daemon")
 def txn_daemon(
     live: bool = typer.Option(default=False, help="Send transactions (default: dry-run)"),
+    batch: bool = typer.Option(default=True, help="Use batchKick (default) or individual kick() per candidate"),
     interval_seconds: int | None = typer.Option(default=None, min=1),
     config: Path | None = typer.Option(default=None, exists=True, file_okay=True, dir_okay=False),
 ) -> None:
@@ -309,7 +319,7 @@ def txn_daemon(
             db = Database(settings.database_url)
             with db.session() as session:
                 txn_service = build_txn_service(settings, session, web3_client=web3_client)
-                result = await txn_service.run_once(live=live)
+                result = await txn_service.run_once(live=live, batch=batch)
                 typer.echo(
                     (
                         f"txn_complete run_id={result.run_id} status={result.status} "

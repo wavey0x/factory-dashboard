@@ -42,7 +42,7 @@ class TxnService:
         self.cooldown_seconds = cooldown_seconds
         self.lock_path = lock_path
 
-    async def run_once(self, *, live: bool) -> TxnRunResult:
+    async def run_once(self, *, live: bool, batch: bool = True) -> TxnRunResult:
         run_id = str(uuid.uuid4())
         started_at = utcnow_iso()
 
@@ -61,12 +61,12 @@ class TxnService:
                 )
 
         try:
-            return await self._run(run_id=run_id, started_at=started_at, live=live)
+            return await self._run(run_id=run_id, started_at=started_at, live=live, batch=batch)
         finally:
             if lock_file is not None:
                 self._release_lock(lock_file)
 
-    async def _run(self, *, run_id: str, started_at: str, live: bool) -> TxnRunResult:
+    async def _run(self, *, run_id: str, started_at: str, live: bool, batch: bool = True) -> TxnRunResult:
         # 1. INSERT txn_runs with status=RUNNING.
         self.txn_run_repository.create({
             "run_id": run_id,
@@ -158,10 +158,16 @@ class TxnService:
                 else:
                     prepared.append(result)
 
-        # Phase 2: Batch execute.
+        # Phase 2: Execute.
         if prepared:
-            batch_results = await self.kicker.execute_batch(prepared, run_id)
-            for result in batch_results:
+            if batch:
+                exec_results = await self.kicker.execute_batch(prepared, run_id)
+            else:
+                exec_results = []
+                for pk in prepared:
+                    exec_results.append(await self.kicker.execute_single(pk, run_id))
+
+            for result in exec_results:
                 if result.status == KickStatus.CONFIRMED:
                     kicks_succeeded += 1
                 elif result.status in (KickStatus.REVERTED, KickStatus.ERROR, KickStatus.ESTIMATE_FAILED):

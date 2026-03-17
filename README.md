@@ -41,10 +41,12 @@ Out of scope for this repo:
 - `factory-dashboard db migrate`
 - `factory-dashboard scan once`
 - `factory-dashboard scan daemon --interval-seconds 300`
-- `factory-dashboard txn once` — dry-run evaluation of kick candidates
-- `factory-dashboard txn once --live` — evaluate and send kick transactions
-- `factory-dashboard txn once --confirm` — interactive confirmation before each batch (implies `--live`)
-- `factory-dashboard txn daemon --live` — run the transaction service continuously
+- `factory-dashboard txn` — dry-run evaluation of kick candidates
+- `factory-dashboard txn --live` — evaluate and send individual kick() transactions per candidate
+- `factory-dashboard txn --confirm` — interactive confirmation before each kick (implies `--live`)
+- `factory-dashboard txn --live --batch` — send a single batchKick() transaction (all-or-nothing)
+- `factory-dashboard txn daemon --live` — run the transaction service continuously (uses batchKick by default)
+- `factory-dashboard txn daemon --live --no-batch` — daemon with individual kick() per candidate
 - `factory-dashboard healthcheck`
 
 ## UI Dashboard
