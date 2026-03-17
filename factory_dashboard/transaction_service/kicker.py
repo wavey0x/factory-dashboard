@@ -11,7 +11,7 @@ from eth_utils import to_checksum_address
 from factory_dashboard.chain.contracts.abis import AUCTION_KICKER_ABI
 from factory_dashboard.chain.contracts.erc20 import ERC20Reader
 from factory_dashboard.chain.web3_client import Web3Client
-from factory_dashboard.normalizers import normalize_address, to_decimal_string
+from factory_dashboard.normalizers import to_decimal_string
 from factory_dashboard.persistence.repositories import KickTxRepository
 from factory_dashboard.pricing.token_price_agg import TokenPriceAggProvider
 from factory_dashboard.time import utcnow_iso

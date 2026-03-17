@@ -41,6 +41,10 @@ Out of scope for this repo:
 - `factory-dashboard db migrate`
 - `factory-dashboard scan once`
 - `factory-dashboard scan daemon --interval-seconds 300`
+- `factory-dashboard txn once` — dry-run evaluation of kick candidates
+- `factory-dashboard txn once --live` — evaluate and send kick transactions
+- `factory-dashboard txn once --confirm` — interactive confirmation before each batch (implies `--live`)
+- `factory-dashboard txn daemon --live` — run the transaction service continuously
 - `factory-dashboard healthcheck`
 
 ## UI Dashboard
