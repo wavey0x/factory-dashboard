@@ -6,6 +6,7 @@
   --text-faint: #767676;
   --divider-strong: #cccccc;
   --divider-subtle: #e6e7eb;
+  --divider-row: #f0f1f3;
   --hover: rgba(0, 0, 0, 0.04);
   --success: #217f46;
   --error: #C62828;
@@ -21,6 +22,7 @@
   --text-faint: #b1b1b1;
   --divider-strong: #404040;
   --divider-subtle: #2a2a2a;
+  --divider-row: #212121;
   --hover: rgba(255, 255, 255, 0.04);
   --success: #5bc47d;
   --error: #EF5350;
@@ -35,6 +37,7 @@
     --text-faint: #b1b1b1;
     --divider-strong: #404040;
     --divider-subtle: #2a2a2a;
+    --divider-row: #212121;
     --hover: rgba(255, 255, 255, 0.04);
     --success: #5bc47d;
     --error: #EF5350;
@@ -1085,7 +1088,7 @@ tbody tr:hover td {
     display: block;
     border: 1px solid var(--divider-subtle);
     border-radius: 6px;
-    padding: 6px 10px;
+    padding: 4px 10px;
     cursor: pointer;
   }
 
@@ -1103,11 +1106,16 @@ tbody tr:hover td {
     border-color: var(--divider-strong);
   }
 
-  .kick-log-row td {
+  .kick-log-table .kick-log-row td {
     display: flex;
     align-items: baseline;
-    padding: 0;
+    padding: 2px 0;
     border: none;
+    border-bottom: 1px solid var(--divider-row);
+  }
+
+  .kick-log-table .kick-log-row td:last-child {
+    border-bottom: none;
   }
 
   .kick-log-row td::before {
