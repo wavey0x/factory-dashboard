@@ -664,15 +664,32 @@ function KickLogRow({ kick, nowMs, isExpanded, onToggle, rowRef, isMobile }) {
             </span>
           ) : "—"}
         </td>
+        <td data-label="Strategy">
+          {kick.strategyAddress ? (
+            <span className="address-copy" title={kick.strategyAddress}>
+              <a
+                className="mono address-value"
+                href={`${ETHERSCAN_ADDRESS_URL}${kick.strategyAddress}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {shortenAddress(kick.strategyAddress)}
+              </a>
+              <CopyIconButton
+                valueToCopy={kick.strategyAddress}
+                title={`Copy ${kick.strategyAddress}`}
+                ariaLabel={`Copy strategy address ${kick.strategyAddress}`}
+              />
+            </span>
+          ) : "—"}
+        </td>
         <td data-label="Tx">
           {kick.txHash ? (
             <span onClick={(e) => e.stopPropagation()}>
               <EtherscanTxLink txHash={kick.txHash} />
             </span>
           ) : "—"}
-        </td>
-        <td className="mono align-right" data-label="Gas">
-          {kick.gasUsed ? `${withGrouping(String(kick.gasUsed))} @ ${kick.gasPriceGwei || "?"} gwei` : "—"}
         </td>
       </tr>
       {isExpanded && !isMobile ? <KickDetailPanel kick={kick} /> : null}
@@ -833,8 +850,8 @@ function KickLogPage({ nowMs, initialRunId }) {
               <th className="align-right">USD Value</th>
               <th>Status</th>
               <th>Auction</th>
+              <th>Strategy</th>
               <th>Tx</th>
-              <th className="align-right">Gas</th>
             </tr>
           </thead>
           <tbody>
