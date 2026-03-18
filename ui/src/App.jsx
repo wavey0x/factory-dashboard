@@ -15,18 +15,17 @@ function apiUrl(path) {
   return `${API_BASE_URL}${path}`;
 }
 
-function parseHash() {
-  const raw = window.location.hash.replace(/^#\/?/, "");
-  const [path, query] = raw.split("?");
-  const params = new URLSearchParams(query || "");
+function parseLocation() {
+  const path = window.location.pathname.replace(/^\/+/, "");
+  const params = new URLSearchParams(window.location.search);
   const page = path === "kicklog" ? "kicks" : "strategies";
   return { page, runId: params.get("run_id") || null };
 }
 
-function setHash(page, params) {
+function navigateTo(page, params) {
   const slug = page === "kicks" ? "kicklog" : "strategies";
   const qs = params ? `?${new URLSearchParams(params).toString()}` : "";
-  window.history.pushState(null, "", `#/${slug}${qs}`);
+  window.history.pushState(null, "", `/${slug}${qs}`);
 }
 
 function getTokenFromUrl() {
@@ -853,8 +852,8 @@ function TokenBalances({
 }
 
 export default function App() {
-  const [activePage, setActivePage] = useState(() => parseHash().page);
-  const [initialRunId] = useState(() => parseHash().runId);
+  const [activePage, setActivePage] = useState(() => parseLocation().page);
+  const [initialRunId] = useState(() => parseLocation().runId);
   const [selectedToken, setSelectedToken] = useState(getTokenFromUrl);
   const [auctionFilter, setAuctionFilter] = useState("all");
   const [isAuctionFilterMenuOpen, setIsAuctionFilterMenuOpen] = useState(false);
@@ -876,22 +875,15 @@ export default function App() {
 
   const handlePageChange = (page) => {
     setActivePage(page);
-    setHash(page);
+    navigateTo(page);
   };
 
   useEffect(() => {
-    if (!window.location.hash) {
-      window.history.replaceState(null, "", "#/strategies");
-    }
     const onPopState = () => {
-      setActivePage(parseHash().page);
+      setActivePage(parseLocation().page);
     };
     window.addEventListener("popstate", onPopState);
-    window.addEventListener("hashchange", onPopState);
-    return () => {
-      window.removeEventListener("popstate", onPopState);
-      window.removeEventListener("hashchange", onPopState);
-    };
+    return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
   const resolvedTheme = themePreference || systemTheme;
