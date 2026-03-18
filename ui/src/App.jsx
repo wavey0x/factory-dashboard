@@ -409,7 +409,7 @@ function KickDetailPanel({ kick }) {
 
   const bpsToPercent = (bps) => {
     if (bps == null) return null;
-    return `${bps} bps / ${(Number(bps) / 100).toFixed(1)}%`;
+    return `${(Number(bps) / 100).toFixed(1)}%`;
   };
 
   return (
