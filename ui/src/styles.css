@@ -252,6 +252,8 @@ body {
 
 .table-shell {
   padding-top: 8px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 table {
@@ -973,6 +975,39 @@ tbody tr:hover td {
 }
 
 @media (max-width: 600px) {
+  .header-row {
+    flex-wrap: wrap;
+  }
+
+  .tab-bar {
+    position: static;
+    transform: none;
+    order: 3;
+    width: 100%;
+    justify-content: center;
+    margin-top: 8px;
+  }
+
+  .kick-log-controls {
+    flex-direction: column;
+  }
+
+  .kick-log-controls .control-search,
+  .kick-log-controls .control-status {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .copy-trigger {
+    position: relative;
+  }
+
+  .copy-trigger::before {
+    content: "";
+    position: absolute;
+    inset: -16px;
+  }
+
   .kick-detail-grid {
     grid-template-columns: 1fr;
   }
