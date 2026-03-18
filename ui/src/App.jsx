@@ -384,6 +384,7 @@ function formatProviderAmount(amountOut, decimals, status) {
 }
 
 function KickDetailPanel({ kick }) {
+  const [showRelativeTimestamp, setShowRelativeTimestamp] = React.useState(false);
   let quoteProviders = null;
   let quoteSummary = null;
   let tokenOutDecimals = null;
@@ -422,8 +423,17 @@ function KickDetailPanel({ kick }) {
         <div className="kick-detail-grid">
           <div className="kick-detail-item" style={{ gridColumn: 1, gridRow: 1 }}>
             <div className="kick-detail-label">Timestamp</div>
-            <div className="kick-detail-value" title={kick.createdAt}>
-              {kick.createdAt ? formatRelativeTimestamp(kick.createdAt, Date.now()) : "—"}
+            <div
+              className="kick-detail-value clickable"
+              title={showRelativeTimestamp ? formatTimestamp(kick.createdAt) : kick.createdAt}
+              onClick={() => setShowRelativeTimestamp(v => !v)}
+              style={{ cursor: "pointer" }}
+            >
+              {kick.createdAt
+                ? showRelativeTimestamp
+                  ? formatRelativeTimestamp(kick.createdAt, Date.now())
+                  : formatTimestamp(kick.createdAt)
+                : "—"}
             </div>
           </div>
           <div className="kick-detail-item" style={{ gridColumn: 2, gridRow: 1 }}>
