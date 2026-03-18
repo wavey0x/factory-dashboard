@@ -421,7 +421,7 @@ function KickDetailPanel({ kick }) {
     <tr className="kick-detail">
       <td colSpan={7}>
         <div className="kick-detail-grid">
-          <div className="kick-detail-item" style={{ gridColumn: 1, gridRow: 1 }}>
+          <div className="kick-detail-item">
             <div className="kick-detail-label">Timestamp</div>
             <div
               className="kick-detail-value clickable"
@@ -436,11 +436,11 @@ function KickDetailPanel({ kick }) {
                 : "—"}
             </div>
           </div>
-          <div className="kick-detail-item" style={{ gridColumn: 2, gridRow: 1 }}>
+          <div className="kick-detail-item">
             <div className="kick-detail-label">Strategy</div>
             <div className="kick-detail-value"><AddressCopy address={kick.strategyAddress} /></div>
           </div>
-          <div className="kick-detail-item" style={{ gridColumn: 1, gridRow: 2 }}>
+          <div className="kick-detail-item">
             <div className="kick-detail-label">Sell Token</div>
             <div className="kick-detail-value">
               <span className="address-copy" title={kick.tokenAddress}>
@@ -453,7 +453,7 @@ function KickDetailPanel({ kick }) {
               </span>
             </div>
           </div>
-          <div className="kick-detail-item" style={{ gridColumn: 2, gridRow: 2 }}>
+          <div className="kick-detail-item">
             <div className="kick-detail-label">Buy Token</div>
             <div className="kick-detail-value">
               {kick.wantAddress ? (
@@ -468,32 +468,32 @@ function KickDetailPanel({ kick }) {
               ) : "—"}
             </div>
           </div>
-          <div className="kick-detail-item" style={{ gridColumn: 1, gridRow: 3 }}>
+          <div className="kick-detail-item">
             <div className="kick-detail-label">Normalized Balance</div>
             <div className="kick-detail-value">
               {kick.normalizedBalance ? `${formatBalance(kick.normalizedBalance)} ${kick.tokenSymbol || ""}` : "—"}
             </div>
           </div>
-          <div className="kick-detail-item" style={{ gridColumn: 2, gridRow: 3 }}>
+          <div className="kick-detail-item">
             <div className="kick-detail-label">Start Price</div>
             <div className="kick-detail-value">
               {kick.startingPrice || "—"}
               {kick.startPriceBufferBps != null ? ` (+${bpsToPercent(kick.startPriceBufferBps)} buffer)` : ""}
             </div>
           </div>
-          <div className="kick-detail-item" style={{ gridColumn: 1, gridRow: 4 }}>
+          <div className="kick-detail-item">
             <div className="kick-detail-label">Min Price</div>
             <div className="kick-detail-value">
               {kick.minimumPrice || "—"}
               {kick.minPriceBufferBps != null ? ` (-${bpsToPercent(kick.minPriceBufferBps)} buffer)` : ""}
             </div>
           </div>
-          <div className="kick-detail-item" style={{ gridColumn: 2, gridRow: 4 }}>
+          <div className="kick-detail-item">
             <div className="kick-detail-label">Quote Amount</div>
             <div className="kick-detail-value">{kick.quoteAmount || "—"}</div>
           </div>
           {quoteProviders ? (
-            <div className="kick-detail-item" style={{ gridColumn: 1, gridRow: 5 }}>
+            <div className="kick-detail-item">
               <div className="kick-detail-label">Quote Providers</div>
               <div className="kick-detail-value">
                 {quoteProviders.map((p) => (
@@ -505,7 +505,7 @@ function KickDetailPanel({ kick }) {
             </div>
           ) : null}
           {quoteSummary ? (
-            <div className="kick-detail-item" style={{ gridColumn: 2, gridRow: 5 }}>
+            <div className="kick-detail-item">
               <div className="kick-detail-label">Quote Summary</div>
               <div className="kick-detail-value">
                 {quoteSummary.requested_providers != null ? (
@@ -524,17 +524,17 @@ function KickDetailPanel({ kick }) {
             </div>
           ) : null}
           {kick.errorMessage ? (
-            <div className="kick-detail-item" style={{ gridColumn: 1, gridRow: 6 }}>
+            <div className="kick-detail-item">
               <div className="kick-detail-label">Error</div>
               <div className="kick-detail-value error-text">{kick.errorMessage}</div>
             </div>
           ) : null}
-          <div className="kick-detail-item" style={{ gridColumn: 2, gridRow: 6 }}>
+          <div className="kick-detail-item">
             <div className="kick-detail-label">Run ID</div>
             <div className="kick-detail-value">{kick.runId || "—"}</div>
           </div>
           {(kick.auctionAddress || quoteRequestUrl) ? (
-            <div className="kick-detail-item" style={{ gridColumn: 1, gridRow: 7 }}>
+            <div className="kick-detail-item" style={{ gridColumn: "1 / -1" }}>
               <div className="kick-detail-value">
                 {kick.auctionAddress ? (
                   <div>
