@@ -487,7 +487,6 @@ function KickDetailPanel({ kick }) {
           </div>
           {kick.auctionAddress ? (
             <div className="kick-detail-item">
-              <div className="kick-detail-label">CoW Protocol</div>
               <div className="kick-detail-value">
                 <a
                   href={`${COW_EXPLORER_URL}${kick.auctionAddress}`}
