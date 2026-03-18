@@ -1021,14 +1021,14 @@ tbody tr:hover td {
   .kick-log-table tbody {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
   }
 
   .kick-log-row {
     display: block;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 10px 12px;
+    border: 1px solid var(--divider-subtle);
+    border-radius: 6px;
+    padding: 8px 10px;
     cursor: pointer;
   }
 
@@ -1040,24 +1040,24 @@ tbody tr:hover td {
   .kick-log-row.is-expanded {
     border-bottom-left-radius: 0;
     border-bottom-right-radius: 0;
-    margin-bottom: -8px;
+    border-bottom-color: transparent;
+    margin-bottom: -6px;
   }
 
   .kick-log-row td {
     display: flex;
     align-items: baseline;
-    padding: 2px 0;
+    padding: 1px 0;
     border: none;
   }
 
   .kick-log-row td::before {
     content: attr(data-label);
-    flex: 0 0 72px;
-    font-size: 0.75rem;
-    color: var(--muted);
-    font-weight: 600;
+    flex: 0 0 56px;
+    font-size: 0.65rem;
+    color: var(--text-faint);
     text-transform: uppercase;
-    letter-spacing: 0.03em;
+    letter-spacing: 0.04em;
   }
 
   .kick-log-row td.align-right {
@@ -1066,14 +1066,14 @@ tbody tr:hover td {
 
   .kick-log-skeleton {
     display: block;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 10px 12px;
+    border: 1px solid var(--divider-subtle);
+    border-radius: 6px;
+    padding: 8px 10px;
   }
 
   .kick-log-skeleton td {
     display: block;
-    padding: 4px 0;
+    padding: 3px 0;
     border: none;
   }
 
@@ -1083,10 +1083,10 @@ tbody tr:hover td {
 
   .kick-detail {
     display: block;
-    border: 1px solid var(--border);
-    border-top: none;
-    border-bottom-left-radius: 8px;
-    border-bottom-right-radius: 8px;
+    border: 1px solid var(--divider-subtle);
+    border-top: 1px solid var(--divider-subtle);
+    border-bottom-left-radius: 6px;
+    border-bottom-right-radius: 6px;
     margin-bottom: 0;
   }
 
@@ -1113,14 +1113,14 @@ tbody tr:hover td {
   .strategies-table tbody {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
   }
 
   .strategies-table tbody tr {
     display: block;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 10px 12px;
+    border: 1px solid var(--divider-subtle);
+    border-radius: 6px;
+    padding: 8px 10px;
   }
 
   .strategies-table tbody tr:hover,
@@ -1130,19 +1130,18 @@ tbody tr:hover td {
 
   .strategies-table td {
     display: block;
-    padding: 4px 0;
+    padding: 3px 0;
     border: none;
   }
 
   .strategies-table td::before {
     content: attr(data-label);
     display: block;
-    font-size: 0.7rem;
-    color: var(--muted);
-    font-weight: 600;
+    font-size: 0.65rem;
+    color: var(--text-faint);
     text-transform: uppercase;
-    letter-spacing: 0.03em;
-    margin-bottom: 2px;
+    letter-spacing: 0.04em;
+    margin-bottom: 1px;
   }
 
   .strategies-table .last-scan-col,
@@ -1158,14 +1157,14 @@ tbody tr:hover td {
 
   .strategy-skeleton {
     display: block;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 10px 12px;
+    border: 1px solid var(--divider-subtle);
+    border-radius: 6px;
+    padding: 8px 10px;
   }
 
   .strategy-skeleton td {
     display: block;
-    padding: 4px 0;
+    padding: 3px 0;
     border: none;
   }
 
