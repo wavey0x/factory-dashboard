@@ -478,14 +478,14 @@ function KickDetailPanel({ kick }) {
             <div className="kick-detail-label">Start Price</div>
             <div className="kick-detail-value">
               {kick.startingPrice || "—"}
-              {kick.startPriceBufferBps != null ? ` (${bpsToPercent(kick.startPriceBufferBps)})` : ""}
+              {kick.startPriceBufferBps != null ? ` (+${bpsToPercent(kick.startPriceBufferBps)} buffer)` : ""}
             </div>
           </div>
           <div className="kick-detail-item" style={{ gridColumn: 1, gridRow: 4 }}>
             <div className="kick-detail-label">Min Price</div>
             <div className="kick-detail-value">
               {kick.minimumPrice || "—"}
-              {kick.minPriceBufferBps != null ? ` (${bpsToPercent(kick.minPriceBufferBps)})` : ""}
+              {kick.minPriceBufferBps != null ? ` (-${bpsToPercent(kick.minPriceBufferBps)} buffer)` : ""}
             </div>
           </div>
           <div className="kick-detail-item" style={{ gridColumn: 2, gridRow: 4 }}>
