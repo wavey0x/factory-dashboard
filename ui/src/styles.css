@@ -951,6 +951,63 @@ tbody tr:hover td {
   padding: 8px;
 }
 
+/* ── Kick detail modal (mobile) ── */
+
+.kick-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: flex-end;
+  animation: modal-fade-in 150ms ease-out;
+}
+
+.kick-modal {
+  position: relative;
+  background: var(--bg);
+  border-radius: 12px 12px 0 0;
+  width: 100%;
+  max-height: 85vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 16px 16px 24px;
+  animation: modal-slide-in 150ms ease-out;
+}
+
+.kick-modal-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 20px;
+  line-height: 1;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.kick-modal-close:hover {
+  color: var(--text-primary);
+  background: var(--hover);
+}
+
+@keyframes modal-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes modal-slide-in {
+  from { transform: translateY(16px); opacity: 0.8; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
 @media (max-width: 900px) {
   .toolbar-controls {
     flex-direction: column;
@@ -1028,7 +1085,7 @@ tbody tr:hover td {
     display: block;
     border: 1px solid var(--divider-subtle);
     border-radius: 6px;
-    padding: 8px 10px;
+    padding: 6px 10px;
     cursor: pointer;
   }
 
@@ -1037,23 +1094,25 @@ tbody tr:hover td {
     background: none;
   }
 
+  .kick-log-row:hover td,
+  .kick-log-row:active td {
+    background: none;
+  }
+
   .kick-log-row.is-expanded {
-    border-bottom-left-radius: 0;
-    border-bottom-right-radius: 0;
-    border-bottom-color: transparent;
-    margin-bottom: -6px;
+    border-color: var(--divider-strong);
   }
 
   .kick-log-row td {
     display: flex;
     align-items: baseline;
-    padding: 1px 0;
+    padding: 0;
     border: none;
   }
 
   .kick-log-row td::before {
     content: attr(data-label);
-    flex: 0 0 56px;
+    flex: 0 0 64px;
     font-size: 0.65rem;
     color: var(--text-faint);
     text-transform: uppercase;
@@ -1079,20 +1138,6 @@ tbody tr:hover td {
 
   .kick-log-skeleton td::before {
     display: none;
-  }
-
-  .kick-detail {
-    display: block;
-    border: 1px solid var(--divider-subtle);
-    border-top: 1px solid var(--divider-subtle);
-    border-bottom-left-radius: 6px;
-    border-bottom-right-radius: 6px;
-    margin-bottom: 0;
-  }
-
-  .kick-detail td {
-    display: block;
-    border: none;
   }
 
   .kick-log-empty {

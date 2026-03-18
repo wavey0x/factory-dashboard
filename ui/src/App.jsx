@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Big from "big.js";
 
 const ALL_TOKENS = "__all__";
@@ -155,6 +156,17 @@ function getStoredThemePreference() {
     return stored;
   }
   return null;
+}
+
+function useMediaQuery(query) {
+  const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
+  useEffect(() => {
+    const mql = window.matchMedia(query);
+    const onChange = (e) => setMatches(e.matches);
+    mql.addEventListener("change", onChange);
+    return () => mql.removeEventListener("change", onChange);
+  }, [query]);
+  return matches;
 }
 
 function SkeletonRows() {
@@ -400,7 +412,7 @@ function formatProviderAmount(amountOut, decimals, status) {
   return String(amountOut);
 }
 
-function KickDetailPanel({ kick }) {
+function KickDetailContent({ kick }) {
   const [showRelativeTimestamp, setShowRelativeTimestamp] = useState(false);
   let quoteProviders = null;
   let quoteSummary = null;
@@ -435,158 +447,188 @@ function KickDetailPanel({ kick }) {
   };
 
   return (
+    <div className="kick-detail-grid">
+      <div className="kick-detail-item">
+        <div className="kick-detail-label">Timestamp</div>
+        <div
+          className="kick-detail-value clickable"
+          title={showRelativeTimestamp ? formatTimestamp(kick.createdAt) : kick.createdAt}
+          onClick={() => setShowRelativeTimestamp(v => !v)}
+          style={{ cursor: "pointer" }}
+        >
+          {kick.createdAt
+            ? showRelativeTimestamp
+              ? formatRelativeTimestamp(kick.createdAt, Date.now())
+              : formatTimestamp(kick.createdAt)
+            : "—"}
+        </div>
+      </div>
+      <div className="kick-detail-item">
+        <div className="kick-detail-label">Strategy</div>
+        <div className="kick-detail-value"><AddressCopy address={kick.strategyAddress} /></div>
+      </div>
+      <div className="kick-detail-item">
+        <div className="kick-detail-label">Sell Token</div>
+        <div className="kick-detail-value">
+          <span className="address-copy" title={kick.tokenAddress}>
+            <span className="mono address-value">{kick.tokenSymbol || shortenAddress(kick.tokenAddress)}</span>
+            <CopyIconButton
+              valueToCopy={kick.tokenAddress}
+              title={`Copy address ${kick.tokenAddress}`}
+              ariaLabel={`Copy address ${kick.tokenAddress}`}
+            />
+          </span>
+        </div>
+      </div>
+      <div className="kick-detail-item">
+        <div className="kick-detail-label">Buy Token</div>
+        <div className="kick-detail-value">
+          {kick.wantAddress ? (
+            <span className="address-copy" title={kick.wantAddress}>
+              <span className="mono address-value">{kick.wantSymbol || shortenAddress(kick.wantAddress)}</span>
+              <CopyIconButton
+                valueToCopy={kick.wantAddress}
+                title={`Copy address ${kick.wantAddress}`}
+                ariaLabel={`Copy address ${kick.wantAddress}`}
+              />
+            </span>
+          ) : "—"}
+        </div>
+      </div>
+      <div className="kick-detail-item">
+        <div className="kick-detail-label">Normalized Balance</div>
+        <div className="kick-detail-value">
+          {kick.normalizedBalance ? `${formatBalance(kick.normalizedBalance)} ${kick.tokenSymbol || ""}` : "—"}
+        </div>
+      </div>
+      <div className="kick-detail-item">
+        <div className="kick-detail-label">Start Price</div>
+        <div className="kick-detail-value">
+          {kick.startingPrice || "—"}
+          {kick.startPriceBufferBps != null ? ` (+${bpsToPercent(kick.startPriceBufferBps)} buffer)` : ""}
+        </div>
+      </div>
+      <div className="kick-detail-item">
+        <div className="kick-detail-label">Min Price</div>
+        <div className="kick-detail-value">
+          {kick.minimumPrice || "—"}
+          {kick.minPriceBufferBps != null ? ` (-${bpsToPercent(kick.minPriceBufferBps)} buffer)` : ""}
+        </div>
+      </div>
+      <div className="kick-detail-item">
+        <div className="kick-detail-label">Quote Amount</div>
+        <div className="kick-detail-value">{kick.quoteAmount || "—"}</div>
+      </div>
+      {quoteProviders ? (
+        <div className="kick-detail-item">
+          <div className="kick-detail-label">Quote Providers</div>
+          <div className="kick-detail-value">
+            {quoteProviders.map((p) => (
+              <div key={p.name}>
+                {p.name}: {formatProviderAmount(p.amountOut, tokenOutDecimals, p.status)}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {quoteSummary ? (
+        <div className="kick-detail-item">
+          <div className="kick-detail-label">Quote Summary</div>
+          <div className="kick-detail-value">
+            {quoteSummary.requested_providers != null ? (
+              <div>Providers: {quoteSummary.successful_providers ?? 0}/{quoteSummary.requested_providers}</div>
+            ) : null}
+            {quoteSummary.high_amount_out != null ? (
+              <div>High: {formatProviderAmount(quoteSummary.high_amount_out, tokenOutDecimals)}</div>
+            ) : null}
+            {quoteSummary.low_amount_out != null ? (
+              <div>Low: {formatProviderAmount(quoteSummary.low_amount_out, tokenOutDecimals)}</div>
+            ) : null}
+            {quoteSummary.median_amount_out != null ? (
+              <div>Median: {formatProviderAmount(quoteSummary.median_amount_out, tokenOutDecimals)}</div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+      {kick.errorMessage ? (
+        <div className="kick-detail-item">
+          <div className="kick-detail-label">Error</div>
+          <div className="kick-detail-value error-text">{kick.errorMessage}</div>
+        </div>
+      ) : null}
+      <div className="kick-detail-item">
+        <div className="kick-detail-label">Run ID</div>
+        <div className="kick-detail-value">{kick.runId || "—"}</div>
+      </div>
+      {(kick.auctionAddress || quoteRequestUrl) ? (
+        <div className="kick-detail-item" style={{ gridColumn: "1 / -1" }}>
+          <div className="kick-detail-value">
+            {kick.auctionAddress ? (
+              <div>
+                <a
+                  href={`${COW_EXPLORER_URL}${kick.auctionAddress}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="cow-explorer-link"
+                >
+                  view on 🐮 explorer
+                </a>
+              </div>
+            ) : null}
+            {quoteRequestUrl ? (
+              <div>
+                <a
+                  href={quoteRequestUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="cow-explorer-link"
+                >
+                  view new quote via 🌊 api
+                </a>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function KickDetailPanel({ kick }) {
+  return (
     <tr className="kick-detail">
       <td colSpan={7}>
-        <div className="kick-detail-grid">
-          <div className="kick-detail-item">
-            <div className="kick-detail-label">Timestamp</div>
-            <div
-              className="kick-detail-value clickable"
-              title={showRelativeTimestamp ? formatTimestamp(kick.createdAt) : kick.createdAt}
-              onClick={() => setShowRelativeTimestamp(v => !v)}
-              style={{ cursor: "pointer" }}
-            >
-              {kick.createdAt
-                ? showRelativeTimestamp
-                  ? formatRelativeTimestamp(kick.createdAt, Date.now())
-                  : formatTimestamp(kick.createdAt)
-                : "—"}
-            </div>
-          </div>
-          <div className="kick-detail-item">
-            <div className="kick-detail-label">Strategy</div>
-            <div className="kick-detail-value"><AddressCopy address={kick.strategyAddress} /></div>
-          </div>
-          <div className="kick-detail-item">
-            <div className="kick-detail-label">Sell Token</div>
-            <div className="kick-detail-value">
-              <span className="address-copy" title={kick.tokenAddress}>
-                <span className="mono address-value">{kick.tokenSymbol || shortenAddress(kick.tokenAddress)}</span>
-                <CopyIconButton
-                  valueToCopy={kick.tokenAddress}
-                  title={`Copy address ${kick.tokenAddress}`}
-                  ariaLabel={`Copy address ${kick.tokenAddress}`}
-                />
-              </span>
-            </div>
-          </div>
-          <div className="kick-detail-item">
-            <div className="kick-detail-label">Buy Token</div>
-            <div className="kick-detail-value">
-              {kick.wantAddress ? (
-                <span className="address-copy" title={kick.wantAddress}>
-                  <span className="mono address-value">{kick.wantSymbol || shortenAddress(kick.wantAddress)}</span>
-                  <CopyIconButton
-                    valueToCopy={kick.wantAddress}
-                    title={`Copy address ${kick.wantAddress}`}
-                    ariaLabel={`Copy address ${kick.wantAddress}`}
-                  />
-                </span>
-              ) : "—"}
-            </div>
-          </div>
-          <div className="kick-detail-item">
-            <div className="kick-detail-label">Normalized Balance</div>
-            <div className="kick-detail-value">
-              {kick.normalizedBalance ? `${formatBalance(kick.normalizedBalance)} ${kick.tokenSymbol || ""}` : "—"}
-            </div>
-          </div>
-          <div className="kick-detail-item">
-            <div className="kick-detail-label">Start Price</div>
-            <div className="kick-detail-value">
-              {kick.startingPrice || "—"}
-              {kick.startPriceBufferBps != null ? ` (+${bpsToPercent(kick.startPriceBufferBps)} buffer)` : ""}
-            </div>
-          </div>
-          <div className="kick-detail-item">
-            <div className="kick-detail-label">Min Price</div>
-            <div className="kick-detail-value">
-              {kick.minimumPrice || "—"}
-              {kick.minPriceBufferBps != null ? ` (-${bpsToPercent(kick.minPriceBufferBps)} buffer)` : ""}
-            </div>
-          </div>
-          <div className="kick-detail-item">
-            <div className="kick-detail-label">Quote Amount</div>
-            <div className="kick-detail-value">{kick.quoteAmount || "—"}</div>
-          </div>
-          {quoteProviders ? (
-            <div className="kick-detail-item">
-              <div className="kick-detail-label">Quote Providers</div>
-              <div className="kick-detail-value">
-                {quoteProviders.map((p) => (
-                  <div key={p.name}>
-                    {p.name}: {formatProviderAmount(p.amountOut, tokenOutDecimals, p.status)}
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
-          {quoteSummary ? (
-            <div className="kick-detail-item">
-              <div className="kick-detail-label">Quote Summary</div>
-              <div className="kick-detail-value">
-                {quoteSummary.requested_providers != null ? (
-                  <div>Providers: {quoteSummary.successful_providers ?? 0}/{quoteSummary.requested_providers}</div>
-                ) : null}
-                {quoteSummary.high_amount_out != null ? (
-                  <div>High: {formatProviderAmount(quoteSummary.high_amount_out, tokenOutDecimals)}</div>
-                ) : null}
-                {quoteSummary.low_amount_out != null ? (
-                  <div>Low: {formatProviderAmount(quoteSummary.low_amount_out, tokenOutDecimals)}</div>
-                ) : null}
-                {quoteSummary.median_amount_out != null ? (
-                  <div>Median: {formatProviderAmount(quoteSummary.median_amount_out, tokenOutDecimals)}</div>
-                ) : null}
-              </div>
-            </div>
-          ) : null}
-          {kick.errorMessage ? (
-            <div className="kick-detail-item">
-              <div className="kick-detail-label">Error</div>
-              <div className="kick-detail-value error-text">{kick.errorMessage}</div>
-            </div>
-          ) : null}
-          <div className="kick-detail-item">
-            <div className="kick-detail-label">Run ID</div>
-            <div className="kick-detail-value">{kick.runId || "—"}</div>
-          </div>
-          {(kick.auctionAddress || quoteRequestUrl) ? (
-            <div className="kick-detail-item" style={{ gridColumn: "1 / -1" }}>
-              <div className="kick-detail-value">
-                {kick.auctionAddress ? (
-                  <div>
-                    <a
-                      href={`${COW_EXPLORER_URL}${kick.auctionAddress}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="cow-explorer-link"
-                    >
-                      view on 🐮 explorer
-                    </a>
-                  </div>
-                ) : null}
-                {quoteRequestUrl ? (
-                  <div>
-                    <a
-                      href={quoteRequestUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="cow-explorer-link"
-                    >
-                      view new quote via 🌊 api
-                    </a>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          ) : null}
-        </div>
+        <KickDetailContent kick={kick} />
       </td>
     </tr>
   );
 }
 
-function KickLogRow({ kick, nowMs, isExpanded, onToggle, rowRef }) {
+function KickDetailModal({ kick, onClose }) {
+  useEffect(() => {
+    const onKeyDown = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKeyDown);
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = "";
+    };
+  }, [onClose]);
+
+  return createPortal(
+    <div className="kick-modal-backdrop" onMouseDown={onClose}>
+      <div className="kick-modal" onMouseDown={(e) => e.stopPropagation()}>
+        <button type="button" className="kick-modal-close" onClick={onClose} aria-label="Close">
+          ×
+        </button>
+        <KickDetailContent kick={kick} />
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+function KickLogRow({ kick, nowMs, isExpanded, onToggle, rowRef, isMobile }) {
   return (
     <>
       <tr ref={rowRef} className={`kick-log-row ${isExpanded ? "is-expanded" : ""}`} onClick={onToggle}>
@@ -633,7 +675,8 @@ function KickLogRow({ kick, nowMs, isExpanded, onToggle, rowRef }) {
           {kick.gasUsed ? `${withGrouping(String(kick.gasUsed))} @ ${kick.gasPriceGwei || "?"} gwei` : "—"}
         </td>
       </tr>
-      {isExpanded ? <KickDetailPanel kick={kick} /> : null}
+      {isExpanded && !isMobile ? <KickDetailPanel kick={kick} /> : null}
+      {isExpanded && isMobile ? <KickDetailModal kick={kick} onClose={onToggle} /> : null}
     </>
   );
 }
@@ -662,6 +705,7 @@ function KickLogPage({ nowMs, initialRunId }) {
   const [expandedRows, setExpandedRows] = useState(() => new Set());
   const hasFetchedRef = useRef(false);
   const highlightedRowRef = useRef(null);
+  const isMobile = useMediaQuery("(max-width: 600px)");
 
   useEffect(() => {
     if (hasFetchedRef.current) return;
@@ -703,11 +747,13 @@ function KickLogPage({ nowMs, initialRunId }) {
     const match = kicks.find((k) => k.runId === initialRunId);
     if (match) {
       setExpandedRows(new Set([match.id]));
-      requestAnimationFrame(() => {
-        highlightedRowRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-      });
+      if (!isMobile) {
+        requestAnimationFrame(() => {
+          highlightedRowRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+        });
+      }
     }
-  }, [loading, initialRunId, kicks]);
+  }, [loading, initialRunId, kicks, isMobile]);
 
   const filteredKicks = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
@@ -736,12 +782,16 @@ function KickLogPage({ nowMs, initialRunId }) {
   function toggleRow(kick) {
     const expanding = !expandedRows.has(kick.id);
     setExpandedRows((prev) => {
-      const next = new Set(prev);
-      if (next.has(kick.id)) {
+      if (prev.has(kick.id)) {
+        const next = new Set(prev);
         next.delete(kick.id);
-      } else {
-        next.add(kick.id);
+        return next;
       }
+      if (isMobile) {
+        return new Set([kick.id]);
+      }
+      const next = new Set(prev);
+      next.add(kick.id);
       return next;
     });
     if (expanding && kick.runId) {
@@ -803,6 +853,7 @@ function KickLogPage({ nowMs, initialRunId }) {
                     isExpanded={expandedRows.has(kick.id)}
                     onToggle={() => toggleRow(kick)}
                     rowRef={kick.runId === initialRunId ? highlightedRowRef : undefined}
+                    isMobile={isMobile}
                   />
                 ))
               : null}
