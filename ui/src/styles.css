@@ -1011,4 +1011,174 @@ tbody tr:hover td {
   .kick-detail-grid {
     grid-template-columns: 1fr;
   }
+
+  /* ── Kick Log cards ── */
+
+  .kick-log-table thead {
+    display: none;
+  }
+
+  .kick-log-table tbody {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .kick-log-row {
+    display: block;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    cursor: pointer;
+  }
+
+  .kick-log-row:hover,
+  .kick-log-row:active {
+    background: none;
+  }
+
+  .kick-log-row.is-expanded {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    margin-bottom: -8px;
+  }
+
+  .kick-log-row td {
+    display: flex;
+    align-items: baseline;
+    padding: 2px 0;
+    border: none;
+  }
+
+  .kick-log-row td::before {
+    content: attr(data-label);
+    flex: 0 0 72px;
+    font-size: 0.75rem;
+    color: var(--muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+
+  .kick-log-row td.align-right {
+    text-align: left;
+  }
+
+  .kick-log-skeleton {
+    display: block;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+
+  .kick-log-skeleton td {
+    display: block;
+    padding: 4px 0;
+    border: none;
+  }
+
+  .kick-log-skeleton td::before {
+    display: none;
+  }
+
+  .kick-detail {
+    display: block;
+    border: 1px solid var(--border);
+    border-top: none;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+    margin-bottom: 0;
+  }
+
+  .kick-detail td {
+    display: block;
+    border: none;
+  }
+
+  .kick-log-empty {
+    display: block;
+    text-align: center;
+  }
+
+  .kick-log-empty::before {
+    display: none;
+  }
+
+  /* ── Strategies cards ── */
+
+  .strategies-table thead {
+    display: none;
+  }
+
+  .strategies-table tbody {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .strategies-table tbody tr {
+    display: block;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+
+  .strategies-table tbody tr:hover,
+  .strategies-table tbody tr:active {
+    background: none;
+  }
+
+  .strategies-table td {
+    display: block;
+    padding: 4px 0;
+    border: none;
+  }
+
+  .strategies-table td::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 0.7rem;
+    color: var(--muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin-bottom: 2px;
+  }
+
+  .strategies-table .last-scan-col,
+  .strategies-table .last-scan-cell,
+  .strategies-table .auction-col,
+  .strategies-table .auction-cell,
+  .strategies-table .auction-value-slot,
+  .strategies-table .token-cell {
+    width: auto;
+    min-width: 0;
+    max-width: none;
+  }
+
+  .strategy-skeleton {
+    display: block;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+
+  .strategy-skeleton td {
+    display: block;
+    padding: 4px 0;
+    border: none;
+  }
+
+  .strategy-skeleton td::before {
+    display: none;
+  }
+
+  .strategies-table .empty {
+    display: block;
+    text-align: center;
+  }
+
+  .strategies-table .empty::before {
+    display: none;
+  }
 }

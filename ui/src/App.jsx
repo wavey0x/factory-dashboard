@@ -34,10 +34,10 @@ function getTokenFromUrl() {
 }
 
 function shortenAddress(address) {
-  if (!address || address.length < 14) {
+  if (!address || address.length < 13) {
     return address || "—";
   }
-  return `${address.slice(0, 8)}...${address.slice(-6)}`;
+  return `${address.slice(0, 6)}...${address.slice(-4)}`;
 }
 
 function formatStrategyDisplayName(name) {
@@ -159,7 +159,7 @@ function getStoredThemePreference() {
 
 function SkeletonRows() {
   return [...Array(10)].map((_, index) => (
-    <tr key={`skeleton-${index}`}>
+    <tr key={`skeleton-${index}`} className="strategy-skeleton">
       <td><span className="skeleton" /></td>
       <td><span className="skeleton" /></td>
       <td><span className="skeleton" /></td>
@@ -590,19 +590,19 @@ function KickLogRow({ kick, nowMs, isExpanded, onToggle, rowRef }) {
   return (
     <>
       <tr ref={rowRef} className={`kick-log-row ${isExpanded ? "is-expanded" : ""}`} onClick={onToggle}>
-        <td className="mono muted" title={kick.createdAt}>
+        <td className="mono muted" title={kick.createdAt} data-label="Time">
           {formatRelativeTimestamp(kick.createdAt, nowMs)}
         </td>
-        <td className="mono">
+        <td className="mono" data-label="Pair">
           {kick.tokenSymbol || "?"} → {kick.wantSymbol || "?"}
         </td>
-        <td className="mono align-right">
+        <td className="mono align-right" data-label="USD Value">
           {kick.usdValue ? `$${formatBalance(kick.usdValue)}` : "—"}
         </td>
-        <td>
+        <td data-label="Status">
           <StatusBadge status={kick.status} />
         </td>
-        <td>
+        <td data-label="Auction">
           {kick.auctionAddress ? (
             <span className="address-copy" title={kick.auctionAddress}>
               <a
@@ -622,14 +622,14 @@ function KickLogRow({ kick, nowMs, isExpanded, onToggle, rowRef }) {
             </span>
           ) : "—"}
         </td>
-        <td>
+        <td data-label="Tx">
           {kick.txHash ? (
             <span onClick={(e) => e.stopPropagation()}>
               <EtherscanTxLink txHash={kick.txHash} />
             </span>
           ) : "—"}
         </td>
-        <td className="mono align-right">
+        <td className="mono align-right" data-label="Gas">
           {kick.gasUsed ? `${withGrouping(String(kick.gasUsed))} @ ${kick.gasPriceGwei || "?"} gwei` : "—"}
         </td>
       </tr>
@@ -1318,7 +1318,7 @@ export default function App() {
       {error ? <p className="error">{error}</p> : null}
 
       <div className="table-shell">
-        <table>
+        <table className="strategies-table">
           <thead>
             <tr>
               <th className="last-scan-col">Last Scan</th>
@@ -1400,22 +1400,22 @@ export default function App() {
             {!loadingRows
               ? filteredRows.map((row) => (
                   <tr key={row.strategyAddress}>
-                    <td className="mono muted last-scan-cell" title={formatTimestamp(row.scannedAt)}>
+                    <td className="mono muted last-scan-cell" title={formatTimestamp(row.scannedAt)} data-label="Last Scan">
                       {formatRelativeTimestamp(row.scannedAt, nowMs)}
                     </td>
-                    <td>
+                    <td data-label="Vault">
                       <EntityIdentity
                         primary={row.vaultSymbol || row.vaultName || "Unknown Vault"}
                         address={row.vaultAddress}
                       />
                     </td>
-                    <td>
+                    <td data-label="Strategy">
                       <EntityIdentity
                         primary={formatStrategyDisplayName(row.strategyName)}
                         address={row.strategyAddress}
                       />
                     </td>
-                    <td className="auction-cell">
+                    <td className="auction-cell" data-label="Auction">
                       <AuctionAddressCell
                         address={row.auctionAddress}
                         version={row.auctionVersion}
@@ -1425,7 +1425,7 @@ export default function App() {
                         onToggleExpand={() => toggleKickExpand(row.strategyAddress)}
                       />
                     </td>
-                    <td>
+                    <td data-label="Balances">
                       <TokenBalances
                         balances={row.balances}
                         displayMode={displayMode}
