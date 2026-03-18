@@ -291,6 +291,14 @@ class AuctionKicker:
                 pass
 
         if quote_result.amount_out_raw is None:
+            logger.warning(
+                "txn_quote_no_amount",
+                strategy=candidate.strategy_address,
+                token_in=candidate.token_address,
+                token_out=candidate.want_address,
+                provider_statuses=quote_result.provider_statuses,
+                request_url=quote_result.request_url,
+            )
             return self._fail(
                 run_id, candidate, now_iso,
                 status=KickStatus.ERROR, error_message="no quote available for this pair",
@@ -299,6 +307,15 @@ class AuctionKicker:
 
         if self.require_curve_quote and not quote_result.curve_quote_available():
             curve_status = quote_result.provider_statuses.get("curve", "not present")
+            logger.warning(
+                "txn_quote_curve_unavailable",
+                strategy=candidate.strategy_address,
+                token_in=candidate.token_address,
+                token_out=candidate.want_address,
+                curve_status=curve_status,
+                provider_statuses=quote_result.provider_statuses,
+                request_url=quote_result.request_url,
+            )
             return self._fail(
                 run_id, candidate, now_iso,
                 status=KickStatus.ERROR,

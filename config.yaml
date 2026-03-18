@@ -46,3 +46,5 @@ txn_min_price_buffer_bps: 500
 txn_max_data_age_seconds: 6000
 txn_cooldown_seconds: 3600
 txn_require_curve_quote: true
+max_batch_kick_size: 5
+batch_kick_delay_seconds: 5

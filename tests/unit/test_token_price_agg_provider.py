@@ -216,3 +216,100 @@ async def test_quote_parses_per_provider_amounts() -> None:
 
     assert result.provider_amounts == {"curve": 742100, "defillama": 740000}
     assert result.curve_quote_available() is True
+
+
+# ---------------------------------------------------------------------------
+# quote soft-retry tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_quote_retries_on_all_provider_failure_then_succeeds() -> None:
+    """First call returns all-error (amount_out_raw=None), retry succeeds."""
+    provider = _provider()
+    call_count = 0
+
+    async def fake_get_price(client, path, params):  # noqa: ANN001
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return {
+                "summary": {"high_amount_out": None},
+                "token_out": {"decimals": 6},
+                "providers": {
+                    "curve": {"status": "error", "amount_out": None},
+                    "enso": {"status": "error", "amount_out": None},
+                },
+            }
+        return {
+            "summary": {"high_amount_out": "742100"},
+            "token_out": {"decimals": 6},
+            "providers": {
+                "curve": {"status": "ok", "amount_out": 742100},
+                "enso": {"status": "ok", "amount_out": 740000},
+            },
+        }
+
+    provider._get_price = fake_get_price  # type: ignore[method-assign]  # noqa: SLF001
+    result = await provider.quote(
+        "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "1000000000000000000",
+    )
+
+    assert call_count == 2
+    assert result.amount_out_raw == 742100
+
+
+@pytest.mark.asyncio
+async def test_quote_returns_none_when_both_attempts_fail() -> None:
+    """Both attempts return all-error — no infinite retry."""
+    provider = _provider()
+    call_count = 0
+
+    async def fake_get_price(client, path, params):  # noqa: ANN001
+        nonlocal call_count
+        call_count += 1
+        return {
+            "summary": {"high_amount_out": None},
+            "token_out": {"decimals": 6},
+            "providers": {
+                "curve": {"status": "error", "amount_out": None},
+                "enso": {"status": "no_route", "amount_out": None},
+            },
+        }
+
+    provider._get_price = fake_get_price  # type: ignore[method-assign]  # noqa: SLF001
+    result = await provider.quote(
+        "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "1000000000000000000",
+    )
+
+    assert call_count == 2
+    assert result.amount_out_raw is None
+
+
+@pytest.mark.asyncio
+async def test_quote_no_retry_when_no_providers() -> None:
+    """No providers in response — don't retry (not a rate-limit issue)."""
+    provider = _provider()
+    call_count = 0
+
+    async def fake_get_price(client, path, params):  # noqa: ANN001
+        nonlocal call_count
+        call_count += 1
+        return {
+            "summary": {"high_amount_out": None},
+            "token_out": {"decimals": 6},
+        }
+
+    provider._get_price = fake_get_price  # type: ignore[method-assign]  # noqa: SLF001
+    result = await provider.quote(
+        "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "1000000000000000000",
+    )
+
+    assert call_count == 1
+    assert result.amount_out_raw is None

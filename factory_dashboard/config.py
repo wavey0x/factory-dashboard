@@ -104,6 +104,9 @@ class Settings(BaseSettings):
     txn_cooldown_seconds: int = Field(default=3600, alias="TXN_COOLDOWN_SECONDS")
     txn_require_curve_quote: bool = Field(default=True, alias="TXN_REQUIRE_CURVE_QUOTE")
 
+    max_batch_kick_size: int = Field(default=5, alias="MAX_BATCH_KICK_SIZE")
+    batch_kick_delay_seconds: float = Field(default=5, alias="BATCH_KICK_DELAY_SECONDS")
+
     @property
     def resolved_db_path(self) -> Path:
         db_path = self.db_path

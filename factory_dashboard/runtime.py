@@ -205,4 +205,6 @@ def build_txn_service(
         max_data_age_seconds=settings.txn_max_data_age_seconds,
         cooldown_seconds=settings.txn_cooldown_seconds,
         lock_path=lock_path,
+        max_batch_kick_size=settings.max_batch_kick_size,
+        batch_kick_delay_seconds=settings.batch_kick_delay_seconds,
     )

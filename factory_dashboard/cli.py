@@ -210,8 +210,9 @@ def _make_confirm_fn() -> Callable[[dict], bool]:
 
         width = max(len(line) for line in content)
         border = typer.style
-        top = border(f"\u250c{'\u2500' * (width + 2)}\u2510", fg="cyan")
-        bottom = border(f"\u2514{'\u2500' * (width + 2)}\u2518", fg="cyan")
+        h_bar = "\u2500" * (width + 2)
+        top = border(f"\u250c{h_bar}\u2510", fg="cyan")
+        bottom = border(f"\u2514{h_bar}\u2518", fg="cyan")
         vl = border("\u2502", fg="cyan")
 
         lines = [top]

@@ -33,6 +33,8 @@ class TxnService:
         max_data_age_seconds: int,
         cooldown_seconds: int,
         lock_path: Path,
+        max_batch_kick_size: int = 5,
+        batch_kick_delay_seconds: float = 5,
     ):
         self.session = session
         self.kicker = kicker
@@ -42,6 +44,8 @@ class TxnService:
         self.max_data_age_seconds = max_data_age_seconds
         self.cooldown_seconds = cooldown_seconds
         self.lock_path = lock_path
+        self.max_batch_kick_size = max_batch_kick_size
+        self.batch_kick_delay_seconds = batch_kick_delay_seconds
 
     async def run_once(self, *, live: bool, batch: bool = True) -> TxnRunResult:
         run_id = str(uuid.uuid4())
@@ -145,12 +149,18 @@ class TxnService:
 
             candidates_to_prepare.append(decision.candidate)
 
-        # Prepare kicks concurrently (each does async balance read + quote).
+        # Prepare kicks in batches to avoid rate-limiting the quote API.
         if candidates_to_prepare:
             kicks_attempted += len(candidates_to_prepare)
-            prepare_results = await asyncio.gather(
-                *(self.kicker.prepare_kick(c, run_id) for c in candidates_to_prepare)
-            )
+            prepare_results: list[PreparedKick | KickResult] = []
+            for batch_start in range(0, len(candidates_to_prepare), self.max_batch_kick_size):
+                if batch_start > 0:
+                    await asyncio.sleep(self.batch_kick_delay_seconds)
+                batch = candidates_to_prepare[batch_start:batch_start + self.max_batch_kick_size]
+                batch_results = await asyncio.gather(
+                    *(self.kicker.prepare_kick(c, run_id) for c in batch)
+                )
+                prepare_results.extend(batch_results)
             for result in prepare_results:
                 if isinstance(result, KickResult):
                     if result.status == KickStatus.SKIP:

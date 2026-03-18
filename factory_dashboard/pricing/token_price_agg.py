@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import httpx
+import structlog
 
 from factory_dashboard.chain.retry import call_with_retries
 from factory_dashboard.normalizers import normalize_address
+
+logger = structlog.get_logger(__name__)
 
 
 @dataclass(slots=True)
@@ -77,7 +81,12 @@ class TokenPriceAggProvider:
             self._http_client = None
 
     async def quote(self, token_in: str, token_out: str, amount_in: str) -> QuoteResult:
-        """Fetch a direct token_in -> token_out quote via /v1/quote."""
+        """Fetch a direct token_in -> token_out quote via /v1/quote.
+
+        If the first attempt returns HTTP 200 but all providers failed
+        (amount_out_raw is None with providers present), retries once
+        after a 2-second delay to handle transient rate-limiting.
+        """
         params = {
             "token_in": normalize_address(token_in),
             "token_out": normalize_address(token_out),
@@ -88,11 +97,35 @@ class TokenPriceAggProvider:
         client = await self._client()
         query_string = "&".join(f"{k}={v}" for k, v in params.items())
         request_url = f"{self.base_url}/v1/quote?{query_string}"
-        payload = await call_with_retries(
-            lambda: self._get_price(client, "/v1/quote", params),
-            attempts=self.retry_attempts,
-        )
 
+        max_soft_retries = 2
+        for attempt in range(max_soft_retries):
+            payload = await call_with_retries(
+                lambda: self._get_price(client, "/v1/quote", params),
+                attempts=self.retry_attempts,
+            )
+            result = self._parse_quote_response(payload, request_url)
+
+            if result.amount_out_raw is not None or attempt + 1 >= max_soft_retries:
+                return result
+
+            # All providers failed — likely transient rate-limiting, retry.
+            if not result.provider_statuses:
+                return result
+
+            logger.info(
+                "quote_soft_retry",
+                token_in=params["token_in"],
+                token_out=params["token_out"],
+                provider_statuses=result.provider_statuses,
+                attempt=attempt + 1,
+            )
+            await asyncio.sleep(2.0)
+
+        return result  # type: ignore[possibly-undefined]
+
+    def _parse_quote_response(self, payload: Any, request_url: str) -> QuoteResult:
+        """Parse a /v1/quote response payload into a QuoteResult."""
         amount_out_raw = None
         token_out_decimals = None
 
