@@ -729,16 +729,22 @@ function KickLogPage({ nowMs, initialRunId }) {
     });
   }, [kicks, statusFilter, searchTerm]);
 
-  function toggleRow(id) {
+  function toggleRow(kick) {
+    const expanding = !expandedRows.has(kick.id);
     setExpandedRows((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
+      if (next.has(kick.id)) {
+        next.delete(kick.id);
       } else {
-        next.add(id);
+        next.add(kick.id);
       }
       return next;
     });
+    if (expanding && kick.runId) {
+      navigateTo("kicks", { run_id: kick.runId });
+    } else {
+      navigateTo("kicks");
+    }
   }
 
   return (
@@ -791,7 +797,7 @@ function KickLogPage({ nowMs, initialRunId }) {
                     kick={kick}
                     nowMs={nowMs}
                     isExpanded={expandedRows.has(kick.id)}
-                    onToggle={() => toggleRow(kick.id)}
+                    onToggle={() => toggleRow(kick)}
                     rowRef={kick.runId === initialRunId ? highlightedRowRef : undefined}
                   />
                 ))
