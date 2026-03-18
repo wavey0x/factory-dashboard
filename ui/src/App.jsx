@@ -886,12 +886,14 @@ function KickLogPage({ nowMs, initialRunId }) {
         <label className="control control-status">
           <span>Status</span>
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-            <option value="all">All ({total})</option>
+            <option value="all">All</option>
             <option value="confirmed">Confirmed</option>
             <option value="failed">Failed</option>
           </select>
         </label>
       </section>
+
+      <div className="toolbar-meta">Showing {filteredKicks.length.toLocaleString()} results</div>
 
       {error ? <p className="error">{error}</p> : null}
 
@@ -1428,14 +1430,13 @@ export default function App() {
           </label>
         </div>
 
-        <div className="toolbar-meta">
-          <span>{(summary?.strategyCount || 0).toLocaleString()} strategies</span>
-          <span className="meta-sep" aria-hidden="true">&middot;</span>
-          <span>{tokenOptions.length.toLocaleString()} tokens</span>
-          <span className="meta-sep" aria-hidden="true">&middot;</span>
-          <span>Scanned {formatTimestamp(latestVisibleScan)}</span>
-        </div>
       </section>
+
+      <div className="toolbar-meta">
+        <span>Showing {filteredRows.length.toLocaleString()} results</span>
+        <span className="meta-sep" aria-hidden="true">&middot;</span>
+        <span>Scanned {formatTimestamp(latestVisibleScan)}</span>
+      </div>
 
       {error ? <p className="error">{error}</p> : null}
 
