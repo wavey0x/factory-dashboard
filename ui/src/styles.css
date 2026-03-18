@@ -67,7 +67,7 @@ body {
 
 .header {
   border-bottom: 1px solid var(--divider-strong);
-  padding-bottom: 0;
+  padding-bottom: 12px;
 }
 
 .header h1 {
@@ -83,6 +83,7 @@ body {
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+  margin-right: auto;
 }
 
 .brand-logo {
@@ -111,6 +112,8 @@ body {
   justify-content: center;
   position: relative;
   cursor: pointer;
+  margin-left: auto;
+  flex-shrink: 0;
 }
 
 .theme-switch:hover {
@@ -756,8 +759,6 @@ tbody tr:hover td {
   padding: 3px;
   background: var(--divider-subtle);
   border-radius: 8px;
-  margin-left: auto;
-  margin-right: 12px;
   flex-shrink: 0;
 }
 
