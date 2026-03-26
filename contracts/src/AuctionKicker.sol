@@ -73,6 +73,7 @@ contract AuctionKicker {
     function _kick(KickParams memory p) internal {
         require(p.startingPrice != 0, "starting price zero");
         require(IAuction(p.auction).want() == p.wantToken, "want mismatch");
+        require(p.sellToken != p.wantToken, "sell token is want");
         require(IAuction(p.auction).receiver() == p.source, "receiver mismatch");
 
         bytes[] memory state = new bytes[](6);

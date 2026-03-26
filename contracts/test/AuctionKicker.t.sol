@@ -157,6 +157,12 @@ contract AuctionKickerTest is Test {
         kicker.kick(STRATEGY, ALT_AUCTION, CRV, 1e18, wantToken, 1e18, 0);
     }
 
+    function test_revert_sellTokenIsWant() public {
+        address wantToken = IAuction(AUCTION).want();
+        vm.expectRevert("sell token is want");
+        kicker.kick(STRATEGY, AUCTION, wantToken, 1e18, wantToken, 1e18, 0);
+    }
+
     function test_revert_receiverMismatch() public {
         address strategyWant = IAuction(AUCTION).want();
         vm.mockCall(

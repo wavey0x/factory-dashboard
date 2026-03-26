@@ -283,6 +283,44 @@ def test_shortlist_filters_to_fee_burner_type(session):
     assert candidates[0].source_type == "fee_burner"
 
 
+def test_shortlist_excludes_token_matching_want(session):
+    now = datetime.now(timezone.utc).isoformat()
+    session.execute(insert(models.fee_burners).values(
+        address="0xburner1",
+        chain_id=1,
+        name="Yearn Fee Burner",
+        active=1,
+        auction_address="0xauctionfb",
+        want_address="0xwantfb",
+        first_seen_at=now,
+        last_seen_at=now,
+    ))
+    session.execute(insert(models.tokens).values(
+        address="0xwantfb",
+        chain_id=1,
+        symbol="crvUSD",
+        decimals=18,
+        is_core_reward=0,
+        price_usd="1.0",
+        price_status="SUCCESS",
+        price_fetched_at=now,
+        first_seen_at=now,
+        last_seen_at=now,
+    ))
+    session.execute(insert(models.fee_burner_token_balances_latest).values(
+        fee_burner_address="0xburner1",
+        token_address="0xwantfb",
+        raw_balance="100000000000000000000",
+        normalized_balance="100",
+        block_number=101,
+        scanned_at=now,
+    ))
+    session.commit()
+
+    candidates = shortlist_candidates(session, usd_threshold=10, max_data_age_seconds=600)
+    assert candidates == []
+
+
 def _make_candidate(**overrides):
     defaults = {
         "source_type": "strategy",

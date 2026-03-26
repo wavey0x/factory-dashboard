@@ -240,6 +240,13 @@ class AuctionKicker:
 
         now_iso = utcnow_iso()
 
+        if candidate.token_address == candidate.want_address:
+            return KickResult(
+                kick_tx_id=0,
+                status=KickStatus.SKIP,
+                error_message="sell token matches want token",
+            )
+
         # 1. Re-read live balance on-chain.
         try:
             erc20 = ERC20Reader(self.web3_client)

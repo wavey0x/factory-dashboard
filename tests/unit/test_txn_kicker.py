@@ -1139,6 +1139,23 @@ async def test_prepare_kick_below_threshold(session):
 
 
 @pytest.mark.asyncio
+async def test_prepare_kick_skips_when_sell_token_matches_want(session):
+    """prepare_kick returns KickResult(SKIP) when the sell token is the want token."""
+    web3_client = MagicMock()
+    kicker = _make_kicker(session, web3_client=web3_client)
+    candidate = _make_candidate(
+        token_address="0xdddddddddddddddddddddddddddddddddddddddd",
+        want_address="0xdddddddddddddddddddddddddddddddddddddddd",
+    )
+
+    result = await kicker.prepare_kick(candidate, "run-1")
+
+    assert isinstance(result, KickResult)
+    assert result.status == "SKIP"
+    assert result.error_message == "sell token matches want token"
+
+
+@pytest.mark.asyncio
 async def test_prepare_kick_balance_error(session):
     """prepare_kick returns KickResult(ERROR) when balance read fails."""
     web3_client = MagicMock()

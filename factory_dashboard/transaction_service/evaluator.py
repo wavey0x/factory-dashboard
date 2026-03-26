@@ -124,6 +124,9 @@ def shortlist_candidates(
 
     candidates: list[KickCandidate] = []
     for row in list(session.execute(strategy_stmt).mappings()) + list(session.execute(fee_burner_stmt).mappings()):
+        if row["token_address"] == row["want_address"]:
+            continue
+
         try:
             balance = float(row["normalized_balance"])
             price = float(row["price_usd"])
