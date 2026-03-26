@@ -39,12 +39,6 @@ _DEFAULT_PRIORITY_FEE_GWEI = 0.1
 _ERROR_STRING_SELECTOR = keccak(text="Error(string)")[:4]
 _PANIC_SELECTOR = keccak(text="Panic(uint256)")[:4]
 _EXECUTION_FAILED_SELECTOR = keccak(text="ExecutionFailed(uint256,address,string)")[:4]
-_COMMAND_LABELS = {
-    0: "transferFrom(sell token)",
-    1: "setStartingPrice",
-    2: "setMinimumPrice",
-    3: "kick",
-}
 _PANIC_REASONS = {
     0x01: "assertion failed",
     0x11: "arithmetic overflow/underflow",
@@ -123,10 +117,9 @@ def _decode_revert_payload(payload: str) -> str | None:
             return f"panic 0x{code:x}"
 
         if selector == _EXECUTION_FAILED_SELECTOR:
-            command_index, target, message = abi_decode(["uint256", "address", "string"], data)
-            command_label = _COMMAND_LABELS.get(int(command_index), f"command {int(command_index)}")
+            _, target, message = abi_decode(["uint256", "address", "string"], data)
             target_address = to_checksum_address(target)
-            return f"{command_label} on {short_address(target_address)} failed: {message}"
+            return f"call to {short_address(target_address)} failed: {message}"
     except Exception:
         return None
 

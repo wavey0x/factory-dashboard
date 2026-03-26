@@ -236,7 +236,7 @@ async def test_kick_estimate_failed_decodes_execution_failed(session):
         result = await kicker.kick(candidate, "run-1")
 
     assert result.status == "ESTIMATE_FAILED"
-    assert result.error_message == "kick on 0xA00E…6693 failed: active auction"
+    assert result.error_message == "call to 0xA00E…6693 failed: active auction"
 
 
 @pytest.mark.asyncio
