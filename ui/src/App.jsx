@@ -22,7 +22,7 @@ function parseLocation() {
   const path = window.location.pathname.replace(/^\/+/, "");
   const params = new URLSearchParams(window.location.search);
   let page = "strategies";
-  if (path === "kicklog") {
+  if (path === "logs" || path === "kicklog") {
     page = "kicks";
   } else if (path === "fee-burner") {
     page = "fee-burner";
@@ -31,7 +31,7 @@ function parseLocation() {
 }
 
 function navigateTo(page, params) {
-  const slug = page === "kicks" ? "kicklog" : page === "fee-burner" ? "fee-burner" : "strategies";
+  const slug = page === "kicks" ? "logs" : page === "fee-burner" ? "fee-burner" : "strategies";
   const qs = params ? `?${new URLSearchParams(params).toString()}` : "";
   window.history.pushState(null, "", `/${slug}${qs}`);
 }
@@ -816,7 +816,7 @@ function TabBar({ activePage, onChangePage }) {
         className={`tab-item ${activePage === "kicks" ? "is-active" : ""}`}
         onClick={() => onChangePage("kicks")}
       >
-        Kick Log
+        Logs
       </button>
     </nav>
   );
