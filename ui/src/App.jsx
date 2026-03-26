@@ -219,6 +219,7 @@ function normalizeKick(kick) {
   const chainId = normalizeChainIdValue(kick.chainId);
   const auctionAddress = kick.auctionAddress || null;
   const auctionScanRoundId = kick.auctionScanRoundId ?? null;
+  const auctionScanLinkable = isAuctionScanLinkableKick(kick, chainId);
   return {
     ...kick,
     chainId,
@@ -232,12 +233,22 @@ function normalizeKick(kick) {
     auctionScanResolved: Boolean(kick.auctionScanResolved ?? (auctionScanRoundId != null)),
     auctionScanEligible: kick.auctionScanEligible ?? undefined,
     auctionScanAuctionUrl:
-      kick.auctionScanAuctionUrl || buildAuctionScanAuctionUrl(chainId, auctionAddress),
+      auctionScanLinkable ? (kick.auctionScanAuctionUrl || buildAuctionScanAuctionUrl(chainId, auctionAddress)) : null,
     auctionScanRoundUrl:
-      kick.auctionScanRoundUrl || buildAuctionScanRoundUrl(chainId, auctionAddress, auctionScanRoundId),
+      auctionScanLinkable ? (kick.auctionScanRoundUrl || buildAuctionScanRoundUrl(chainId, auctionAddress, auctionScanRoundId)) : null,
     auctionScanResolving: Boolean(kick.auctionScanResolving),
     auctionScanResolveError: kick.auctionScanResolveError || "",
   };
+}
+
+function isAuctionScanLinkableKick(kick, chainId = normalizeChainIdValue(kick.chainId)) {
+  return Boolean(
+    chainId
+    && kick.auctionAddress
+    && kick.txHash
+    && (kick.operationType || "kick") === "kick"
+    && kick.status === "CONFIRMED"
+  );
 }
 
 function buildAuctionScanAuctionUrl(chainId, auctionAddress) {
@@ -505,6 +516,9 @@ function EtherscanTxLink({ txHash }) {
 }
 
 function getAuctionScanHref(kick) {
+  if (!isAuctionScanLinkableKick(kick)) {
+    return null;
+  }
   return kick.auctionScanRoundUrl || kick.auctionScanAuctionUrl || null;
 }
 
