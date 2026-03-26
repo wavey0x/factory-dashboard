@@ -269,7 +269,7 @@ body {
 table {
   width: 100%;
   border-collapse: collapse;
-  table-layout: auto;
+  table-layout: fixed;
 }
 
 thead th {
@@ -603,8 +603,16 @@ tbody tr:hover td {
   transform: scale(1);
 }
 
+.token-col {
+  width: 214px;
+  min-width: 214px;
+  max-width: 214px;
+}
+
 .token-cell {
   width: 214px;
+  min-width: 214px;
+  max-width: 214px;
 }
 
 .token-stack {
@@ -1166,6 +1174,113 @@ tbody tr:hover td {
 @keyframes modal-slide-in {
   from { transform: translateY(100%); }
   to { transform: translateY(0); }
+}
+
+/* Deploy CTA in auction column */
+
+.deploy-cta {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* Deploy confirmation modal */
+
+.deploy-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 20vh;
+  background: rgba(0, 0, 0, 0.45);
+  animation: modal-fade-in 150ms ease-out;
+}
+
+.deploy-modal {
+  z-index: 101;
+  background: var(--bg);
+  border: 1px solid var(--divider-strong);
+  border-radius: 8px;
+  padding: 20px 24px;
+  width: 340px;
+  max-width: calc(100vw - 32px);
+  animation: deploy-modal-in 150ms ease-out;
+}
+
+.deploy-modal-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 16px;
+}
+
+.deploy-modal-details {
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 20px;
+}
+
+.deploy-modal-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.deploy-modal-row dt {
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.deploy-modal-row dd {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-align: right;
+}
+
+.deploy-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.deploy-modal-btn {
+  border: 1px solid var(--divider-strong);
+  border-radius: 4px;
+  padding: 6px 16px;
+  font-size: 12px;
+  cursor: pointer;
+  line-height: 1.2;
+}
+
+.deploy-modal-btn-cancel {
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.deploy-modal-btn-cancel:hover {
+  color: var(--text-primary);
+}
+
+.deploy-modal-btn-confirm {
+  background: var(--text-primary);
+  color: var(--bg);
+  border-color: var(--text-primary);
+}
+
+.deploy-modal-btn-confirm:hover {
+  opacity: 0.85;
+}
+
+@keyframes deploy-modal-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @media (max-width: 900px) {

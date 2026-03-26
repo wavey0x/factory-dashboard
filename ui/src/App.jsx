@@ -488,12 +488,79 @@ function MissingAuctionAction({ deployState, onDeploy }) {
           <EtherscanTxLink txHash={txHash} />
         </div>
       ) : (
-        <button type="button" className="auction-action-link mono" onClick={onDeploy} disabled={isBusy}>
-          {status === "wallet" ? "confirm in wallet…" : status === "preparing" ? "preparing…" : "deploy"}
+        <button type="button" className="auction-action-link" onClick={onDeploy} disabled={isBusy}>
+          {status === "wallet" ? (
+            <span className="mono">confirm in wallet…</span>
+          ) : status === "preparing" ? (
+            <span className="mono">preparing…</span>
+          ) : (
+            <>
+              <span className="mono">N/A</span>{" "}
+              <span className="deploy-cta">(deploy now 🚀)</span>
+            </>
+          )}
         </button>
       )}
       {error ? <div className="auction-action-error">{error}</div> : null}
     </div>
+  );
+}
+
+function DeployConfirmModal({ payload, onConfirm, onCancel }) {
+  useEffect(() => {
+    const onKeyDown = (e) => { if (e.key === "Escape") onCancel(); };
+    window.addEventListener("keydown", onKeyDown);
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = "";
+    };
+  }, [onCancel]);
+
+  const spec = payload || {};
+  const rows = [
+    ["Factory", shortenAddress(spec.factoryAddress)],
+    ["Receiver", shortenAddress(spec.receiverAddress)],
+    ["Want", spec.wantSymbol || shortenAddress(spec.wantAddress)],
+  ];
+  if (spec.inference?.sellTokenAddress) {
+    rows.push(["Inference token", spec.inference.sellTokenSymbol || shortenAddress(spec.inference.sellTokenAddress)]);
+  }
+  if (spec.startingPrice) {
+    rows.push(["Starting price", spec.startingPrice]);
+  }
+  if (spec.startPriceBufferBps != null) {
+    rows.push(["Start-price buffer", `+${(Number(spec.startPriceBufferBps) / 100).toFixed(1)}%`]);
+  }
+  if (spec.predictedAuctionAddress) {
+    rows.push(["Predicted auction", shortenAddress(spec.predictedAuctionAddress)]);
+  }
+
+  return createPortal(
+    <div className="deploy-modal-backdrop" onMouseDown={onCancel}>
+      <div className="deploy-modal" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="deploy-modal-title">
+          Deploy auction for {spec.strategyName || shortenAddress(spec.strategyAddress)}?
+        </div>
+        <dl className="deploy-modal-details">
+          {rows.map(([label, value]) => (
+            <div key={label} className="deploy-modal-row">
+              <dt>{label}</dt>
+              <dd className="mono">{value}</dd>
+            </div>
+          ))}
+        </dl>
+        <div className="deploy-modal-actions">
+          <button type="button" className="deploy-modal-btn deploy-modal-btn-cancel" onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="button" className="deploy-modal-btn deploy-modal-btn-confirm" onClick={onConfirm}>
+            Confirm
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
   );
 }
 
@@ -1356,6 +1423,7 @@ export default function App() {
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [expandedKickRows, setExpandedKickRows] = useState(() => new Set());
   const [deployStates, setDeployStates] = useState({});
+  const [deployConfirm, setDeployConfirm] = useState(null);
   const auctionFilterMenuRef = useRef(null);
 
   const handlePageChange = (page) => {
@@ -1777,14 +1845,30 @@ export default function App() {
         throw new Error("Deploy transaction payload is incomplete");
       }
 
-      const confirmed = window.confirm(formatDeployConfirmation(payload));
-      if (!confirmed) {
-        updateDeployState(sourceAddress, { status: "idle", error: "" });
-        return;
-      }
+      setDeployConfirm({ sourceAddress, payload, txRequest, provider });
+    } catch (deployError) {
+      updateDeployState(sourceAddress, {
+        status: "idle",
+        error: formatDeployError(deployError),
+      });
+    }
+  }
 
-      updateDeployState(sourceAddress, { status: "wallet", error: "" });
+  function handleDeployCancel() {
+    if (deployConfirm) {
+      updateDeployState(deployConfirm.sourceAddress, { status: "idle", error: "" });
+    }
+    setDeployConfirm(null);
+  }
 
+  async function handleDeployConfirm() {
+    if (!deployConfirm) return;
+    const { sourceAddress, txRequest, provider } = deployConfirm;
+    setDeployConfirm(null);
+
+    updateDeployState(sourceAddress, { status: "wallet", error: "" });
+
+    try {
       const accounts = await provider.request({ method: "eth_requestAccounts" });
       const account = Array.isArray(accounts) ? accounts[0] : null;
       if (!account) {
@@ -1962,7 +2046,7 @@ export default function App() {
                   </span>
                 </span>
               </th>
-              <th>
+              <th className="token-col">
                 <button
                   type="button"
                   className="th-sort-button"
@@ -2045,6 +2129,13 @@ export default function App() {
           onToggleMode={toggleDisplayMode}
           expandedKickRows={expandedKickRows}
           onToggleExpand={toggleKickExpand}
+        />
+      ) : null}
+      {deployConfirm ? (
+        <DeployConfirmModal
+          payload={deployConfirm.payload}
+          onConfirm={handleDeployConfirm}
+          onCancel={handleDeployCancel}
         />
       ) : null}
     </main>
