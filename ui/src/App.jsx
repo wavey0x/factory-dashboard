@@ -1588,6 +1588,12 @@ function FeeBurnerPage({
           {rows.map((row) => (
             <article key={row.sourceAddress} className="fee-burner-card">
               <div className="fee-burner-top-row">
+                <div className="fee-burner-top-item">
+                  <div className="fee-burner-label">Last Scan</div>
+                  <div className="fee-burner-value mono">
+                    {row.scannedAt ? formatRelativeTimestamp(row.scannedAt, nowMs) : "—"}
+                  </div>
+                </div>
                 <div className="fee-burner-top-item fee-burner-source">
                   <div className="fee-burner-label">Fee Burner</div>
                   <EntityIdentity
@@ -1623,15 +1629,9 @@ function FeeBurnerPage({
                     onToggleExpand={() => onToggleExpand(row.sourceAddress)}
                   />
                 </div>
-                <div className="fee-burner-top-item">
-                  <div className="fee-burner-label">Last Scan</div>
-                  <div className="fee-burner-value mono">
-                    {row.scannedAt ? formatRelativeTimestamp(row.scannedAt, nowMs) : "—"}
-                  </div>
-                </div>
                 <div className="fee-burner-top-item fee-burner-total">
                   <div className="fee-burner-label">Total USD</div>
-                  <div className="fee-burner-total-value">
+                  <div className="mono fee-burner-total-value">
                     {row.totalUsdValue ? `$${formatBalance(row.totalUsdValue)}` : "?"}
                   </div>
                 </div>

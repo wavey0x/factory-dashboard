@@ -1125,10 +1125,10 @@ tbody tr:hover td {
 .fee-burner-top-row {
   display: grid;
   grid-template-columns:
-    minmax(220px, 1.8fr)
-    minmax(120px, 0.8fr)
-    minmax(220px, 1.45fr)
     minmax(100px, 0.7fr)
+    minmax(220px, 1.7fr)
+    minmax(120px, 0.85fr)
+    minmax(220px, 1.45fr)
     minmax(110px, 0.8fr);
   gap: 16px;
   align-items: start;
@@ -1144,28 +1144,20 @@ tbody tr:hover td {
   margin-top: 4px;
 }
 
-.fee-burner-source .row-primary {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
 .fee-burner-total {
   text-align: right;
 }
 
 .fee-burner-total-value {
   margin-top: 4px;
-  font-size: 16px;
-  font-weight: 600;
-  line-height: 1.1;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
   color: var(--text-primary);
 }
 
 .fee-burner-value {
   margin-top: 4px;
-  font-size: 12px;
-  line-height: 1.4;
   color: var(--text-primary);
 }
 
