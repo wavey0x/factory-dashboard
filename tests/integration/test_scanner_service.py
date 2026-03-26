@@ -250,6 +250,7 @@ async def test_scanner_persists_lowercase_and_zero_balances() -> None:
             token_metadata_service=token_metadata_service,
             token_price_refresh_service=fake_token_price_refresh_service,
             balance_reader=FakeBalanceReader(),
+            auction_settler=None,
             monitored_fee_burners=[],
             fee_burner_token_resolver=FakeFeeBurnerTokenResolver(),
             name_reader=fake_name_reader,
@@ -357,6 +358,7 @@ async def test_scanner_persists_fee_burner_rows_and_balances() -> None:
             token_metadata_service=token_metadata_service,
             token_price_refresh_service=FakeTokenPriceRefreshService(),
             balance_reader=FakeBalanceReader(),
+            auction_settler=None,
             monitored_fee_burners=[fee_burner],
             fee_burner_token_resolver=FakeFeeBurnerTokenResolver(
                 tokens_by_burner={fee_burner.address.lower(): {"0xcccccccccccccccccccccccccccccccccccccccc"}}
@@ -433,6 +435,7 @@ async def test_scanner_uses_cached_auction_mapping_when_refresh_fails() -> None:
             token_metadata_service=token_metadata_service,
             token_price_refresh_service=FakeTokenPriceRefreshService(),
             balance_reader=FakeBalanceReader(),
+            auction_settler=None,
             monitored_fee_burners=[],
             fee_burner_token_resolver=FakeFeeBurnerTokenResolver(),
             name_reader=FakeNameReader(),
@@ -463,6 +466,7 @@ async def test_scanner_uses_cached_auction_mapping_when_refresh_fails() -> None:
             token_metadata_service=token_metadata_service,
             token_price_refresh_service=FakeTokenPriceRefreshService(),
             balance_reader=FakeBalanceReader(),
+            auction_settler=None,
             monitored_fee_burners=[],
             fee_burner_token_resolver=FakeFeeBurnerTokenResolver(),
             name_reader=FakeNameReader(),

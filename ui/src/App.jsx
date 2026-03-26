@@ -216,10 +216,18 @@ function formatDeployError(error) {
 function normalizeKick(kick) {
   return {
     ...kick,
+    operationType: kick.operationType || "kick",
     sourceType: kick.sourceType || (kick.strategyAddress ? "strategy" : null),
     sourceAddress: kick.sourceAddress || kick.strategyAddress || null,
     sourceName: kick.sourceName || kick.strategyName || null,
   };
+}
+
+function formatKickPairLabel(kick) {
+  if (kick.operationType === "settle") {
+    return `SETTLE ${kick.tokenSymbol || "?"}`;
+  }
+  return `${kick.tokenSymbol || "?"} → ${kick.wantSymbol || "?"}`;
 }
 
 function normalizeDashboardRow(row) {
@@ -670,6 +678,10 @@ function KickDetailContent({ kick }) {
   return (
     <div className="kick-detail-grid">
       <div className="kick-detail-item">
+        <div className="kick-detail-label">Action</div>
+        <div className="kick-detail-value">{kick.operationType === "settle" ? "Settle" : "Kick"}</div>
+      </div>
+      <div className="kick-detail-item">
         <div className="kick-detail-label">Timestamp</div>
         <div
           className="kick-detail-value clickable"
@@ -706,7 +718,9 @@ function KickDetailContent({ kick }) {
             </span>
           </span>
           <span>
-            <span className="kick-detail-token-direction">Buy</span>
+            <span className="kick-detail-token-direction">
+              {kick.operationType === "settle" ? "Auction want" : "Buy"}
+            </span>
             {kick.wantAddress ? (
               <span className="address-copy" title={kick.wantAddress}>
                 <span className="mono address-value">{kick.wantSymbol || shortenAddress(kick.wantAddress)}</span>
@@ -914,10 +928,10 @@ function KickLogRow({ kick, nowMs, isExpanded, onToggle, rowRef, isMobile }) {
           {formatRelativeTimestamp(kick.createdAt, nowMs)}
         </td>
         <td className="mono" data-label="Pair">
-          {kick.tokenSymbol || "?"} → {kick.wantSymbol || "?"}
+          {formatKickPairLabel(kick)}
         </td>
         <td className="mono align-right" data-label="USD Value">
-          {kick.usdValue ? `$${formatBalance(kick.usdValue)}` : "—"}
+          {kick.operationType === "settle" ? "N/A" : kick.usdValue ? `$${formatBalance(kick.usdValue)}` : "—"}
         </td>
         <td data-label="Status">
           <StatusBadge status={kick.status} />
@@ -1058,6 +1072,7 @@ function KickLogPage({ nowMs, initialRunId }) {
 
       if (term) {
         const searchable = [
+          kick.operationType,
           kick.tokenSymbol,
           kick.wantSymbol,
           kick.auctionAddress,
@@ -1139,7 +1154,7 @@ function KickLogPage({ nowMs, initialRunId }) {
             {loading ? <KickLogSkeletonRows /> : null}
             {!loading && !filteredKicks.length ? (
               <tr>
-                <td colSpan={7} className="kick-log-empty">No kicks found</td>
+                <td colSpan={7} className="kick-log-empty">No activity found</td>
               </tr>
             ) : null}
             {!loading

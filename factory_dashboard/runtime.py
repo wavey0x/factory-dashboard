@@ -19,6 +19,7 @@ from factory_dashboard.persistence.repositories import (
     FeeBurnerRepository,
     FeeBurnerTokenBalanceRepository,
     FeeBurnerTokenRepository,
+    KickTxRepository,
     ScanItemErrorRepository,
     ScanRunRepository,
     StrategyRepository,
@@ -31,10 +32,12 @@ from factory_dashboard.pricing.service import TokenPriceRefreshService
 from factory_dashboard.scanner.balance_reader import BalanceReader
 from factory_dashboard.scanner.discovery import StrategyDiscoveryService
 from factory_dashboard.scanner.auction_mapper import StrategyAuctionMapper
+from factory_dashboard.scanner.auction_settler import AuctionSettlementService
 from factory_dashboard.scanner.fee_burner import FeeBurnerTokenResolver
 from factory_dashboard.scanner.reward_token_resolver import RewardTokenResolver
 from factory_dashboard.scanner.service import ScannerService
 from factory_dashboard.scanner.token_metadata import TokenMetadataService
+from factory_dashboard.transaction_service.signer import TransactionSigner
 
 
 def build_scanner_service(settings: Settings, session) -> ScannerService:
@@ -84,6 +87,7 @@ def build_scanner_service(settings: Settings, session) -> ScannerService:
     fee_burner_balance_repository = FeeBurnerTokenBalanceRepository(session)
     scan_run_repository = ScanRunRepository(session)
     scan_item_error_repository = ScanItemErrorRepository(session)
+    kick_tx_repository = KickTxRepository(session)
 
     token_metadata_service = TokenMetadataService(
         settings.chain_id,
@@ -110,6 +114,27 @@ def build_scanner_service(settings: Settings, session) -> ScannerService:
     else:
         alert_sink = NullAlertSink()
 
+    auction_settler = None
+    if settings.scan_auto_settle_enabled:
+        signer = TransactionSigner(
+            settings.txn_keystore_path,
+            settings.txn_keystore_passphrase,
+        )
+        auction_settler = AuctionSettlementService(
+            web3_client=web3_client,
+            multicall_client=multicall_client,
+            multicall_enabled=settings.multicall_enabled,
+            multicall_auction_batch_calls=settings.multicall_auction_batch_calls,
+            erc20_reader=erc20_reader,
+            signer=signer,
+            kick_tx_repository=kick_tx_repository,
+            token_metadata_service=token_metadata_service,
+            max_base_fee_gwei=settings.txn_max_base_fee_gwei,
+            max_priority_fee_gwei=settings.txn_max_priority_fee_gwei,
+            max_gas_limit=settings.txn_max_gas_limit,
+            chain_id=settings.chain_id,
+        )
+
     return ScannerService(
         session=session,
         chain_id=settings.chain_id,
@@ -133,6 +158,7 @@ def build_scanner_service(settings: Settings, session) -> ScannerService:
         token_metadata_service=token_metadata_service,
         token_price_refresh_service=token_price_refresh_service,
         balance_reader=BalanceReader(erc20_reader),
+        auction_settler=auction_settler,
         monitored_fee_burners=settings.monitored_fee_burners,
         fee_burner_token_resolver=FeeBurnerTokenResolver(
             fee_burner_reader,

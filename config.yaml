@@ -8,6 +8,7 @@ chain_id: 1
 # ── Scanner ──────────────────────────────────────────
 scan_interval_seconds: 300
 scan_concurrency: 20
+scan_auto_settle_enabled: true
 rpc_timeout_seconds: 10
 rpc_retry_attempts: 3
 monitored_fee_burners:

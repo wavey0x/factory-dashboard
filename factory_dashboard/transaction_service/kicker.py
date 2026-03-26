@@ -219,6 +219,7 @@ class AuctionKicker:
     ) -> int:
         row: dict[str, object] = {
             "run_id": run_id,
+            "operation_type": "kick",
             "source_type": candidate.source_type,
             "source_address": candidate.source_address,
             "token_address": candidate.token_address,

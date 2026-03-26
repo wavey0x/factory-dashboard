@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 import structlog
 
@@ -13,6 +13,7 @@ from factory_dashboard.alerts.base import AlertSink
 from factory_dashboard.constants import ADDITIONAL_DISCOVERY_VAULTS, CORE_REWARD_TOKENS
 from factory_dashboard.normalizers import normalize_address, to_decimal_string
 from factory_dashboard.pricing.service import PriceToken
+from factory_dashboard.scanner.auction_settler import AuctionSettlementStats, AuctionSource
 from factory_dashboard.time import utcnow, utcnow_iso
 from factory_dashboard.types import BalancePair, BalanceResult, ScanItemError, ScanRunResult
 
@@ -55,6 +56,7 @@ class ScannerService:
         token_metadata_service,
         token_price_refresh_service,
         balance_reader,
+        auction_settler,
         monitored_fee_burners: list[MonitoredFeeBurner],
         fee_burner_token_resolver,
         name_reader,
@@ -80,6 +82,7 @@ class ScannerService:
         self.token_metadata_service = token_metadata_service
         self.token_price_refresh_service = token_price_refresh_service
         self.balance_reader = balance_reader
+        self.auction_settler = auction_settler
         self.monitored_fee_burners = monitored_fee_burners
         self.fee_burner_token_resolver = fee_burner_token_resolver
         self.name_reader = name_reader
@@ -95,7 +98,7 @@ class ScannerService:
         self.alert_sink = alert_sink
 
     async def scan_once(self, on_progress: ProgressCallback | None = None) -> ScanRunResult:
-        _TOTAL_STEPS = 7
+        _TOTAL_STEPS = 8
 
         def _progress(step: int, label: str, detail: str = "") -> None:
             if on_progress is not None:
@@ -166,6 +169,7 @@ class ScannerService:
             "fee_burners_unmapped": 0,
             "source": "none",
         }
+        stage_g_stats = asdict(AuctionSettlementStats())
 
         _progress(1, "Discovering strategies")
         try:
@@ -340,11 +344,44 @@ class ScannerService:
                 stage_f_stats["source"] = "cache"
         _progress(3, "Mapping fee burners", f"{stage_f_stats['fee_burners_mapped']} mapped, {stage_f_stats['fee_burners_unmapped']} unmapped")
 
-        _progress(4, "Hydrating names")
-        await self._hydrate_cached_names(vault_addresses=vault_addresses, strategy_addresses=strategy_addresses, errors=errors)
-        _progress(4, "Hydrating names", "done")
+        _progress(4, "Settling stale auctions")
+        if self.auction_settler is not None:
+            settlement_sources: list[AuctionSource] = []
+            for source_type, rows in [
+                ("strategy", self.strategy_repository.auction_details_for_addresses(strategy_addresses)),
+                ("fee_burner", self.fee_burner_repository.auction_details_for_addresses(fee_burner_addresses)),
+            ]:
+                for row in rows:
+                    if row["auction_address"]:
+                        settlement_sources.append(
+                            AuctionSource(
+                                source_type=source_type,
+                                source_address=row["address"],
+                                auction_address=row["auction_address"],
+                                want_address=row["want_address"],
+                            )
+                        )
 
-        _progress(5, "Resolving tokens")
+            settlement_result = await self.auction_settler.settle_stale_auctions(
+                run_id=run_id,
+                sources=settlement_sources,
+            )
+            stage_g_stats = asdict(settlement_result.stats)
+            errors.extend(settlement_result.errors)
+        _progress(
+            4,
+            "Settling stale auctions",
+            (
+                f"{stage_g_stats['settlements_confirmed']} settled, "
+                f"{stage_g_stats['eligible_tokens']} eligible"
+            ),
+        )
+
+        _progress(5, "Hydrating names")
+        await self._hydrate_cached_names(vault_addresses=vault_addresses, strategy_addresses=strategy_addresses, errors=errors)
+        _progress(5, "Hydrating names", "done")
+
+        _progress(6, "Resolving tokens")
         try:
             resolved_tokens_by_strategy, stage_b_stats = await self.reward_token_resolver.resolve_many(strategy_addresses)
         except Exception as exc:  # noqa: BLE001
@@ -447,11 +484,11 @@ class ScannerService:
                 )
 
         pairs_seen = len(pairs)
-        _progress(5, "Resolving tokens", f"{pairs_seen} pairs")
+        _progress(6, "Resolving tokens", f"{pairs_seen} pairs")
         block_number = await self.web3_client.get_block_number()
         scanned_at = utcnow()
 
-        _progress(6, "Reading balances")
+        _progress(7, "Reading balances")
         balance_pairs = [
             BalancePair(source_address=pair.source_address, token_address=pair.token_address)
             for pair in pairs
@@ -494,7 +531,7 @@ class ScannerService:
                 self.fee_burner_balance_repository.upsert(result)
             pairs_succeeded += 1
 
-        _progress(6, "Reading balances", f"{pairs_succeeded} succeeded, {pairs_failed} failed")
+        _progress(7, "Reading balances", f"{pairs_succeeded} succeeded, {pairs_failed} failed")
 
         price_token_map = {
             pair.token_address: pair.decimals
@@ -507,13 +544,13 @@ class ScannerService:
             PriceToken(address=token_address, decimals=decimals)
             for token_address, decimals in price_token_map.items()
         ]
-        _progress(7, "Refreshing prices")
+        _progress(8, "Refreshing prices")
         stage_d_stats, price_errors = await self.token_price_refresh_service.refresh_many(
             run_id=run_id,
             tokens=price_tokens,
         )
         errors.extend(price_errors)
-        _progress(7, "Refreshing prices", f"{stage_d_stats['tokens_succeeded']}/{stage_d_stats['tokens_seen']} tokens, {price_tokens_skipped} skipped")
+        _progress(8, "Refreshing prices", f"{stage_d_stats['tokens_succeeded']}/{stage_d_stats['tokens_seen']} tokens, {price_tokens_skipped} skipped")
 
         status = determine_scan_status(pairs_seen=pairs_seen, pairs_failed=pairs_failed)
         finished_at = utcnow_iso()
@@ -589,6 +626,15 @@ class ScannerService:
             fee_burners_with_auction=stage_f_stats["fee_burners_mapped"],
             fee_burners_without_auction=stage_f_stats["fee_burners_unmapped"],
             fee_burner_auction_mapping_source=stage_f_stats["source"],
+            settlement_auctions_seen=stage_g_stats["auctions_seen"],
+            settlement_active_auctions=stage_g_stats["active_auctions"],
+            settlement_eligible_tokens=stage_g_stats["eligible_tokens"],
+            settlement_blocking_tokens=stage_g_stats["blocking_tokens"],
+            settlement_attempted=stage_g_stats["settlements_attempted"],
+            settlement_confirmed=stage_g_stats["settlements_confirmed"],
+            settlement_failed=stage_g_stats["settlements_failed"],
+            settlement_submitted=stage_g_stats["settlements_submitted"],
+            settlement_skipped_high_base_fee=stage_g_stats["skipped_high_base_fee"],
         )
 
         return ScanRunResult(

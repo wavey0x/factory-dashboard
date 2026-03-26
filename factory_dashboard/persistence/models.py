@@ -184,6 +184,7 @@ kick_txs = Table(
     metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
     Column("run_id", String, nullable=False),
+    Column("operation_type", String, nullable=False, server_default="kick"),
     Column("source_type", String, nullable=True),
     Column("source_address", String, nullable=True),
     Column("strategy_address", String, nullable=True),

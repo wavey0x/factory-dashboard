@@ -13,6 +13,24 @@ from factory_dashboard.persistence import models
 from factory_dashboard.types import BalanceResult, ScanItemError, TokenLogoState, TokenMetadata
 
 
+def _auction_details_for_table(session: Session, table, addresses: list[str]) -> list[dict[str, str | None]]:
+    if not addresses:
+        return []
+    stmt = select(
+        table.c.address,
+        table.c.auction_address,
+        table.c.want_address,
+    ).where(table.c.address.in_(addresses))
+    return [
+        {
+            "address": row.address,
+            "auction_address": row.auction_address,
+            "want_address": row.want_address,
+        }
+        for row in session.execute(stmt)
+    ]
+
+
 class StrategyRepository:
     def __init__(self, session: Session):
         self.session = session
@@ -97,6 +115,9 @@ class StrategyRepository:
             for row in self.session.execute(stmt)
         }
 
+    def auction_details_for_addresses(self, addresses: list[str]) -> list[dict[str, str | None]]:
+        return _auction_details_for_table(self.session, models.strategies, addresses)
+
 
 class FeeBurnerRepository:
     def __init__(self, session: Session):
@@ -152,6 +173,9 @@ class FeeBurnerRepository:
                     auction_error_message=error_message,
                 )
             )
+
+    def auction_details_for_addresses(self, addresses: list[str]) -> list[dict[str, str | None]]:
+        return _auction_details_for_table(self.session, models.fee_burners, addresses)
     
 
 
@@ -590,6 +614,7 @@ class KickTxRepository:
         stmt = (
             select(models.kick_txs)
             .where(
+                models.kick_txs.c.operation_type == "kick",
                 or_(
                     models.kick_txs.c.source_address == source_address,
                     and_(

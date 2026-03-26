@@ -55,6 +55,8 @@ def _run_scan_once(*, config: Path | None) -> None:
     settings = load_settings(config)
     try:
         _require_rpc_url(settings)
+        if settings.scan_auto_settle_enabled:
+            _require_keystore(settings)
     except ConfigurationError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
@@ -115,6 +117,8 @@ def scan_daemon(
     settings = load_settings(config)
     try:
         _require_rpc_url(settings)
+        if settings.scan_auto_settle_enabled:
+            _require_keystore(settings)
     except ConfigurationError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
