@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
 import structlog
 import typer
+from sqlalchemy import select
 
 from tidal.config import load_settings
 from tidal.errors import ConfigurationError
 from tidal.health import run_healthcheck
-from tidal.logging import configure_logging
+from tidal.logging import OutputMode, configure_logging
 from tidal.migrations import run_migrations
 from tidal.normalizers import short_address
+from tidal.persistence import models
 from tidal.persistence.db import Database
 from tidal.runtime import build_scanner_service, build_txn_service, build_web3_client
 from tidal.transaction_service.types import SourceType
@@ -165,6 +168,84 @@ def _display_source_type_filter(source_type: SourceType | None) -> str:
     return source_type.replace("_", "-")
 
 
+def _resolve_txn_output_mode(
+    *,
+    requested: OutputMode | None,
+    confirm: bool,
+    daemon: bool = False,
+) -> OutputMode:
+    if requested is not None:
+        return requested
+    if daemon:
+        return OutputMode.JSON
+    if confirm or (sys.stdin.isatty() and sys.stdout.isatty()):
+        return OutputMode.TEXT
+    return OutputMode.JSON
+
+
+def _txn_scope_label(source_type: SourceType | None) -> str:
+    source_label = _display_source_type_filter(source_type)
+    return f"{source_label} candidates" if source_label else "candidates"
+
+
+def _load_run_rows(session, run_id: str) -> list[dict[str, object]]:
+    stmt = (
+        select(models.kick_txs)
+        .where(models.kick_txs.c.run_id == run_id)
+        .order_by(models.kick_txs.c.id.asc())
+    )
+    return [dict(row) for row in session.execute(stmt).mappings().all()]
+
+
+def _echo_txn_text_summary(
+    *,
+    result,
+    live: bool,
+    source_type: SourceType | None,
+    run_rows: list[dict[str, object]],
+    verbose: bool,
+) -> None:
+    statuses = {str(row["status"]) for row in run_rows}
+    tx_hashes = [str(row["tx_hash"]) for row in run_rows if row.get("tx_hash")]
+    type_label = _display_source_type_filter(source_type)
+
+    if "USER_SKIPPED" in statuses:
+        typer.echo("Aborted. No transaction sent.")
+    elif result.candidates_found == 0:
+        typer.echo("No eligible candidates.")
+    elif not live:
+        typer.echo("Dry run complete.")
+    elif result.kicks_failed and result.kicks_succeeded:
+        typer.echo("Completed with failures.")
+    elif "CONFIRMED" in statuses:
+        typer.echo("Confirmed.")
+    elif "SUBMITTED" in statuses:
+        typer.echo("Submitted.")
+    elif result.kicks_failed:
+        typer.echo("Failed.")
+    else:
+        typer.echo("Completed.")
+
+    if tx_hashes:
+        typer.echo(f"Tx hash:      {tx_hashes[0]}")
+
+    typer.echo(f"Run ID:       {result.run_id}")
+    if type_label:
+        typer.echo(f"Type:         {type_label}")
+    typer.echo(f"Candidates:   {result.candidates_found}")
+    if live:
+        typer.echo(f"Attempted:    {result.kicks_attempted}")
+        typer.echo(f"Succeeded:    {result.kicks_succeeded}")
+        typer.echo(f"Failed:       {result.kicks_failed}")
+    else:
+        typer.echo(f"Would kick:   {result.kicks_attempted}")
+
+    if verbose and result.failure_summary:
+        typer.echo("Failure summary:")
+        for message, count in sorted(result.failure_summary.items(), key=lambda item: (-item[1], item[0])):
+            typer.echo(f"  {count}x {message}")
+
+
 def _make_confirm_fn() -> Callable[[dict], bool]:
     """Return a confirm callback that displays a batch summary."""
 
@@ -251,9 +332,16 @@ def _make_confirm_fn() -> Callable[[dict], bool]:
             lines.append(f"{vl} {line.ljust(width)} {vl}")
         lines.append(bottom)
 
+        candidate_label = "candidate" if batch_size == 1 else "candidates"
+        typer.echo(f"{batch_size} {candidate_label} ready for submission")
+        typer.echo()
         typer.echo("\n".join(lines))
         prompt = "Send this transaction?" if batch_size == 1 else f"Send batch of {batch_size} kicks?"
-        return typer.confirm(prompt, default=False)
+        accepted = typer.confirm(prompt, default=False)
+        if accepted:
+            typer.echo()
+            typer.echo("Submitting transaction...")
+        return accepted
 
     return _confirm_batch
 
@@ -266,13 +354,18 @@ def _run_txn_once(
     batch: bool,
     verbose: bool = False,
     source_type: SourceType | None = None,
+    output: OutputMode | None = None,
 ) -> None:
     """Execute a single transaction evaluation cycle."""
 
     if confirm:
         live = True
 
-    configure_logging(verbose=verbose)
+    output_mode = _resolve_txn_output_mode(requested=output, confirm=confirm)
+    if confirm and output_mode is OutputMode.JSON:
+        raise typer.BadParameter("interactive confirmation requires --output text", param_hint="--output")
+
+    configure_logging(verbose=verbose, output_mode=output_mode)
     settings = load_settings(config)
     try:
         _require_rpc_url(settings)
@@ -281,6 +374,9 @@ def _run_txn_once(
     except ConfigurationError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
+
+    if output_mode is OutputMode.TEXT:
+        typer.echo(f"Evaluating {_txn_scope_label(source_type)}...")
 
     confirm_fn = _make_confirm_fn() if confirm else None
 
@@ -305,19 +401,14 @@ def _run_txn_once(
             web3_client=web3_client,
         )
         result = asyncio.run(txn_service.run_once(live=live, batch=batch, source_type=source_type))
-        type_suffix = f" type={_display_source_type_filter(source_type)}" if source_type is not None else ""
-        typer.echo(
-            (
-                f"txn_complete run_id={result.run_id} status={result.status} "
-                f"candidates={result.candidates_found} attempted={result.kicks_attempted} "
-                f"succeeded={result.kicks_succeeded} failed={result.kicks_failed}"
-                f"{type_suffix}"
-            )
-        )
-        if verbose and result.failure_summary:
-            typer.echo(
-                f"txn_failure_summary run_id={result.run_id} "
-                + " ".join(f"{k}={v}" for k, v in result.failure_summary.items())
+        if output_mode is OutputMode.TEXT:
+            run_rows = _load_run_rows(session, result.run_id)
+            _echo_txn_text_summary(
+                result=result,
+                live=live,
+                source_type=source_type,
+                run_rows=run_rows,
+                verbose=verbose,
             )
 
 
@@ -329,6 +420,7 @@ def txn(
     batch: bool = typer.Option(default=False, help="Send a single batchKick() instead of individual kick() per candidate"),
     source_type: str | None = typer.Option(None, "--type", help="Filter candidates by source type: strategy or fee-burner"),
     config: Path | None = typer.Option(default=None, exists=True, file_okay=True, dir_okay=False),
+    output: OutputMode | None = typer.Option(default=None, help="Output mode: text for operators, json for automation"),
     verbose: bool = typer.Option(default=False, help="Show per-candidate failure details and grouped summary"),
 ) -> None:
     """Evaluate kick candidates and send transactions."""
@@ -342,6 +434,7 @@ def txn(
         batch=batch,
         verbose=verbose,
         source_type=normalized_source_type,
+        output=output,
     )
 
 
@@ -352,11 +445,13 @@ def txn_daemon(
     interval_seconds: int | None = typer.Option(default=None, min=1),
     source_type: str | None = typer.Option(None, "--type", help="Filter candidates by source type: strategy or fee-burner"),
     config: Path | None = typer.Option(default=None, exists=True, file_okay=True, dir_okay=False),
+    output: OutputMode | None = typer.Option(default=None, help="Output mode: text for operators, json for automation"),
     verbose: bool = typer.Option(default=False, help="Show per-candidate failure details and grouped summary"),
 ) -> None:
     """Run the transaction service continuously."""
 
-    configure_logging(verbose=verbose)
+    output_mode = _resolve_txn_output_mode(requested=output, confirm=False, daemon=True)
+    configure_logging(verbose=verbose, output_mode=output_mode)
     settings = load_settings(config)
     try:
         _require_rpc_url(settings)
@@ -391,23 +486,14 @@ def txn_daemon(
             with db.session() as session:
                 txn_service = build_txn_service(settings, session, web3_client=web3_client)
                 result = await txn_service.run_once(live=live, batch=batch, source_type=normalized_source_type)
-                type_suffix = (
-                    f" type={_display_source_type_filter(normalized_source_type)}"
-                    if normalized_source_type is not None
-                    else ""
-                )
-                typer.echo(
-                    (
-                        f"txn_complete run_id={result.run_id} status={result.status} "
-                        f"candidates={result.candidates_found} attempted={result.kicks_attempted} "
-                        f"succeeded={result.kicks_succeeded} failed={result.kicks_failed}"
-                        f"{type_suffix}"
-                    )
-                )
-                if verbose and result.failure_summary:
-                    typer.echo(
-                        f"txn_failure_summary run_id={result.run_id} "
-                        + " ".join(f"{k}={v}" for k, v in result.failure_summary.items())
+                if output_mode is OutputMode.TEXT:
+                    run_rows = _load_run_rows(session, result.run_id)
+                    _echo_txn_text_summary(
+                        result=result,
+                        live=live,
+                        source_type=normalized_source_type,
+                        run_rows=run_rows,
+                        verbose=verbose,
                     )
             await asyncio.sleep(sleep_seconds)
 

@@ -1,6 +1,8 @@
+from types import SimpleNamespace
 from unittest.mock import patch
 
-from tidal.cli import _make_confirm_fn
+from tidal.cli import _echo_txn_text_summary, _make_confirm_fn, _resolve_txn_output_mode
+from tidal.logging import OutputMode
 
 
 def test_make_confirm_fn_displays_pricing_profile(capsys):
@@ -36,10 +38,42 @@ def test_make_confirm_fn_displays_pricing_profile(capsys):
         "gas_cost_eth": 0.0021,
     }
 
-    with patch("tidal.cli.typer.confirm", return_value=False) as confirm_mock:
+    with patch("tidal.cli.typer.confirm", return_value=True) as confirm_mock:
         result = confirm_fn(summary)
 
     output = capsys.readouterr().out
-    assert result is False
+    assert result is True
+    assert "1 candidate ready for submission" in output
     assert "Profile:     stable | decay 0.01%" in output
+    assert "Submitting transaction..." in output
     confirm_mock.assert_called_once_with("Send this transaction?", default=False)
+
+
+def test_resolve_txn_output_mode_defaults_to_text_for_confirm():
+    assert _resolve_txn_output_mode(requested=None, confirm=True) is OutputMode.TEXT
+
+
+def test_echo_txn_text_summary_for_aborted_confirm(capsys):
+    result = SimpleNamespace(
+        run_id="run-123",
+        candidates_found=1,
+        kicks_attempted=0,
+        kicks_succeeded=0,
+        kicks_failed=0,
+        failure_summary=None,
+    )
+
+    _echo_txn_text_summary(
+        result=result,
+        live=True,
+        source_type="fee_burner",
+        run_rows=[{"status": "USER_SKIPPED", "tx_hash": None}],
+        verbose=False,
+    )
+
+    output = capsys.readouterr().out
+    assert "Aborted. No transaction sent." in output
+    assert "Run ID:       run-123" in output
+    assert "Type:         fee-burner" in output
+    assert "Candidates:   1" in output
+    assert "Attempted:    0" in output

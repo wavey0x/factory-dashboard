@@ -30,3 +30,11 @@ def test_scan_once_requires_keystore_when_auto_settle_enabled(tmp_path, monkeypa
 
     assert result.exit_code == 1
     assert "TXN_KEYSTORE_PATH and TXN_KEYSTORE_PASSPHRASE are required" in result.output
+
+
+def test_txn_confirm_rejects_json_output() -> None:
+    runner = CliRunner()
+    result = runner.invoke(app, ["txn", "--confirm", "--output", "json"])
+
+    assert result.exit_code != 0
+    assert "interactive confirmation requires --output text" in result.output
