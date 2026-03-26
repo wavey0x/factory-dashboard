@@ -15,6 +15,24 @@ from factory_dashboard.transaction_service.types import KickAction, KickCandidat
 logger = structlog.get_logger(__name__)
 
 
+def _auction_candidate_rank(candidate: KickCandidate) -> tuple[float, str, str]:
+    return (candidate.usd_value, candidate.source_address, candidate.token_address)
+
+
+def _best_candidate_per_auction(candidates: list[KickCandidate]) -> list[KickCandidate]:
+    best_by_auction: dict[str, KickCandidate] = {}
+
+    for candidate in candidates:
+        current = best_by_auction.get(candidate.auction_address)
+        if current is None or _auction_candidate_rank(candidate) > _auction_candidate_rank(current):
+            best_by_auction[candidate.auction_address] = candidate
+
+    return sorted(
+        best_by_auction.values(),
+        key=lambda candidate: (-candidate.usd_value, candidate.auction_address, candidate.source_address, candidate.token_address),
+    )
+
+
 def shortlist_candidates(
     session: Session,
     *,
@@ -161,7 +179,7 @@ def shortlist_candidates(
     if source_type is not None:
         candidates = [candidate for candidate in candidates if candidate.source_type == source_type]
 
-    return candidates
+    return _best_candidate_per_auction(candidates)
 
 
 def check_pre_send(

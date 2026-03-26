@@ -321,6 +321,77 @@ def test_shortlist_excludes_token_matching_want(session):
     assert candidates == []
 
 
+def test_shortlist_keeps_highest_usd_candidate_per_auction(session):
+    now = datetime.now(timezone.utc).isoformat()
+    session.execute(insert(models.fee_burners).values(
+        address="0xburner1",
+        chain_id=1,
+        name="Yearn Fee Burner",
+        active=1,
+        auction_address="0xauctionfb",
+        want_address="0xwantfb",
+        first_seen_at=now,
+        last_seen_at=now,
+    ))
+    session.execute(insert(models.tokens).values(
+        address="0xtokenfb1",
+        chain_id=1,
+        symbol="YFI",
+        decimals=18,
+        is_core_reward=0,
+        price_usd="10.0",
+        price_status="SUCCESS",
+        price_fetched_at=now,
+        first_seen_at=now,
+        last_seen_at=now,
+    ))
+    session.execute(insert(models.tokens).values(
+        address="0xtokenfb2",
+        chain_id=1,
+        symbol="CRV",
+        decimals=18,
+        is_core_reward=0,
+        price_usd="2.0",
+        price_status="SUCCESS",
+        price_fetched_at=now,
+        first_seen_at=now,
+        last_seen_at=now,
+    ))
+    session.execute(insert(models.tokens).values(
+        address="0xwantfb",
+        chain_id=1,
+        symbol="crvUSD",
+        decimals=18,
+        is_core_reward=0,
+        first_seen_at=now,
+        last_seen_at=now,
+    ))
+    session.execute(insert(models.fee_burner_token_balances_latest).values(
+        fee_burner_address="0xburner1",
+        token_address="0xtokenfb1",
+        raw_balance="50000000000000000000",
+        normalized_balance="50",
+        block_number=101,
+        scanned_at=now,
+    ))
+    session.execute(insert(models.fee_burner_token_balances_latest).values(
+        fee_burner_address="0xburner1",
+        token_address="0xtokenfb2",
+        raw_balance="200000000000000000000",
+        normalized_balance="200",
+        block_number=101,
+        scanned_at=now,
+    ))
+    session.commit()
+
+    candidates = shortlist_candidates(session, usd_threshold=100, max_data_age_seconds=600)
+
+    assert len(candidates) == 1
+    assert candidates[0].auction_address == "0xauctionfb"
+    assert candidates[0].token_address == "0xtokenfb1"
+    assert candidates[0].usd_value == pytest.approx(500.0)
+
+
 def _make_candidate(**overrides):
     defaults = {
         "source_type": "strategy",
