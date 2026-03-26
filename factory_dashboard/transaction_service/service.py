@@ -266,8 +266,6 @@ class TxnService:
                     kicks_failed += 1
                     if exec_result.error_message:
                         failed_messages.append(exec_result.error_message)
-                elif exec_result.status == KickStatus.USER_SKIPPED:
-                    kicks_attempted -= 1
 
             if prepared:
                 exec_results = await self.kicker.execute_batch(prepared, run_id)
