@@ -10,10 +10,10 @@ import pytest
 from sqlalchemy import create_engine, insert, select
 from sqlalchemy.orm import Session
 
-from factory_dashboard.persistence import models
-from factory_dashboard.persistence.repositories import KickTxRepository, TxnRunRepository
-from factory_dashboard.transaction_service.service import TxnService
-from factory_dashboard.transaction_service.types import KickCandidate, KickResult, KickStatus, PreparedKick
+from tidal.persistence import models
+from tidal.persistence.repositories import KickTxRepository, TxnRunRepository
+from tidal.transaction_service.service import TxnService
+from tidal.transaction_service.types import KickCandidate, KickResult, KickStatus, PreparedKick
 
 
 @pytest.fixture
@@ -423,7 +423,7 @@ async def test_live_batch_orders_candidates_by_descending_usd_value(session):
     kicker.execute_batch = AsyncMock(side_effect=execute_batch_side_effect)
 
     service = _build_txn_service(session, kicker=kicker)
-    with patch("factory_dashboard.transaction_service.service.logger.info") as log_info:
+    with patch("tidal.transaction_service.service.logger.info") as log_info:
         result = await service.run_once(live=True)
 
     assert result.status == "SUCCESS"

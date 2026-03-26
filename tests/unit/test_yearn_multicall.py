@@ -1,9 +1,9 @@
 from eth_abi import encode as abi_encode
 import pytest
 
-from factory_dashboard.chain.contracts.multicall import MulticallExecutionStats, MulticallResult
-from factory_dashboard.chain.contracts.yearn import YearnCurveFactoryReader
-from factory_dashboard.constants import ZERO_ADDRESS
+from tidal.chain.contracts.multicall import MulticallExecutionStats, MulticallResult
+from tidal.chain.contracts.yearn import YearnCurveFactoryReader
+from tidal.constants import ZERO_ADDRESS
 
 
 class FakeCall:

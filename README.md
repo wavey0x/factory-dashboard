@@ -1,19 +1,19 @@
-# Factory Dashboard
+# Tidal
 
-Monorepo for the Yearn factory dashboard. It contains the scanner that builds the dataset, the transaction service that acts on it, the dashboard UI, and the supporting contracts and schema shared across those pieces.
+Monorepo for the Yearn tidal. It contains the scanner that builds the dataset, the transaction service that acts on it, the dashboard UI, and the supporting contracts and schema shared across those pieces.
 
 ## Monorepo Layout
 
-- `factory_dashboard/scanner/`: discovers Yearn vaults and strategies, reads configured fee burners, resolves sell tokens, reads balances, refreshes token prices and auction mappings, and writes the latest dashboard state into SQLite.
-- `factory_dashboard/transaction_service/`: reads the scanner's cached state, selects kick candidates across strategies and fee burners, estimates and submits auction kick transactions, and records transaction runs back into SQLite.
+- `tidal/scanner/`: discovers Yearn vaults and strategies, reads configured fee burners, resolves sell tokens, reads balances, refreshes token prices and auction mappings, and writes the latest dashboard state into SQLite.
+- `tidal/transaction_service/`: reads the scanner's cached state, selects kick candidates across strategies and fee burners, estimates and submits auction kick transactions, and records transaction runs back into SQLite.
 - `ui/`: React dashboard that renders the cached strategy, fee burner, token, vault, and auction data from the read-only API.
 - `contracts/`: Foundry project for the on-chain `AuctionKicker` helper contract and its deployment/test scripts.
-- `factory_dashboard/persistence/` and `alembic/`: shared database models, repositories, and migrations used by the scanner and transaction service.
-- `factory_dashboard/chain/`, `factory_dashboard/pricing/`, and `factory_dashboard/runtime.py`: shared chain readers, pricing integrations, and service wiring used across the backend components.
+- `tidal/persistence/` and `alembic/`: shared database models, repositories, and migrations used by the scanner and transaction service.
+- `tidal/chain/`, `tidal/pricing/`, and `tidal/runtime.py`: shared chain readers, pricing integrations, and service wiring used across the backend components.
 
 Out of scope for this repo:
 
-- the read-only dashboard API that serves `GET /factory-dashboard` from the SQLite database lives separately
+- the read-only dashboard API that serves `GET /tidal` from the SQLite database lives separately
 
 ## Quick Start
 
@@ -29,11 +29,11 @@ Out of scope for this repo:
 3. Edit `config.yaml` to configure operational settings. Copy `.env.example` to `.env` and set `RPC_URL`.
 4. Run migrations:
    ```bash
-   factory-dashboard db migrate
+   tidal db migrate
    ```
 5. Run one scan:
    ```bash
-   factory-dashboard scan
+   tidal scan
    ```
 
 ## Auction Pricing Policy
@@ -80,16 +80,16 @@ Examples:
 
 ## Commands
 
-- `factory-dashboard db migrate`
-- `factory-dashboard scan`
-- `factory-dashboard scan daemon --interval-seconds 300`
-- `factory-dashboard txn` — dry-run evaluation of kick candidates
-- `factory-dashboard txn --live` — evaluate and send individual kick() transactions per candidate
-- `factory-dashboard txn --confirm` — interactive confirmation before each kick (implies `--live`)
-- `factory-dashboard txn --live --batch` — send a single batchKick() transaction (all-or-nothing)
-- `factory-dashboard txn daemon --live` — run the transaction service continuously (uses batchKick by default)
-- `factory-dashboard txn daemon --live --no-batch` — daemon with individual kick() per candidate
-- `factory-dashboard healthcheck`
+- `tidal db migrate`
+- `tidal scan`
+- `tidal scan daemon --interval-seconds 300`
+- `tidal txn` — dry-run evaluation of kick candidates
+- `tidal txn --live` — evaluate and send individual kick() transactions per candidate
+- `tidal txn --confirm` — interactive confirmation before each kick (implies `--live`)
+- `tidal txn --live --batch` — send a single batchKick() transaction (all-or-nothing)
+- `tidal txn daemon --live` — run the transaction service continuously (uses batchKick by default)
+- `tidal txn daemon --live --no-batch` — daemon with individual kick() per candidate
+- `tidal healthcheck`
 
 ## UI Dashboard
 
@@ -98,7 +98,7 @@ A React dashboard in [`ui/`](./ui) is deployed to Vercel as a static site. API c
 ```json
 {
   "rewrites": [
-    { "source": "/api/:path*", "destination": "https://api.wavey.info/factory-dashboard/:path*" }
+    { "source": "/api/:path*", "destination": "https://api.wavey.info/tidal/:path*" }
   ]
 }
 ```
@@ -115,8 +115,8 @@ npm run dev
 
 For local dev, either:
 
-- set `VITE_FACTORY_DASHBOARD_API_BASE_URL` to your external dashboard API, or
-- keep the default `/api` base path and point the Vite proxy at your local API with `FACTORY_DASHBOARD_API_PROXY_TARGET`
+- set `VITE_TIDAL_API_BASE_URL` to your external dashboard API, or
+- keep the default `/api` base path and point the Vite proxy at your local API with `TIDAL_API_PROXY_TARGET`
 
 ## Multicall Batching
 
@@ -157,7 +157,7 @@ Tuning knobs: `auction_factory_address` and `multicall_auction_batch_calls` in `
 
 ## Dashboard API
 
-The scanner writes all dashboard state to SQLite. A separate read-only API serves `GET /factory-dashboard` from the same database file.
+The scanner writes all dashboard state to SQLite. A separate read-only API serves `GET /tidal` from the same database file.
 
 See [`EXTERNAL_PLAN.md`](./EXTERNAL_PLAN.md) for the full endpoint spec, confirmed schema, SQL queries, and response shape.
 

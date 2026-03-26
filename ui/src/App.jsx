@@ -5,7 +5,13 @@ import Big from "big.js";
 const ALL_TOKENS = "__all__";
 const MIN_USD_VISIBLE = new Big("0.01");
 const THEME_SEQUENCE = ["light", "dark"];
-const API_BASE_URL = (import.meta.env.VITE_FACTORY_DASHBOARD_API_BASE_URL || "/api").replace(/\/$/, "");
+const THEME_STORAGE_KEY = "tidal_theme_preference";
+const LEGACY_THEME_STORAGE_KEY = "factory_dashboard_theme_preference";
+const API_BASE_URL = (
+  import.meta.env.VITE_TIDAL_API_BASE_URL
+  || import.meta.env.VITE_FACTORY_DASHBOARD_API_BASE_URL
+  || "/api"
+).replace(/\/$/, "");
 const ETHERSCAN_TX_URL = "https://etherscan.io/tx/";
 const ETHERSCAN_ADDRESS_URL = "https://etherscan.io/address/";
 const COW_EXPLORER_URL = "https://explorer.cow.fi/address/";
@@ -404,7 +410,8 @@ function getStoredThemePreference() {
   if (typeof window === "undefined") {
     return null;
   }
-  const stored = window.localStorage.getItem("factory_dashboard_theme_preference");
+  const stored = window.localStorage.getItem(THEME_STORAGE_KEY)
+    || window.localStorage.getItem(LEGACY_THEME_STORAGE_KEY);
   if (stored === "light" || stored === "dark") {
     return stored;
   }
@@ -1728,7 +1735,7 @@ export default function App() {
   }, []);
 
   const resolvedTheme = themePreference || systemTheme;
-  const headerLogoSrc = resolvedTheme === "dark" ? "/factory-dashboard-logo-dark.svg" : "/factory-dashboard-logo-light.svg";
+  const headerLogoSrc = resolvedTheme === "dark" ? "/tidal-logo-dark.svg" : "/tidal-logo-light.svg";
 
   useEffect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
@@ -1763,9 +1770,11 @@ export default function App() {
       return;
     }
     if (themePreference) {
-      window.localStorage.setItem("factory_dashboard_theme_preference", themePreference);
+      window.localStorage.setItem(THEME_STORAGE_KEY, themePreference);
+      window.localStorage.removeItem(LEGACY_THEME_STORAGE_KEY);
     } else {
-      window.localStorage.removeItem("factory_dashboard_theme_preference");
+      window.localStorage.removeItem(THEME_STORAGE_KEY);
+      window.localStorage.removeItem(LEGACY_THEME_STORAGE_KEY);
     }
   }, [themePreference]);
 
@@ -2208,7 +2217,7 @@ export default function App() {
         <div className="header-row">
           <h1 className="header-title">
             <img src={headerLogoSrc} alt="" className="brand-logo" aria-hidden="true" />
-            <span>Factory Dashboard</span>
+            <span>Tidal</span>
           </h1>
           <TabBar activePage={activePage} onChangePage={handlePageChange} />
           <ThemeSwitch

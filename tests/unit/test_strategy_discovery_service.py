@@ -1,7 +1,7 @@
 import pytest
 
-from factory_dashboard.constants import ADDITIONAL_DISCOVERY_VAULTS
-from factory_dashboard.scanner.discovery import StrategyDiscoveryService
+from tidal.constants import ADDITIONAL_DISCOVERY_VAULTS
+from tidal.scanner.discovery import StrategyDiscoveryService
 
 
 class FakeYearnReader:

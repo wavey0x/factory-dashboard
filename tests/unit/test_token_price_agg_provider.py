@@ -2,7 +2,7 @@ from decimal import Decimal
 
 import pytest
 
-from factory_dashboard.pricing.token_price_agg import QuoteResult, TokenPriceAggProvider, TokenPriceNotFoundError
+from tidal.pricing.token_price_agg import QuoteResult, TokenPriceAggProvider, TokenPriceNotFoundError
 
 
 def _provider(api_key: str | None = None) -> TokenPriceAggProvider:

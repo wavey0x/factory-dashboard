@@ -2,8 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(pip list:*)",
-      "Bash(factory-dashboard --help 2>&1)",
-      "WebFetch(domain:factory-dashboard.wavey.info)",
+      "Bash(tidal --help 2>&1)",
+      "WebFetch(domain:tidal.wavey.info)",
       "WebFetch(domain:prices.wavey.info)",
       "WebFetch(domain:api.etherscan.io)",
       "WebFetch(domain:etherscan.io)",
@@ -11,7 +11,7 @@
       "Bash(git add:*)",
       "Bash(git push:*)",
       "Bash(git commit:*)",
-      "Bash(printf 'y\\\\nn\\\\nn\\\\n' | git add -p factory_dashboard/cli.py)",
+      "Bash(printf 'y\\\\nn\\\\nn\\\\n' | git add -p tidal/cli.py)",
       "Bash(git reset:*)"
     ]
   }

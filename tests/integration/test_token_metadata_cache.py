@@ -2,9 +2,9 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from factory_dashboard.persistence import models
-from factory_dashboard.persistence.repositories import TokenRepository
-from factory_dashboard.scanner.token_metadata import TokenMetadataService
+from tidal.persistence import models
+from tidal.persistence.repositories import TokenRepository
+from tidal.scanner.token_metadata import TokenMetadataService
 
 
 class FakeERC20Reader:

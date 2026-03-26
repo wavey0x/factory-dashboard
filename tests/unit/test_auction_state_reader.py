@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 from eth_abi import encode
 
-from factory_dashboard.scanner.auction_state import AuctionStateReader
+from tidal.scanner.auction_state import AuctionStateReader
 
 
 class _FakeFunction:

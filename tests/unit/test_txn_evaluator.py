@@ -6,10 +6,10 @@ import pytest
 from sqlalchemy import create_engine, insert
 from sqlalchemy.orm import Session
 
-from factory_dashboard.persistence import models
-from factory_dashboard.persistence.repositories import KickTxRepository
-from factory_dashboard.transaction_service.evaluator import check_pre_send, shortlist_candidates
-from factory_dashboard.transaction_service.types import KickCandidate
+from tidal.persistence import models
+from tidal.persistence.repositories import KickTxRepository
+from tidal.transaction_service.evaluator import check_pre_send, shortlist_candidates
+from tidal.transaction_service.types import KickCandidate
 
 
 @pytest.fixture

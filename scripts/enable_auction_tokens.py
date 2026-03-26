@@ -15,7 +15,7 @@ if __package__ is None or __package__ == "":
 
 from eth_utils import to_checksum_address
 
-from factory_dashboard.auction_migration.deploy_single_auction import (
+from tidal.auction_migration.deploy_single_auction import (
     build_sync_web3,
     discover_local_keystore_path,
     maybe_load_signer,
@@ -24,8 +24,8 @@ from factory_dashboard.auction_migration.deploy_single_auction import (
     prompt_text,
     read_keystore_address,
 )
-from factory_dashboard.config import load_settings
-from factory_dashboard.ops.auction_enable import (
+from tidal.config import load_settings
+from tidal.ops.auction_enable import (
     AuctionTokenEnabler,
     TokenProbe,
     format_probe_reason,

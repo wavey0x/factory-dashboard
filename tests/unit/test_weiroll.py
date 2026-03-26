@@ -1,7 +1,7 @@
 from eth_abi import encode as abi_encode
 from eth_utils import to_checksum_address
 
-from factory_dashboard.ops.weiroll import (
+from tidal.ops.weiroll import (
     ARG_UNUSED,
     LiteralArg,
     LiteralCall,

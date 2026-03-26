@@ -10,11 +10,11 @@ from eth_abi import encode
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
-from factory_dashboard.persistence import models
-from factory_dashboard.persistence.repositories import KickTxRepository
-from factory_dashboard.scanner.auction_settler import AuctionSettlementService, AuctionSource
-from factory_dashboard.transaction_service.signer import TransactionSigner
-from factory_dashboard.types import TokenMetadata
+from tidal.persistence import models
+from tidal.persistence.repositories import KickTxRepository
+from tidal.scanner.auction_settler import AuctionSettlementService, AuctionSource
+from tidal.transaction_service.signer import TransactionSigner
+from tidal.types import TokenMetadata
 
 
 class _FakeFunction:

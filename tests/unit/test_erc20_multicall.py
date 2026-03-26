@@ -1,8 +1,8 @@
 from eth_abi import encode as abi_encode
 import pytest
 
-from factory_dashboard.chain.contracts.erc20 import ERC20Reader
-from factory_dashboard.chain.contracts.multicall import MulticallExecutionStats, MulticallResult
+from tidal.chain.contracts.erc20 import ERC20Reader
+from tidal.chain.contracts.multicall import MulticallExecutionStats, MulticallResult
 
 
 class FakeCall:

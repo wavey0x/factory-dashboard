@@ -1,6 +1,6 @@
 from unittest.mock import patch
 
-from factory_dashboard.cli import _make_confirm_fn
+from tidal.cli import _make_confirm_fn
 
 
 def test_make_confirm_fn_displays_pricing_profile(capsys):
@@ -36,7 +36,7 @@ def test_make_confirm_fn_displays_pricing_profile(capsys):
         "gas_cost_eth": 0.0021,
     }
 
-    with patch("factory_dashboard.cli.typer.confirm", return_value=False) as confirm_mock:
+    with patch("tidal.cli.typer.confirm", return_value=False) as confirm_mock:
         result = confirm_fn(summary)
 
     output = capsys.readouterr().out

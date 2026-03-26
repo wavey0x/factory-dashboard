@@ -1,7 +1,7 @@
 import pytest
 
-from factory_dashboard.config import MonitoredFeeBurner
-from factory_dashboard.ops.auction_enable import parse_manual_token_input, resolve_source_type
+from tidal.config import MonitoredFeeBurner
+from tidal.ops.auction_enable import parse_manual_token_input, resolve_source_type
 
 
 def test_parse_manual_token_input_normalizes_addresses() -> None:

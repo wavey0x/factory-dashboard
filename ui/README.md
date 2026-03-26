@@ -1,4 +1,4 @@
-# Factory Dashboard UI
+# Tidal UI
 
 React dashboard for viewing scan results from an external read-only dashboard API.
 
@@ -27,13 +27,13 @@ React dashboard for viewing scan results from an external read-only dashboard AP
 Configure the dashboard API with either:
 
 ```bash
-VITE_FACTORY_DASHBOARD_API_BASE_URL=https://api.wavey.info/v1 npm run dev
+VITE_TIDAL_API_BASE_URL=https://api.wavey.info/v1 npm run dev
 ```
 
 or by keeping the default `/api` base path and proxying locally:
 
 ```bash
-FACTORY_DASHBOARD_API_PROXY_TARGET=http://localhost:8787 npm run dev
+TIDAL_API_PROXY_TARGET=http://localhost:8787 npm run dev
 ```
 
 ## Endpoints

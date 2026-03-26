@@ -1,8 +1,8 @@
 from eth_abi import encode as abi_encode
 import pytest
 
-from factory_dashboard.chain.contracts.multicall import MulticallExecutionStats, MulticallResult
-from factory_dashboard.chain.contracts.yearn import StrategyRewardsReader
+from tidal.chain.contracts.multicall import MulticallExecutionStats, MulticallResult
+from tidal.chain.contracts.yearn import StrategyRewardsReader
 
 
 class FakeIndexedCall:

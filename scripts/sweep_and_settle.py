@@ -15,11 +15,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from factory_dashboard.chain.contracts.abis import AUCTION_KICKER_ABI  # noqa: E402
-from factory_dashboard.config import load_settings  # noqa: E402
-from factory_dashboard.runtime import build_web3_client  # noqa: E402
-from factory_dashboard.transaction_service.kicker import _DEFAULT_PRIORITY_FEE_GWEI, _format_execution_error  # noqa: E402
-from factory_dashboard.transaction_service.signer import TransactionSigner  # noqa: E402
+from tidal.chain.contracts.abis import AUCTION_KICKER_ABI  # noqa: E402
+from tidal.config import load_settings  # noqa: E402
+from tidal.runtime import build_web3_client  # noqa: E402
+from tidal.transaction_service.kicker import _DEFAULT_PRIORITY_FEE_GWEI, _format_execution_error  # noqa: E402
+from tidal.transaction_service.signer import TransactionSigner  # noqa: E402
 
 
 def _build_parser() -> argparse.ArgumentParser:

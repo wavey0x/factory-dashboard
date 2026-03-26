@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 from eth_account import Account
 
-from factory_dashboard.errors import ConfigurationError
-from factory_dashboard.transaction_service.signer import TransactionSigner
+from tidal.errors import ConfigurationError
+from tidal.transaction_service.signer import TransactionSigner
 
 
 @pytest.fixture

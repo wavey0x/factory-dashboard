@@ -10,13 +10,13 @@ from eth_utils import keccak
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
-from factory_dashboard.persistence import models
-from factory_dashboard.persistence.repositories import KickTxRepository
+from tidal.persistence import models
+from tidal.persistence.repositories import KickTxRepository
 import json
 
-from factory_dashboard.pricing.token_price_agg import QuoteResult
-from factory_dashboard.transaction_service.kicker import AuctionKicker, _DEFAULT_PRIORITY_FEE_GWEI
-from factory_dashboard.transaction_service.types import KickCandidate, KickResult, PreparedKick, PreparedSweepAndSettle
+from tidal.pricing.token_price_agg import QuoteResult
+from tidal.transaction_service.kicker import AuctionKicker, _DEFAULT_PRIORITY_FEE_GWEI
+from tidal.transaction_service.types import KickCandidate, KickResult, PreparedKick, PreparedSweepAndSettle
 
 
 def _make_candidate(**overrides):
@@ -121,7 +121,7 @@ async def test_kick_below_threshold_on_live_balance(session):
     web3_client = MagicMock()
 
     with patch(
-        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+        "tidal.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         # Return a tiny balance → USD value below threshold.
@@ -144,7 +144,7 @@ async def test_kick_balance_read_error(session):
     web3_client = MagicMock()
 
     with patch(
-        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+        "tidal.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(side_effect=RuntimeError("rpc down"))
@@ -170,7 +170,7 @@ async def test_kick_base_fee_too_high(session):
     web3_client.get_base_fee = AsyncMock(return_value=int(1 * 1e9))  # 1 gwei > 0.5 limit
 
     with patch(
-        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+        "tidal.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
@@ -200,7 +200,7 @@ async def test_kick_estimate_failed(session):
     web3_client.estimate_gas = AsyncMock(side_effect=RuntimeError("execution reverted"))
 
     with patch(
-        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+        "tidal.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
@@ -239,7 +239,7 @@ async def test_kick_estimate_failed_decodes_execution_failed(session):
     ).hex()
     web3_client.estimate_gas = AsyncMock(side_effect=RuntimeError(payload, payload))
 
-    with patch("factory_dashboard.transaction_service.kicker.ERC20Reader") as MockERC20:
+    with patch("tidal.transaction_service.kicker.ERC20Reader") as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
         MockERC20.return_value = mock_erc20
@@ -269,7 +269,7 @@ async def test_kick_estimate_failed_decodes_error_string(session):
     payload = "0x" + (selector + encode(["string"], ["unauthorized"])).hex()
     web3_client.estimate_gas = AsyncMock(side_effect=RuntimeError("execution reverted: unauthorized", payload))
 
-    with patch("factory_dashboard.transaction_service.kicker.ERC20Reader") as MockERC20:
+    with patch("tidal.transaction_service.kicker.ERC20Reader") as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
         MockERC20.return_value = mock_erc20
@@ -297,7 +297,7 @@ async def test_kick_gas_estimate_over_cap(session):
     web3_client.estimate_gas = AsyncMock(return_value=600000)  # exceeds 500000 cap
 
     with patch(
-        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+        "tidal.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
@@ -340,7 +340,7 @@ async def test_kick_confirmed(session):
     signer.sign_transaction = MagicMock(return_value=b"\x00" * 32)
 
     with patch(
-        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+        "tidal.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
@@ -390,7 +390,7 @@ async def test_kick_reverted(session):
     signer.sign_transaction = MagicMock(return_value=b"\x00" * 32)
 
     with patch(
-        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+        "tidal.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
@@ -429,7 +429,7 @@ async def test_kick_receipt_timeout_stays_submitted(session):
     signer.sign_transaction = MagicMock(return_value=b"\x00" * 32)
 
     with patch(
-        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+        "tidal.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
@@ -471,7 +471,7 @@ async def test_kick_confirm_fn_declined(session):
     confirm_fn = MagicMock(return_value=False)
 
     with patch(
-        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+        "tidal.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
@@ -548,7 +548,7 @@ async def test_kick_confirm_fn_accepted(session):
     confirm_fn = MagicMock(return_value=True)
 
     with patch(
-        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+        "tidal.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
@@ -582,7 +582,7 @@ async def test_kick_no_confirm_fn_sends_without_prompt(session):
     signer.sign_transaction = MagicMock(return_value=b"\x00" * 32)
 
     with patch(
-        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+        "tidal.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
@@ -620,7 +620,7 @@ async def test_priority_fee_uses_network_suggestion_below_cap(session):
     signer.sign_transaction = MagicMock(return_value=b"\x00" * 32)
 
     with patch(
-        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+        "tidal.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
@@ -656,7 +656,7 @@ async def test_priority_fee_capped_when_network_exceeds(session):
     signer.sign_transaction = MagicMock(return_value=b"\x00" * 32)
 
     with patch(
-        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+        "tidal.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
@@ -691,7 +691,7 @@ async def test_priority_fee_fallback_on_rpc_failure(session):
     signer.sign_transaction = MagicMock(return_value=b"\x00" * 32)
 
     with patch(
-        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+        "tidal.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
@@ -736,7 +736,7 @@ async def test_starting_price_usd_want_token(session):
     )
 
     with patch(
-        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+        "tidal.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         # 1000 tokens with 18 decimals
@@ -784,7 +784,7 @@ async def test_starting_price_non_usd_want_token(session):
     )
 
     with patch(
-        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+        "tidal.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=1000 * 10**18)
@@ -830,7 +830,7 @@ async def test_starting_price_ceil_ensures_nonzero(session):
     )
 
     with patch(
-        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+        "tidal.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         # Very small balance: 0.001 tokens (1e15 raw with 18 decimals)
@@ -879,13 +879,13 @@ async def test_starting_price_ceiling_logs_precision_loss(session):
     )
 
     with patch(
-        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+        "tidal.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**20)  # 0.1 tokens
         MockERC20.return_value = mock_erc20
 
-        with patch("factory_dashboard.transaction_service.kicker.logger") as mock_logger:
+        with patch("tidal.transaction_service.kicker.logger") as mock_logger:
             kicker = _make_kicker(
                 session, web3_client=web3_client, signer=signer,
                 price_provider=price_provider,
@@ -935,13 +935,13 @@ async def test_starting_price_no_precision_loss_warning_when_normal(session):
     )
 
     with patch(
-        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+        "tidal.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=1000 * 10**18)
         MockERC20.return_value = mock_erc20
 
-        with patch("factory_dashboard.transaction_service.kicker.logger") as mock_logger:
+        with patch("tidal.transaction_service.kicker.logger") as mock_logger:
             kicker = _make_kicker(
                 session, web3_client=web3_client, signer=signer,
                 price_provider=price_provider,
@@ -987,7 +987,7 @@ async def test_starting_price_real_tx_scenario(session):
     )
 
     with patch(
-        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+        "tidal.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=1000 * 10**18)
@@ -1024,7 +1024,7 @@ async def test_kick_quote_api_failure(session):
     price_provider.quote = AsyncMock(side_effect=RuntimeError("quote service down"))
 
     with patch(
-        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+        "tidal.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
@@ -1052,7 +1052,7 @@ async def test_kick_quote_no_amount_out(session):
     )
 
     with patch(
-        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+        "tidal.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
@@ -1101,7 +1101,7 @@ async def test_minimum_price_derived_from_quote(session):
     )
 
     with patch(
-        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+        "tidal.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=1000 * 10**18)
@@ -1151,7 +1151,7 @@ async def test_minimum_price_clamps_to_zero(session):
     )
 
     with patch(
-        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+        "tidal.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**15)
@@ -1182,7 +1182,7 @@ async def test_prepare_kick_success(session):
     web3_client = MagicMock()
 
     with patch(
-        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+        "tidal.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
@@ -1207,7 +1207,7 @@ async def test_prepare_kick_below_threshold(session):
     web3_client = MagicMock()
 
     with patch(
-        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+        "tidal.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=1000)
@@ -1244,7 +1244,7 @@ async def test_prepare_kick_skips_when_sell_token_symbol_matches_want(session):
     web3_client = MagicMock()
 
     with patch(
-        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+        "tidal.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         kicker = _make_kicker(session, web3_client=web3_client)
         candidate = _make_candidate(
@@ -1268,7 +1268,7 @@ async def test_prepare_kick_balance_error(session):
     web3_client = MagicMock()
 
     with patch(
-        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+        "tidal.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(side_effect=RuntimeError("rpc down"))
@@ -1292,7 +1292,7 @@ async def test_prepare_kick_quote_error(session):
     price_provider.quote = AsyncMock(side_effect=RuntimeError("quote down"))
 
     with patch(
-        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+        "tidal.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
@@ -1330,7 +1330,7 @@ async def test_prepare_kick_active_sold_out_sets_settle_token(session):
         "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": 100,
     })
 
-    with patch("factory_dashboard.transaction_service.kicker.ERC20Reader") as MockERC20:
+    with patch("tidal.transaction_service.kicker.ERC20Reader") as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
         MockERC20.return_value = mock_erc20
@@ -1680,7 +1680,7 @@ async def test_prepare_kick_curve_unavailable_skips(session):
     )
 
     with patch(
-        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+        "tidal.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
@@ -1731,7 +1731,7 @@ async def test_prepare_kick_skips_when_quote_api_resolves_sell_token_to_want(ses
     )
 
     with patch(
-        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+        "tidal.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
@@ -1765,7 +1765,7 @@ async def test_prepare_kick_curve_available_proceeds(session):
     )
 
     with patch(
-        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+        "tidal.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
@@ -1797,7 +1797,7 @@ async def test_prepare_kick_curve_not_required_proceeds(session):
     )
 
     with patch(
-        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+        "tidal.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
@@ -1857,7 +1857,7 @@ async def test_confirmed_kick_persists_audit_columns(session):
     )
 
     with patch(
-        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+        "tidal.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
@@ -1906,7 +1906,7 @@ async def test_pre_quote_error_has_null_pricing_columns(session):
     web3_client = MagicMock()
 
     with patch(
-        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+        "tidal.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(side_effect=RuntimeError("rpc down"))

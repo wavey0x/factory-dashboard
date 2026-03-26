@@ -6,8 +6,8 @@
 
 ## External Repos
 
-- The read-only Factory Dashboard API repo lives at `/Users/wavey/yearn/wavey-api`.
-- When the dashboard UI or scanner/txn payload shape changes, check `services/factory_dashboard.py` and `app.py` there as part of the same workflow.
+- The read-only Tidal API repo lives at `/Users/wavey/yearn/wavey-api`.
+- When the dashboard UI or scanner/txn payload shape changes, check `services/tidal.py` and `app.py` there as part of the same workflow.
 
 ## UI Compliance Guardrails
 
@@ -16,7 +16,7 @@ These rules apply to `the `ui/` directory`.
 1. Theme behavior:
 - Theme toggle supports user-selected `light` and `dark`.
 - Before first user selection, follow system theme (`prefers-color-scheme`).
-- Persist only explicit user selections in `localStorage` key: `factory_dashboard_theme_preference`.
+- Persist only explicit user selections in `localStorage` key: `tidal_theme_preference`.
 - Apply explicit overrides using `document.documentElement[data-theme]`.
 
 2. Contrast requirements:

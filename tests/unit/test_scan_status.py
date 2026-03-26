@@ -1,4 +1,4 @@
-from factory_dashboard.scanner.service import determine_scan_status
+from tidal.scanner.service import determine_scan_status
 
 
 def test_status_success() -> None:
