@@ -1194,13 +1194,7 @@ class AuctionKicker:
                 operation_type="sweep_and_settle",
                 status=KickStatus.ESTIMATE_FAILED,
                 error_message=friendly_error,
-                token_address=prepared_operation.sell_token,
-                token_symbol=prepared_operation.token_symbol,
-                sell_amount=prepared_operation.sell_amount_str,
-                minimum_price=prepared_operation.minimum_price_str,
-                usd_value=prepared_operation.usd_value_str,
-                normalized_balance=prepared_operation.normalized_balance,
-                stuck_abort_reason=prepared_operation.stuck_abort_reason,
+                **op_kwargs,
             )
 
         if gas_estimate > self.max_gas_limit:
@@ -1211,13 +1205,7 @@ class AuctionKicker:
                 operation_type="sweep_and_settle",
                 status=KickStatus.ERROR,
                 error_message=f"gas estimate {gas_estimate} exceeds batch cap {self.max_gas_limit}",
-                token_address=prepared_operation.sell_token,
-                token_symbol=prepared_operation.token_symbol,
-                sell_amount=prepared_operation.sell_amount_str,
-                minimum_price=prepared_operation.minimum_price_str,
-                usd_value=prepared_operation.usd_value_str,
-                normalized_balance=prepared_operation.normalized_balance,
-                stuck_abort_reason=prepared_operation.stuck_abort_reason,
+                **op_kwargs,
             )
 
         gas_limit = min(int(gas_estimate * _GAS_ESTIMATE_BUFFER), self.max_gas_limit)
@@ -1247,13 +1235,7 @@ class AuctionKicker:
                 operation_type="sweep_and_settle",
                 status=KickStatus.ERROR,
                 error_message=f"send failed: {exc}",
-                token_address=prepared_operation.sell_token,
-                token_symbol=prepared_operation.token_symbol,
-                sell_amount=prepared_operation.sell_amount_str,
-                minimum_price=prepared_operation.minimum_price_str,
-                usd_value=prepared_operation.usd_value_str,
-                normalized_balance=prepared_operation.normalized_balance,
-                stuck_abort_reason=prepared_operation.stuck_abort_reason,
+                **op_kwargs,
             )
 
         kick_tx_id = self._insert_operation_tx(
