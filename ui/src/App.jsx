@@ -64,17 +64,71 @@ function formatStrategyDisplayName(name) {
   return output || name;
 }
 
-function getEthereumProvider() {
+function isRabbyProvider(provider, info = null) {
+  return Boolean(provider?.isRabby || info?.rdns === "io.rabby");
+}
+
+async function getEthereumProvider() {
   if (typeof window === "undefined") {
     return null;
   }
 
   const { ethereum } = window;
-  if (!ethereum || typeof ethereum.request !== "function") {
+  if (!ethereum) {
     return null;
   }
 
-  return ethereum;
+  const seenProviders = new Set();
+  const candidates = [];
+
+  function addProvider(provider, info = null) {
+    if (!provider || typeof provider.request !== "function" || seenProviders.has(provider)) {
+      return;
+    }
+    seenProviders.add(provider);
+    candidates.push({ provider, info });
+  }
+
+  if (Array.isArray(ethereum.providers)) {
+    for (const provider of ethereum.providers) {
+      addProvider(provider);
+    }
+  }
+
+  addProvider(ethereum);
+
+  if (typeof window.addEventListener === "function" && typeof window.dispatchEvent === "function") {
+    const announcedProviders = await new Promise((resolve) => {
+      const detected = [];
+
+      function handleAnnounce(event) {
+        const provider = event?.detail?.provider;
+        const info = event?.detail?.info || null;
+        if (!provider || typeof provider.request !== "function") {
+          return;
+        }
+        detected.push({ provider, info });
+      }
+
+      window.addEventListener("eip6963:announceProvider", handleAnnounce);
+      window.dispatchEvent(new Event("eip6963:requestProvider"));
+      window.setTimeout(() => {
+        window.removeEventListener("eip6963:announceProvider", handleAnnounce);
+        resolve(detected);
+      }, 120);
+    });
+
+    for (const announced of announcedProviders) {
+      addProvider(announced.provider, announced.info);
+    }
+  }
+
+  const rabbyCandidate = candidates.find(({ provider, info }) => isRabbyProvider(provider, info));
+  if (rabbyCandidate) {
+    return rabbyCandidate.provider;
+  }
+
+  return candidates[0]?.provider || null;
 }
 
 function normalizeChainIdValue(value) {
@@ -1675,7 +1729,7 @@ export default function App() {
       return;
     }
 
-    const provider = getEthereumProvider();
+    const provider = await getEthereumProvider();
     if (!provider) {
       updateDeployState(sourceAddress, { status: "idle", error: "No injected wallet found" });
       return;
