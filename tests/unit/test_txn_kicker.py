@@ -1224,6 +1224,30 @@ async def test_prepare_kick_skips_when_sell_token_matches_want(session):
 
 
 @pytest.mark.asyncio
+async def test_prepare_kick_skips_when_sell_token_symbol_matches_want(session):
+    """prepare_kick returns KickResult(SKIP) when token and want symbols match."""
+    web3_client = MagicMock()
+
+    with patch(
+        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+    ) as MockERC20:
+        kicker = _make_kicker(session, web3_client=web3_client)
+        candidate = _make_candidate(
+            token_address="0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            want_address="0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            token_symbol="crvUSD",
+            want_symbol="crvUSD",
+        )
+
+        result = await kicker.prepare_kick(candidate, "run-1")
+
+    assert isinstance(result, KickResult)
+    assert result.status == "SKIP"
+    assert result.error_message == "sell token symbol matches want token"
+    MockERC20.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_prepare_kick_balance_error(session):
     """prepare_kick returns KickResult(ERROR) when balance read fails."""
     web3_client = MagicMock()
@@ -1493,6 +1517,57 @@ async def test_prepare_kick_curve_unavailable_skips(session):
     assert isinstance(result, KickResult)
     assert result.status == "ERROR"
     assert "curve quote unavailable" in result.error_message
+
+
+@pytest.mark.asyncio
+async def test_prepare_kick_skips_when_quote_api_resolves_sell_token_to_want(session):
+    """prepare_kick skips when quote metadata resolves the sell token to want."""
+    web3_client = MagicMock()
+
+    price_provider = AsyncMock()
+    price_provider.quote = AsyncMock(
+        return_value=QuoteResult(
+            amount_out_raw=2_500_000_000,
+            token_out_decimals=18,
+            provider_statuses={"curve": "error", "lifi": "ok"},
+            raw_response={
+                "token_in": {
+                    "address": "0xf939E0A03FB07F59A73314E73794Be0E57ac1b4E",
+                    "symbol": "crvUSD",
+                },
+                "token_out": {
+                    "address": "0xf939E0A03FB07F59A73314E73794Be0E57ac1b4E",
+                    "symbol": "crvUSD",
+                    "decimals": 18,
+                },
+                "providers": {
+                    "curve": {"status": "error", "amount_out": None},
+                    "lifi": {"status": "ok", "amount_out": 2_500_000_000},
+                },
+                "summary": {"high_amount_out": "2500000000000000000"},
+            },
+            provider_amounts={"lifi": 2_500_000_000},
+            request_url="https://prices.example.com/v1/quote?token_in=0xaaa&token_out=0xbbb&amount_in=1000&chain_id=1&use_underlying=true",
+        )
+    )
+
+    with patch(
+        "factory_dashboard.transaction_service.kicker.ERC20Reader"
+    ) as MockERC20:
+        mock_erc20 = AsyncMock()
+        mock_erc20.read_balance = AsyncMock(return_value=10**21)
+        MockERC20.return_value = mock_erc20
+
+        kicker = _make_kicker(
+            session, web3_client=web3_client, price_provider=price_provider,
+            require_curve_quote=True,
+        )
+        candidate = _make_candidate(token_symbol="ebUSD", want_symbol="crvUSD")
+        result = await kicker.prepare_kick(candidate, "run-1")
+
+    assert isinstance(result, KickResult)
+    assert result.status == "SKIP"
+    assert result.error_message == "sell token resolves to want token in quote API"
 
 
 @pytest.mark.asyncio

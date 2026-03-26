@@ -16,7 +16,7 @@ from eth_utils import to_checksum_address
 from factory_dashboard.chain.contracts.abis import AUCTION_KICKER_ABI
 from factory_dashboard.chain.contracts.erc20 import ERC20Reader
 from factory_dashboard.chain.web3_client import Web3Client
-from factory_dashboard.normalizers import short_address, to_decimal_string
+from factory_dashboard.normalizers import normalize_address, short_address, to_decimal_string
 from factory_dashboard.persistence.repositories import KickTxRepository
 from factory_dashboard.pricing.token_price_agg import TokenPriceAggProvider
 from factory_dashboard.time import utcnow_iso
@@ -65,6 +65,56 @@ def _clean_quote_response(raw: dict, *, request_url: str | None = None) -> dict:
     if request_url:
         cleaned["requestUrl"] = request_url
     return cleaned
+
+
+def _normalize_symbol(symbol: object) -> str | None:
+    if symbol is None:
+        return None
+
+    normalized = "".join(ch.lower() for ch in str(symbol).strip() if ch.isalnum())
+    return normalized or None
+
+
+def _normalize_address_or_none(address: object) -> str | None:
+    if address is None:
+        return None
+
+    try:
+        return normalize_address(str(address))
+    except Exception:
+        return None
+
+
+def _quote_metadata_resolves_to_want(candidate: KickCandidate, raw: dict | None) -> bool:
+    if not isinstance(raw, dict):
+        return False
+
+    token_in = raw.get("token_in")
+    if not isinstance(token_in, dict):
+        return False
+
+    token_in_address = _normalize_address_or_none(token_in.get("address"))
+    want_address = _normalize_address_or_none(candidate.want_address)
+    if token_in_address is not None and want_address is not None and token_in_address == want_address:
+        return True
+
+    token_in_symbol = _normalize_symbol(token_in.get("symbol"))
+    want_symbol = _normalize_symbol(candidate.want_symbol)
+    return (
+        token_in_symbol is not None
+        and want_symbol is not None
+        and token_in_symbol == want_symbol
+    )
+
+
+def _candidate_symbol_matches_want(candidate: KickCandidate) -> bool:
+    token_symbol = _normalize_symbol(candidate.token_symbol)
+    want_symbol = _normalize_symbol(candidate.want_symbol)
+    return (
+        token_symbol is not None
+        and want_symbol is not None
+        and token_symbol == want_symbol
+    )
 
 
 def _walk_error_values(value: object) -> list[str]:
@@ -351,6 +401,21 @@ class AuctionKicker:
                 error_message="sell token matches want token",
             )
 
+        if _candidate_symbol_matches_want(candidate):
+            logger.info(
+                "txn_candidate_skip_same_symbol",
+                source=candidate.source_address,
+                token=candidate.token_address,
+                token_symbol=candidate.token_symbol,
+                want_address=candidate.want_address,
+                want_symbol=candidate.want_symbol,
+            )
+            return KickResult(
+                kick_tx_id=0,
+                status=KickStatus.SKIP,
+                error_message="sell token symbol matches want token",
+            )
+
         # 1. Re-read live balance on-chain.
         try:
             erc20 = ERC20Reader(self.web3_client)
@@ -395,6 +460,25 @@ class AuctionKicker:
             return self._fail(
                 run_id, candidate, now_iso,
                 status=KickStatus.ERROR, error_message=f"quote API failed: {exc}",
+            )
+
+        if _quote_metadata_resolves_to_want(candidate, quote_result.raw_response):
+            raw_token_in = quote_result.raw_response.get("token_in", {}) if isinstance(quote_result.raw_response, dict) else {}
+            logger.info(
+                "txn_quote_resolves_to_want_skip",
+                source=candidate.source_address,
+                token=candidate.token_address,
+                token_symbol=candidate.token_symbol,
+                want_address=candidate.want_address,
+                want_symbol=candidate.want_symbol,
+                quote_token_in_address=raw_token_in.get("address"),
+                quote_token_in_symbol=raw_token_in.get("symbol"),
+                request_url=quote_result.request_url,
+            )
+            return KickResult(
+                kick_tx_id=0,
+                status=KickStatus.SKIP,
+                error_message="sell token resolves to want token in quote API",
             )
 
         _quote_json = None
