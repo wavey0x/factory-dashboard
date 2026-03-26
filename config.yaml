@@ -40,7 +40,7 @@ price_delay_seconds: 0
 telegram_alerts_enabled: false
 
 # ── Transaction Service ──────────────────────────────
-auction_kicker_address: "0x41ED19012d6A571543d64581acB7fb84061de819"
+auction_kicker_address: "0x3A87a97207aC535B2d08ABC99aFB31a575263f80"
 txn_usd_threshold: 100
 txn_max_base_fee_gwei: 0.5
 txn_max_priority_fee_gwei: 2
