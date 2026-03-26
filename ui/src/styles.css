@@ -1017,6 +1017,11 @@ tbody tr:hover td {
   text-decoration: underline;
 }
 
+.kick-link-status {
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
 .fee-burner-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));

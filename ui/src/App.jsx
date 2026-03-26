@@ -9,6 +9,7 @@ const API_BASE_URL = (import.meta.env.VITE_FACTORY_DASHBOARD_API_BASE_URL || "/a
 const ETHERSCAN_TX_URL = "https://etherscan.io/tx/";
 const ETHERSCAN_ADDRESS_URL = "https://etherscan.io/address/";
 const COW_EXPLORER_URL = "https://explorer.cow.fi/address/";
+const AUCTIONSCAN_BASE_URL = "https://auctionscan.info";
 const FAILED_STATUSES = new Set(["REVERTED", "ERROR", "ESTIMATE_FAILED"]);
 const FAINT_STATUSES = new Set(["DRY_RUN", "SUBMITTED", "USER_SKIPPED", "SKIP"]);
 
@@ -214,13 +215,42 @@ function formatDeployError(error) {
 }
 
 function normalizeKick(kick) {
+  const chainId = normalizeChainIdValue(kick.chainId);
+  const auctionAddress = kick.auctionAddress || null;
+  const auctionScanRoundId = kick.auctionScanRoundId ?? null;
   return {
     ...kick,
+    chainId,
     operationType: kick.operationType || "kick",
     sourceType: kick.sourceType || (kick.strategyAddress ? "strategy" : null),
     sourceAddress: kick.sourceAddress || kick.strategyAddress || null,
     sourceName: kick.sourceName || kick.strategyName || null,
+    auctionScanRoundId,
+    auctionScanMatchedAt: kick.auctionScanMatchedAt || null,
+    auctionScanLastCheckedAt: kick.auctionScanLastCheckedAt || null,
+    auctionScanResolved: Boolean(kick.auctionScanResolved ?? (auctionScanRoundId != null)),
+    auctionScanEligible: kick.auctionScanEligible ?? undefined,
+    auctionScanAuctionUrl:
+      kick.auctionScanAuctionUrl || buildAuctionScanAuctionUrl(chainId, auctionAddress),
+    auctionScanRoundUrl:
+      kick.auctionScanRoundUrl || buildAuctionScanRoundUrl(chainId, auctionAddress, auctionScanRoundId),
+    auctionScanResolving: Boolean(kick.auctionScanResolving),
+    auctionScanResolveError: kick.auctionScanResolveError || "",
   };
+}
+
+function buildAuctionScanAuctionUrl(chainId, auctionAddress) {
+  if (!chainId || !auctionAddress) {
+    return null;
+  }
+  return `${AUCTIONSCAN_BASE_URL}/auction/${chainId}/${auctionAddress}`;
+}
+
+function buildAuctionScanRoundUrl(chainId, auctionAddress, roundId) {
+  if (!chainId || !auctionAddress || roundId == null) {
+    return null;
+  }
+  return `${AUCTIONSCAN_BASE_URL}/round/${chainId}/${auctionAddress}/${roundId}`;
 }
 
 function formatKickPairLabel(kick) {
@@ -495,8 +525,9 @@ function MissingAuctionAction({ deployState, onDeploy }) {
             <span className="mono">preparing…</span>
           ) : (
             <>
-              <span className="mono">N/A</span>{" "}
-              <span className="deploy-cta">(deploy now 🚀)</span>
+              <span className="mono">N/A</span>
+              <br />
+              <span className="deploy-cta">click to deploy now 🚀</span>
             </>
           )}
         </button>
@@ -869,6 +900,32 @@ function KickDetailContent({ kick }) {
       {(kick.auctionAddress || quoteRequestUrl) ? (
         <div className="kick-detail-item" style={{ gridColumn: "1 / -1" }}>
           <div className="kick-detail-value">
+            {kick.auctionScanRoundUrl ? (
+              <div>
+                <a
+                  href={kick.auctionScanRoundUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="cow-explorer-link"
+                >
+                  view round on auctionscan.info
+                </a>
+              </div>
+            ) : kick.auctionScanAuctionUrl ? (
+              <div>
+                <a
+                  href={kick.auctionScanAuctionUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="cow-explorer-link"
+                >
+                  view auction on auctionscan.info
+                </a>
+                {kick.auctionScanResolving ? (
+                  <span className="kick-link-status"> checking for round…</span>
+                ) : null}
+              </div>
+            ) : null}
             {kick.auctionAddress ? (
               <div>
                 <a
@@ -1081,7 +1138,12 @@ function KickLogPage({ nowMs, initialRunId }) {
   const [expandedRows, setExpandedRows] = useState(() => new Set());
   const hasFetchedRef = useRef(false);
   const highlightedRowRef = useRef(null);
+  const kicksRef = useRef([]);
   const isMobile = useMediaQuery("(max-width: 600px)");
+
+  useEffect(() => {
+    kicksRef.current = kicks;
+  }, [kicks]);
 
   useEffect(() => {
     if (hasFetchedRef.current) return;
@@ -1157,6 +1219,65 @@ function KickLogPage({ nowMs, initialRunId }) {
     });
   }, [kicks, statusFilter, searchTerm]);
 
+  async function ensureAuctionScanLink(kickId) {
+    const current = kicksRef.current.find((kick) => kick.id === kickId);
+    if (!current) {
+      return;
+    }
+    if (
+      current.auctionScanResolving
+      || current.auctionScanRoundId != null
+      || !current.auctionAddress
+      || current.operationType !== "kick"
+      || current.status !== "CONFIRMED"
+      || !current.txHash
+    ) {
+      return;
+    }
+
+    setKicks((prev) => prev.map((kick) => (
+      kick.id === kickId
+        ? { ...kick, auctionScanResolving: true, auctionScanResolveError: "" }
+        : kick
+    )));
+
+    try {
+      const response = await fetch(apiUrl(`/kicks/${kickId}/auctionscan`));
+      if (!response.ok) {
+        throw new Error("Unable to resolve AuctionScan link");
+      }
+      const payload = await response.json();
+      setKicks((prev) => prev.map((kick) => {
+        if (kick.id !== kickId) {
+          return kick;
+        }
+        return normalizeKick({
+          ...kick,
+          chainId: payload.chainId ?? kick.chainId,
+          auctionScanEligible: payload.eligible,
+          auctionScanResolved: payload.resolved,
+          auctionScanRoundId: payload.roundId,
+          auctionScanAuctionUrl: payload.auctionUrl,
+          auctionScanRoundUrl: payload.roundUrl,
+          auctionScanLastCheckedAt: payload.lastCheckedAt,
+          auctionScanMatchedAt: payload.matchedAt,
+          auctionScanResolving: false,
+          auctionScanResolveError: "",
+        });
+      }));
+    } catch (error) {
+      setKicks((prev) => prev.map((kick) => (
+        kick.id === kickId
+          ? {
+              ...kick,
+              auctionScanResolving: false,
+              auctionScanResolveError: error?.message || "Unable to resolve AuctionScan link",
+            }
+          : kick
+      )));
+    }
+  }
+
   function toggleRow(kick) {
     const expanding = !expandedRows.has(kick.id);
     setExpandedRows((prev) => {
@@ -1176,6 +1297,9 @@ function KickLogPage({ nowMs, initialRunId }) {
       navigateTo("kicks", { run_id: kick.runId });
     } else {
       navigateTo("kicks");
+    }
+    if (expanding) {
+      ensureAuctionScanLink(kick.id);
     }
   }
 

@@ -209,6 +209,9 @@ kick_txs = Table(
     Column("want_address", String, nullable=True),
     Column("want_symbol", String, nullable=True),
     Column("normalized_balance", Text, nullable=True),
+    Column("auctionscan_round_id", Integer, nullable=True),
+    Column("auctionscan_last_checked_at", String, nullable=True),
+    Column("auctionscan_matched_at", String, nullable=True),
     Column("created_at", String, nullable=False),
 )
 

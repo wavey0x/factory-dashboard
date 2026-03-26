@@ -29,6 +29,26 @@ AUCTION_FACTORY_ABI = [
     }
 ]
 
+TRADE_HANDLER_ABI = [
+    {
+        "inputs": [{"internalType": "address", "name": "mech", "type": "address"}],
+        "name": "mechs",
+        "outputs": [{"internalType": "bool", "name": "", "type": "bool"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
+    {
+        "inputs": [
+            {"internalType": "bytes32[]", "name": "commands", "type": "bytes32[]"},
+            {"internalType": "bytes[]", "name": "state", "type": "bytes[]"},
+        ],
+        "name": "execute",
+        "outputs": [{"internalType": "bytes[]", "name": "", "type": "bytes[]"}],
+        "stateMutability": "nonpayable",
+        "type": "function",
+    },
+]
+
 VAULT_ABI = [
     {
         "inputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
@@ -142,6 +162,13 @@ AUCTION_ABI = [
         "name": "version",
         "outputs": [{"internalType": "string", "name": "", "type": "string"}],
         "stateMutability": "view",
+        "type": "function",
+    },
+    {
+        "inputs": [{"internalType": "address", "name": "_from", "type": "address"}],
+        "name": "enable",
+        "outputs": [],
+        "stateMutability": "nonpayable",
         "type": "function",
     },
     {
