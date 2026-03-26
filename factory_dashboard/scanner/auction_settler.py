@@ -6,17 +6,15 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from eth_abi import decode as abi_decode
 from eth_utils import to_checksum_address
-from hexbytes import HexBytes
 import structlog
 
 from factory_dashboard.chain.contracts.abis import AUCTION_ABI
 from factory_dashboard.chain.contracts.erc20 import ERC20Reader
-from factory_dashboard.chain.contracts.multicall import MulticallClient, MulticallRequest
+from factory_dashboard.chain.contracts.multicall import MulticallClient
 from factory_dashboard.chain.web3_client import Web3Client
-from factory_dashboard.normalizers import normalize_address
 from factory_dashboard.persistence.repositories import KickTxRepository
+from factory_dashboard.scanner.auction_state import AuctionStateReader
 from factory_dashboard.time import utcnow_iso
 from factory_dashboard.transaction_service.kicker import _format_execution_error
 from factory_dashboard.transaction_service.signer import TransactionSigner
@@ -96,6 +94,12 @@ class AuctionSettlementService:
         self.max_priority_fee_gwei = max_priority_fee_gwei
         self.max_gas_limit = max_gas_limit
         self.chain_id = chain_id
+        self.auction_state_reader = AuctionStateReader(
+            web3_client=web3_client,
+            multicall_client=multicall_client,
+            multicall_enabled=multicall_enabled,
+            multicall_auction_batch_calls=multicall_auction_batch_calls,
+        )
 
     async def settle_stale_auctions(
         self,
@@ -116,14 +120,14 @@ class AuctionSettlementService:
         if not auction_addresses:
             return AuctionSettlementPassResult(stats=stats, errors=errors)
 
-        active_flags = await self._read_bool_noargs_many(auction_addresses, "isAnActiveAuction")
+        active_flags = await self.auction_state_reader.read_bool_noargs_many(auction_addresses, "isAnActiveAuction")
         active_auctions = [auction for auction in auction_addresses if active_flags.get(auction) is True]
         stats.active_auctions = len(active_auctions)
         if not active_auctions:
             return AuctionSettlementPassResult(stats=stats, errors=errors)
 
-        enabled_tokens = await self._read_address_array_noargs_many(active_auctions, "getAllEnabledAuctions")
-        auction_lengths = await self._read_uint_noargs_many(active_auctions, "auctionLength")
+        enabled_tokens = await self.auction_state_reader.read_address_array_noargs_many(active_auctions, "getAllEnabledAuctions")
+        auction_lengths = await self.auction_state_reader.read_uint_noargs_many(active_auctions, "auctionLength")
 
         auction_token_pairs: list[tuple[str, str]] = []
         for auction_address in active_auctions:
@@ -133,8 +137,8 @@ class AuctionSettlementService:
         if not auction_token_pairs:
             return AuctionSettlementPassResult(stats=stats, errors=errors)
 
-        token_active = await self._read_bool_arg_many(auction_token_pairs, "isActive")
-        kicked_at = await self._read_uint_arg_many(auction_token_pairs, "kicked")
+        token_active = await self.auction_state_reader.read_bool_arg_many(auction_token_pairs, "isActive")
+        kicked_at = await self.auction_state_reader.read_uint_arg_many(auction_token_pairs, "kicked")
         balances, _ = await self.erc20_reader.read_balances_many(
             [(auction_address, token_address) for auction_address, token_address in auction_token_pairs]
         )
@@ -479,128 +483,6 @@ class AuctionSettlementService:
                     )
                 )
         return errors
-
-    async def _read_bool_noargs_many(self, auction_addresses: list[str], method_name: str) -> dict[str, bool | None]:
-        return await self._read_noarg_many(
-            auction_addresses,
-            method_name,
-            decoder=lambda data: bool(abi_decode(["bool"], data)[0]),
-        )
-
-    async def _read_address_array_noargs_many(self, auction_addresses: list[str], method_name: str) -> dict[str, list[str]]:
-        raw = await self._read_noarg_many(
-            auction_addresses,
-            method_name,
-            decoder=lambda data: [normalize_address(item) for item in abi_decode(["address[]"], data)[0]],
-        )
-        return {auction: (value if value else []) for auction, value in raw.items()}
-
-    async def _read_uint_noargs_many(self, auction_addresses: list[str], method_name: str) -> dict[str, int | None]:
-        return await self._read_noarg_many(
-            auction_addresses,
-            method_name,
-            decoder=lambda data: int(abi_decode(["uint256"], data)[0]),
-        )
-
-    async def _read_noarg_many(self, auction_addresses: list[str], method_name: str, *, decoder) -> dict[str, object | None]:
-        output: dict[str, object | None] = {auction: None for auction in auction_addresses}
-        if not auction_addresses:
-            return output
-
-        if not self.multicall_enabled or self.multicall_client is None:
-            for auction_address in auction_addresses:
-                contract = self.web3_client.contract(auction_address, AUCTION_ABI)
-                fn = getattr(contract.functions, method_name)()
-                try:
-                    output[auction_address] = await self.web3_client.call(fn)
-                except Exception:  # noqa: BLE001
-                    output[auction_address] = None
-            return output
-
-        requests: list[MulticallRequest] = []
-        for auction_address in auction_addresses:
-            contract = self.web3_client.contract(auction_address, AUCTION_ABI)
-            fn = getattr(contract.functions, method_name)()
-            requests.append(
-                MulticallRequest(
-                    target=auction_address,
-                    call_data=bytes(HexBytes(fn._encode_transaction_data())),
-                    logical_key=(auction_address, method_name),
-                )
-            )
-
-        results = await self.multicall_client.execute(
-            requests,
-            batch_size=self.multicall_auction_batch_calls,
-            allow_failure=True,
-        )
-        for result in results:
-            auction_address = result.logical_key[0]
-            if not result.success:
-                continue
-            try:
-                output[auction_address] = decoder(result.return_data)
-            except Exception:  # noqa: BLE001
-                output[auction_address] = None
-        return output
-
-    async def _read_bool_arg_many(self, pairs: list[tuple[str, str]], method_name: str) -> dict[tuple[str, str], bool | None]:
-        return await self._read_arg_many(
-            pairs,
-            method_name,
-            decoder=lambda data: bool(abi_decode(["bool"], data)[0]),
-        )
-
-    async def _read_uint_arg_many(self, pairs: list[tuple[str, str]], method_name: str) -> dict[tuple[str, str], int | None]:
-        return await self._read_arg_many(
-            pairs,
-            method_name,
-            decoder=lambda data: int(abi_decode(["uint256"], data)[0]),
-        )
-
-    async def _read_arg_many(self, pairs: list[tuple[str, str]], method_name: str, *, decoder) -> dict[tuple[str, str], object | None]:
-        output: dict[tuple[str, str], object | None] = {pair: None for pair in pairs}
-        if not pairs:
-            return output
-
-        if not self.multicall_enabled or self.multicall_client is None:
-            for auction_address, token_address in pairs:
-                contract = self.web3_client.contract(auction_address, AUCTION_ABI)
-                fn = getattr(contract.functions, method_name)(to_checksum_address(token_address))
-                try:
-                    output[(auction_address, token_address)] = await self.web3_client.call(fn)
-                except Exception:  # noqa: BLE001
-                    output[(auction_address, token_address)] = None
-            return output
-
-        requests: list[MulticallRequest] = []
-        for auction_address, token_address in pairs:
-            contract = self.web3_client.contract(auction_address, AUCTION_ABI)
-            fn = getattr(contract.functions, method_name)(to_checksum_address(token_address))
-            requests.append(
-                MulticallRequest(
-                    target=auction_address,
-                    call_data=bytes(HexBytes(fn._encode_transaction_data())),
-                    logical_key=(auction_address, token_address, method_name),
-                )
-            )
-
-        results = await self.multicall_client.execute(
-            requests,
-            batch_size=self.multicall_auction_batch_calls,
-            allow_failure=True,
-        )
-        for result in results:
-            auction_address = result.logical_key[0]
-            token_address = result.logical_key[1]
-            if not result.success:
-                continue
-            try:
-                output[(auction_address, token_address)] = decoder(result.return_data)
-            except Exception:  # noqa: BLE001
-                output[(auction_address, token_address)] = None
-        return output
-
 
 def _active_until_iso(kicked_at: int | None, auction_length: int | None) -> str | None:
     if kicked_at is None or auction_length is None or kicked_at <= 0 or auction_length <= 0:

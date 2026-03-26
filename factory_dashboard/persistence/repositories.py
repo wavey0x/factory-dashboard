@@ -450,6 +450,71 @@ class FeeBurnerTokenBalanceRepository:
         self.session.execute(stmt)
 
 
+class AuctionEnabledTokenRepository:
+    def __init__(self, session: Session):
+        self.session = session
+
+    def refresh_for_auction(self, auction_address: str, token_addresses: Iterable[str], now_iso: str) -> None:
+        normalized_tokens = sorted(set(token_addresses))
+        self.session.execute(
+            update(models.auction_enabled_tokens_latest)
+            .where(models.auction_enabled_tokens_latest.c.auction_address == auction_address)
+            .values(active=0)
+        )
+
+        for token_address in normalized_tokens:
+            stmt = insert(models.auction_enabled_tokens_latest).values(
+                auction_address=auction_address,
+                token_address=token_address,
+                active=1,
+                first_seen_at=now_iso,
+                last_seen_at=now_iso,
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=[
+                    models.auction_enabled_tokens_latest.c.auction_address,
+                    models.auction_enabled_tokens_latest.c.token_address,
+                ],
+                set_={
+                    "active": 1,
+                    "last_seen_at": now_iso,
+                },
+            )
+            self.session.execute(stmt)
+
+
+class AuctionEnabledTokenScanRepository:
+    def __init__(self, session: Session):
+        self.session = session
+
+    def upsert(
+        self,
+        *,
+        auction_address: str,
+        scanned_at: str,
+        block_number: int | None,
+        status: str,
+        error_message: str | None,
+    ) -> None:
+        stmt = insert(models.auction_enabled_token_scans).values(
+            auction_address=auction_address,
+            scanned_at=scanned_at,
+            block_number=block_number,
+            status=status,
+            error_message=error_message,
+        )
+        stmt = stmt.on_conflict_do_update(
+            index_elements=[models.auction_enabled_token_scans.c.auction_address],
+            set_={
+                "scanned_at": scanned_at,
+                "block_number": block_number,
+                "status": status,
+                "error_message": error_message,
+            },
+        )
+        self.session.execute(stmt)
+
+
 class ScanRunRepository:
     def __init__(self, session: Session):
         self.session = session

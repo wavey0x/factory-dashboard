@@ -313,6 +313,18 @@ function formatBalance(value) {
   }
 }
 
+function getAuctionSellTokenTooltip(balance) {
+  switch (balance.auctionSellTokenStatus) {
+    case "disabled":
+      return "Balance present, but token is not enabled in this auction";
+    case "unknown":
+      return balance.auctionSellTokenStatusError
+        || "Auction enabled-token status unavailable from the latest scan";
+    default:
+      return "";
+  }
+}
+
 function parseBig(value) {
   if (value == null) {
     return null;
@@ -1480,41 +1492,58 @@ function TokenBalances({
   return (
     <div className="token-cell">
       <div className="token-stack">
-        {balances.map((balance) => (
-          <div key={`${balance.tokenAddress}-${balance.tokenSymbol}`} className="token-item">
-            {balance.tokenLogoUrl ? (
-              <img
-                src={balance.tokenLogoUrl}
-                alt={`${balance.tokenSymbol} logo`}
-                className="token-logo"
-                loading="lazy"
-                decoding="async"
-                referrerPolicy="no-referrer"
-                onError={(event) => {
-                  event.currentTarget.style.visibility = "hidden";
-                }}
-              />
-            ) : <span className="token-logo-placeholder" />}
-            <span className="token-symbol-wrap">
-              <span className="mono token-symbol">{balance.tokenSymbol || "UNKNOWN"}</span>
-              <CopyIconButton
-                valueToCopy={balance.tokenAddress}
-                title={`Copy token address ${balance.tokenAddress}`}
-                ariaLabel={`Copy token address for ${balance.tokenSymbol || "token"}`}
-              />
-            </span>
-            <button
-              type="button"
-              className="mono token-balance token-balance-button"
-              onClick={onToggleMode}
-              title={displayMode === "usd" ? "Click to show token amounts" : "Click to show USD values"}
+        {balances.map((balance) => {
+          const auctionTooltip = getAuctionSellTokenTooltip(balance);
+          const balanceTitle = displayMode === "usd"
+            ? "Click to show token amounts"
+            : "Click to show USD values";
+          const title = auctionTooltip ? `${auctionTooltip}\n${balanceTitle}` : balanceTitle;
+          const itemClassName = balance.auctionSellTokenStatus === "disabled"
+            ? "token-item is-auction-disabled"
+            : "token-item";
+
+          return (
+            <div
+              key={`${balance.tokenAddress}-${balance.tokenSymbol}`}
+              className={itemClassName}
+              title={auctionTooltip || undefined}
             >
-              {displayMode === "usd"
-                ? (balance.usdValue ? `$${formatBalance(balance.usdValue)}` : "?")
-                : formatBalance(balance.normalizedBalance)}
-            </button>
-          </div>
-        ))}
+              {balance.tokenLogoUrl ? (
+                <img
+                  src={balance.tokenLogoUrl}
+                  alt={`${balance.tokenSymbol} logo`}
+                  className="token-logo"
+                  loading="lazy"
+                  decoding="async"
+                  referrerPolicy="no-referrer"
+                  onError={(event) => {
+                    event.currentTarget.style.visibility = "hidden";
+                  }}
+                />
+              ) : <span className="token-logo-placeholder" />}
+              <span className="token-symbol-wrap">
+                <span className="mono token-symbol" title={auctionTooltip || undefined}>
+                  {balance.tokenSymbol || "UNKNOWN"}
+                </span>
+                <CopyIconButton
+                  valueToCopy={balance.tokenAddress}
+                  title={`Copy token address ${balance.tokenAddress}`}
+                  ariaLabel={`Copy token address for ${balance.tokenSymbol || "token"}`}
+                />
+              </span>
+              <button
+                type="button"
+                className="mono token-balance token-balance-button"
+                onClick={onToggleMode}
+                title={title}
+              >
+                {displayMode === "usd"
+                  ? (balance.usdValue ? `$${formatBalance(balance.usdValue)}` : "?")
+                  : formatBalance(balance.normalizedBalance)}
+              </button>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -1558,24 +1587,15 @@ function FeeBurnerPage({
         <section className="fee-burner-grid">
           {rows.map((row) => (
             <article key={row.sourceAddress} className="fee-burner-card">
-              <div className="fee-burner-header">
-                <div className="fee-burner-heading">
-                  <div className="fee-burner-eyebrow">Fee Burner</div>
+              <div className="fee-burner-top-row">
+                <div className="fee-burner-top-item fee-burner-source">
+                  <div className="fee-burner-label">Fee Burner</div>
                   <EntityIdentity
                     primary={row.sourceName || "Unnamed Fee Burner"}
                     address={row.sourceAddress}
                   />
                 </div>
-                <div className="fee-burner-total">
-                  <div className="fee-burner-label">Total USD</div>
-                  <div className="fee-burner-total-value">
-                    {row.totalUsdValue ? `$${formatBalance(row.totalUsdValue)}` : "?"}
-                  </div>
-                </div>
-              </div>
-
-              <div className="fee-burner-meta-grid">
-                <div className="fee-burner-meta-item">
+                <div className="fee-burner-top-item">
                   <div className="fee-burner-label">Want</div>
                   <div className="fee-burner-value">
                     {row.wantAddress ? (
@@ -1592,7 +1612,7 @@ function FeeBurnerPage({
                     ) : "—"}
                   </div>
                 </div>
-                <div className="fee-burner-meta-item fee-burner-auction">
+                <div className="fee-burner-top-item fee-burner-auction">
                   <div className="fee-burner-label">Auction</div>
                   <AuctionAddressCell
                     address={row.auctionAddress}
@@ -1603,10 +1623,16 @@ function FeeBurnerPage({
                     onToggleExpand={() => onToggleExpand(row.sourceAddress)}
                   />
                 </div>
-                <div className="fee-burner-meta-item">
+                <div className="fee-burner-top-item">
                   <div className="fee-burner-label">Last Scan</div>
                   <div className="fee-burner-value mono">
                     {row.scannedAt ? formatRelativeTimestamp(row.scannedAt, nowMs) : "—"}
+                  </div>
+                </div>
+                <div className="fee-burner-top-item fee-burner-total">
+                  <div className="fee-burner-label">Total USD</div>
+                  <div className="fee-burner-total-value">
+                    {row.totalUsdValue ? `$${formatBalance(row.totalUsdValue)}` : "?"}
                   </div>
                 </div>
               </div>

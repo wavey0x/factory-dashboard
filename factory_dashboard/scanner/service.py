@@ -67,6 +67,9 @@ class ScannerService:
         fee_burner_token_repository,
         balance_repository,
         fee_burner_balance_repository,
+        auction_state_reader,
+        auction_enabled_token_repository,
+        auction_enabled_token_scan_repository,
         scan_run_repository,
         scan_item_error_repository,
         alert_sink: AlertSink,
@@ -93,12 +96,15 @@ class ScannerService:
         self.fee_burner_token_repository = fee_burner_token_repository
         self.balance_repository = balance_repository
         self.fee_burner_balance_repository = fee_burner_balance_repository
+        self.auction_state_reader = auction_state_reader
+        self.auction_enabled_token_repository = auction_enabled_token_repository
+        self.auction_enabled_token_scan_repository = auction_enabled_token_scan_repository
         self.scan_run_repository = scan_run_repository
         self.scan_item_error_repository = scan_item_error_repository
         self.alert_sink = alert_sink
 
     async def scan_once(self, on_progress: ProgressCallback | None = None) -> ScanRunResult:
-        _TOTAL_STEPS = 8
+        _TOTAL_STEPS = 9
 
         def _progress(step: int, label: str, detail: str = "") -> None:
             if on_progress is not None:
@@ -169,7 +175,13 @@ class ScannerService:
             "fee_burners_unmapped": 0,
             "source": "none",
         }
-        stage_g_stats = asdict(AuctionSettlementStats())
+        stage_g_stats = {
+            "auctions_seen": 0,
+            "auctions_succeeded": 0,
+            "auctions_failed": 0,
+            "source": "none",
+        }
+        stage_h_stats = asdict(AuctionSettlementStats())
 
         _progress(1, "Discovering strategies")
         try:
@@ -344,12 +356,83 @@ class ScannerService:
                 stage_f_stats["source"] = "cache"
         _progress(3, "Mapping fee burners", f"{stage_f_stats['fee_burners_mapped']} mapped, {stage_f_stats['fee_burners_unmapped']} unmapped")
 
-        _progress(4, "Settling stale auctions")
+        strategy_auction_rows = self.strategy_repository.auction_details_for_addresses(strategy_addresses)
+        fee_burner_auction_rows = self.fee_burner_repository.auction_details_for_addresses(fee_burner_addresses)
+        auction_addresses = sorted(
+            {
+                row["auction_address"]
+                for row in strategy_auction_rows + fee_burner_auction_rows
+                if row["auction_address"]
+            }
+        )
+
+        _progress(4, "Reading auction enabled tokens")
+        stage_g_stats["auctions_seen"] = len(auction_addresses)
+        stage_g_stats["source"] = "fresh"
+        enabled_tokens_scanned_at = utcnow_iso()
+        try:
+            enabled_tokens_block_number = await self.web3_client.get_block_number()
+        except Exception:  # noqa: BLE001
+            enabled_tokens_block_number = None
+
+        if auction_addresses:
+            try:
+                enabled_tokens_by_auction = await self.auction_state_reader.read_address_array_noargs_many(
+                    auction_addresses,
+                    "getAllEnabledAuctions",
+                )
+                for auction_address in auction_addresses:
+                    enabled_tokens = enabled_tokens_by_auction.get(auction_address)
+                    if enabled_tokens is None:
+                        self.auction_enabled_token_scan_repository.upsert(
+                            auction_address=auction_address,
+                            scanned_at=enabled_tokens_scanned_at,
+                            block_number=enabled_tokens_block_number,
+                            status="FAILED",
+                            error_message="getAllEnabledAuctions read failed",
+                        )
+                        stage_g_stats["auctions_failed"] += 1
+                        continue
+
+                    self.auction_enabled_token_repository.refresh_for_auction(
+                        auction_address,
+                        enabled_tokens,
+                        enabled_tokens_scanned_at,
+                    )
+                    self.auction_enabled_token_scan_repository.upsert(
+                        auction_address=auction_address,
+                        scanned_at=enabled_tokens_scanned_at,
+                        block_number=enabled_tokens_block_number,
+                        status="SUCCESS",
+                        error_message=None,
+                    )
+                    stage_g_stats["auctions_succeeded"] += 1
+            except Exception as exc:  # noqa: BLE001
+                errors.append(
+                    ScanItemError(
+                        stage="AUCTION_ENABLED_TOKENS",
+                        error_code="auction_enabled_tokens_read_failed",
+                        error_message=str(exc),
+                    )
+                )
+                for auction_address in auction_addresses:
+                    self.auction_enabled_token_scan_repository.upsert(
+                        auction_address=auction_address,
+                        scanned_at=enabled_tokens_scanned_at,
+                        block_number=enabled_tokens_block_number,
+                        status="FAILED",
+                        error_message=str(exc),
+                    )
+                stage_g_stats["auctions_failed"] = len(auction_addresses)
+                stage_g_stats["source"] = "cache"
+        _progress(4, "Reading auction enabled tokens", f"{stage_g_stats['auctions_succeeded']} scanned, {stage_g_stats['auctions_failed']} unknown")
+
+        _progress(5, "Settling stale auctions")
         if self.auction_settler is not None:
             settlement_sources: list[AuctionSource] = []
             for source_type, rows in [
-                ("strategy", self.strategy_repository.auction_details_for_addresses(strategy_addresses)),
-                ("fee_burner", self.fee_burner_repository.auction_details_for_addresses(fee_burner_addresses)),
+                ("strategy", strategy_auction_rows),
+                ("fee_burner", fee_burner_auction_rows),
             ]:
                 for row in rows:
                     if row["auction_address"]:
@@ -366,22 +449,22 @@ class ScannerService:
                 run_id=run_id,
                 sources=settlement_sources,
             )
-            stage_g_stats = asdict(settlement_result.stats)
+            stage_h_stats = asdict(settlement_result.stats)
             errors.extend(settlement_result.errors)
         _progress(
-            4,
+            5,
             "Settling stale auctions",
             (
-                f"{stage_g_stats['settlements_confirmed']} settled, "
-                f"{stage_g_stats['eligible_tokens']} eligible"
+                f"{stage_h_stats['settlements_confirmed']} settled, "
+                f"{stage_h_stats['eligible_tokens']} eligible"
             ),
         )
 
-        _progress(5, "Hydrating names")
+        _progress(6, "Hydrating names")
         await self._hydrate_cached_names(vault_addresses=vault_addresses, strategy_addresses=strategy_addresses, errors=errors)
-        _progress(5, "Hydrating names", "done")
+        _progress(6, "Hydrating names", "done")
 
-        _progress(6, "Resolving tokens")
+        _progress(7, "Resolving tokens")
         try:
             resolved_tokens_by_strategy, stage_b_stats = await self.reward_token_resolver.resolve_many(strategy_addresses)
         except Exception as exc:  # noqa: BLE001
@@ -484,11 +567,11 @@ class ScannerService:
                 )
 
         pairs_seen = len(pairs)
-        _progress(6, "Resolving tokens", f"{pairs_seen} pairs")
+        _progress(7, "Resolving tokens", f"{pairs_seen} pairs")
         block_number = await self.web3_client.get_block_number()
         scanned_at = utcnow()
 
-        _progress(7, "Reading balances")
+        _progress(8, "Reading balances")
         balance_pairs = [
             BalancePair(source_address=pair.source_address, token_address=pair.token_address)
             for pair in pairs
@@ -531,7 +614,7 @@ class ScannerService:
                 self.fee_burner_balance_repository.upsert(result)
             pairs_succeeded += 1
 
-        _progress(7, "Reading balances", f"{pairs_succeeded} succeeded, {pairs_failed} failed")
+        _progress(8, "Reading balances", f"{pairs_succeeded} succeeded, {pairs_failed} failed")
 
         price_token_map = {
             pair.token_address: pair.decimals
@@ -544,13 +627,13 @@ class ScannerService:
             PriceToken(address=token_address, decimals=decimals)
             for token_address, decimals in price_token_map.items()
         ]
-        _progress(8, "Refreshing prices")
+        _progress(9, "Refreshing prices")
         stage_d_stats, price_errors = await self.token_price_refresh_service.refresh_many(
             run_id=run_id,
             tokens=price_tokens,
         )
         errors.extend(price_errors)
-        _progress(8, "Refreshing prices", f"{stage_d_stats['tokens_succeeded']}/{stage_d_stats['tokens_seen']} tokens, {price_tokens_skipped} skipped")
+        _progress(9, "Refreshing prices", f"{stage_d_stats['tokens_succeeded']}/{stage_d_stats['tokens_seen']} tokens, {price_tokens_skipped} skipped")
 
         status = determine_scan_status(pairs_seen=pairs_seen, pairs_failed=pairs_failed)
         finished_at = utcnow_iso()
@@ -626,15 +709,19 @@ class ScannerService:
             fee_burners_with_auction=stage_f_stats["fee_burners_mapped"],
             fee_burners_without_auction=stage_f_stats["fee_burners_unmapped"],
             fee_burner_auction_mapping_source=stage_f_stats["source"],
-            settlement_auctions_seen=stage_g_stats["auctions_seen"],
-            settlement_active_auctions=stage_g_stats["active_auctions"],
-            settlement_eligible_tokens=stage_g_stats["eligible_tokens"],
-            settlement_blocking_tokens=stage_g_stats["blocking_tokens"],
-            settlement_attempted=stage_g_stats["settlements_attempted"],
-            settlement_confirmed=stage_g_stats["settlements_confirmed"],
-            settlement_failed=stage_g_stats["settlements_failed"],
-            settlement_submitted=stage_g_stats["settlements_submitted"],
-            settlement_skipped_high_base_fee=stage_g_stats["skipped_high_base_fee"],
+            enabled_auction_token_reads=stage_g_stats["auctions_seen"],
+            enabled_auction_token_reads_succeeded=stage_g_stats["auctions_succeeded"],
+            enabled_auction_token_reads_failed=stage_g_stats["auctions_failed"],
+            enabled_auction_token_read_source=stage_g_stats["source"],
+            settlement_auctions_seen=stage_h_stats["auctions_seen"],
+            settlement_active_auctions=stage_h_stats["active_auctions"],
+            settlement_eligible_tokens=stage_h_stats["eligible_tokens"],
+            settlement_blocking_tokens=stage_h_stats["blocking_tokens"],
+            settlement_attempted=stage_h_stats["settlements_attempted"],
+            settlement_confirmed=stage_h_stats["settlements_confirmed"],
+            settlement_failed=stage_h_stats["settlements_failed"],
+            settlement_submitted=stage_h_stats["settlements_submitted"],
+            settlement_skipped_high_base_fee=stage_h_stats["skipped_high_base_fee"],
         )
 
         return ScanRunResult(

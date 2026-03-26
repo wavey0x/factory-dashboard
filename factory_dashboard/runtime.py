@@ -15,6 +15,8 @@ from factory_dashboard.constants import (
     YEARN_CURVE_FACTORY_ADDRESS,
 )
 from factory_dashboard.persistence.repositories import (
+    AuctionEnabledTokenRepository,
+    AuctionEnabledTokenScanRepository,
     BalanceRepository,
     FeeBurnerRepository,
     FeeBurnerTokenBalanceRepository,
@@ -32,6 +34,7 @@ from factory_dashboard.pricing.service import TokenPriceRefreshService
 from factory_dashboard.scanner.balance_reader import BalanceReader
 from factory_dashboard.scanner.discovery import StrategyDiscoveryService
 from factory_dashboard.scanner.auction_mapper import StrategyAuctionMapper
+from factory_dashboard.scanner.auction_state import AuctionStateReader
 from factory_dashboard.scanner.auction_settler import AuctionSettlementService
 from factory_dashboard.scanner.fee_burner import FeeBurnerTokenResolver
 from factory_dashboard.scanner.reward_token_resolver import RewardTokenResolver
@@ -85,9 +88,17 @@ def build_scanner_service(settings: Settings, session) -> ScannerService:
     fee_burner_token_repository = FeeBurnerTokenRepository(session)
     balance_repository = BalanceRepository(session)
     fee_burner_balance_repository = FeeBurnerTokenBalanceRepository(session)
+    auction_enabled_token_repository = AuctionEnabledTokenRepository(session)
+    auction_enabled_token_scan_repository = AuctionEnabledTokenScanRepository(session)
     scan_run_repository = ScanRunRepository(session)
     scan_item_error_repository = ScanItemErrorRepository(session)
     kick_tx_repository = KickTxRepository(session)
+    auction_state_reader = AuctionStateReader(
+        web3_client=web3_client,
+        multicall_client=multicall_client,
+        multicall_enabled=settings.multicall_enabled,
+        multicall_auction_batch_calls=settings.multicall_auction_batch_calls,
+    )
 
     token_metadata_service = TokenMetadataService(
         settings.chain_id,
@@ -172,6 +183,9 @@ def build_scanner_service(settings: Settings, session) -> ScannerService:
         fee_burner_token_repository=fee_burner_token_repository,
         balance_repository=balance_repository,
         fee_burner_balance_repository=fee_burner_balance_repository,
+        auction_state_reader=auction_state_reader,
+        auction_enabled_token_repository=auction_enabled_token_repository,
+        auction_enabled_token_scan_repository=auction_enabled_token_scan_repository,
         scan_run_repository=scan_run_repository,
         scan_item_error_repository=scan_item_error_repository,
         alert_sink=alert_sink,

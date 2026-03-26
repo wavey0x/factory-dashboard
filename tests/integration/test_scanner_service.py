@@ -7,6 +7,8 @@ from factory_dashboard.config import MonitoredFeeBurner
 from factory_dashboard.constants import ADDITIONAL_DISCOVERY_VAULTS, CORE_REWARD_TOKENS
 from factory_dashboard.persistence import models
 from factory_dashboard.persistence.repositories import (
+    AuctionEnabledTokenRepository,
+    AuctionEnabledTokenScanRepository,
     BalanceRepository,
     FeeBurnerRepository,
     FeeBurnerTokenBalanceRepository,
@@ -27,6 +29,18 @@ from factory_dashboard.types import BalancePair, DiscoveredStrategy
 class FakeWeb3Client:
     async def get_block_number(self) -> int:
         return 20202020
+
+
+class FakeAuctionStateReader:
+    def __init__(self, values_by_auction=None, *, error: Exception | None = None) -> None:
+        self.values_by_auction = values_by_auction or {}
+        self.error = error
+
+    async def read_address_array_noargs_many(self, auction_addresses: list[str], method_name: str):
+        assert method_name == "getAllEnabledAuctions"
+        if self.error is not None:
+            raise self.error
+        return {auction_address: self.values_by_auction.get(auction_address) for auction_address in auction_addresses}
 
 
 class FakeDiscoveryService:
@@ -122,6 +136,10 @@ class FakeNameReader:
         del vault_address
         self.vault_symbol_calls += 1
         return "yvTEST"
+
+    async def read_vault_deposit_limit(self, vault_address: str) -> str | None:
+        del vault_address
+        return "1"
 
     async def read_strategy_name(self, strategy_address: str) -> str | None:
         self.strategy_calls += 1
@@ -225,6 +243,8 @@ async def test_scanner_persists_lowercase_and_zero_balances() -> None:
         fee_burner_token_repo = FeeBurnerTokenRepository(session)
         balance_repo = BalanceRepository(session)
         fee_burner_balance_repo = FeeBurnerTokenBalanceRepository(session)
+        auction_enabled_token_repo = AuctionEnabledTokenRepository(session)
+        auction_enabled_token_scan_repo = AuctionEnabledTokenScanRepository(session)
         scan_run_repo = ScanRunRepository(session)
         scan_item_error_repo = ScanItemErrorRepository(session)
 
@@ -261,6 +281,11 @@ async def test_scanner_persists_lowercase_and_zero_balances() -> None:
             fee_burner_token_repository=fee_burner_token_repo,
             balance_repository=balance_repo,
             fee_burner_balance_repository=fee_burner_balance_repo,
+            auction_state_reader=FakeAuctionStateReader(
+                values_by_auction={"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": ["0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"]}
+            ),
+            auction_enabled_token_repository=auction_enabled_token_repo,
+            auction_enabled_token_scan_repository=auction_enabled_token_scan_repo,
             scan_run_repository=scan_run_repo,
             scan_item_error_repository=scan_item_error_repo,
             alert_sink=NullAlertSink(),
@@ -316,6 +341,17 @@ async def test_scanner_persists_lowercase_and_zero_balances() -> None:
         assert strategy_rows_by_address["0x2222222222222222222222222222222222222222"]["auction_address"] is None
         assert strategy_rows_by_address["0x2222222222222222222222222222222222222222"]["auction_version"] is None
 
+        enabled_token_rows = session.execute(select(models.auction_enabled_tokens_latest)).mappings().all()
+        assert len(enabled_token_rows) == 1
+        assert enabled_token_rows[0]["auction_address"] == "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        assert enabled_token_rows[0]["token_address"] == "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+        assert enabled_token_rows[0]["active"] == 1
+        enabled_scan_rows = session.execute(select(models.auction_enabled_token_scans)).mappings().all()
+        assert len(enabled_scan_rows) == 1
+        assert enabled_scan_rows[0]["auction_address"] == "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        assert enabled_scan_rows[0]["status"] == "SUCCESS"
+        assert enabled_scan_rows[0]["block_number"] == 20202020
+
 
 @pytest.mark.asyncio
 async def test_scanner_persists_fee_burner_rows_and_balances() -> None:
@@ -331,6 +367,8 @@ async def test_scanner_persists_fee_burner_rows_and_balances() -> None:
         fee_burner_token_repo = FeeBurnerTokenRepository(session)
         balance_repo = BalanceRepository(session)
         fee_burner_balance_repo = FeeBurnerTokenBalanceRepository(session)
+        auction_enabled_token_repo = AuctionEnabledTokenRepository(session)
+        auction_enabled_token_scan_repo = AuctionEnabledTokenScanRepository(session)
         scan_run_repo = ScanRunRepository(session)
         scan_item_error_repo = ScanItemErrorRepository(session)
 
@@ -371,6 +409,13 @@ async def test_scanner_persists_fee_burner_rows_and_balances() -> None:
             fee_burner_token_repository=fee_burner_token_repo,
             balance_repository=balance_repo,
             fee_burner_balance_repository=fee_burner_balance_repo,
+            auction_state_reader=FakeAuctionStateReader(
+                values_by_auction={
+                    "0x0000000000000000000000000000000000000001": ["0xcccccccccccccccccccccccccccccccccccccccc"]
+                }
+            ),
+            auction_enabled_token_repository=auction_enabled_token_repo,
+            auction_enabled_token_scan_repository=auction_enabled_token_scan_repo,
             scan_run_repository=scan_run_repo,
             scan_item_error_repository=scan_item_error_repo,
             alert_sink=NullAlertSink(),
@@ -397,6 +442,21 @@ async def test_scanner_persists_fee_burner_rows_and_balances() -> None:
         assert fee_burner_balance_rows[0]["fee_burner_address"] == fee_burner.address.lower()
         assert fee_burner_balance_rows[0]["normalized_balance"] == "1"
 
+        enabled_token_rows = session.execute(select(models.auction_enabled_tokens_latest)).mappings().all()
+        assert any(
+            row["auction_address"] == "0x0000000000000000000000000000000000000001"
+            and row["token_address"] == "0xcccccccccccccccccccccccccccccccccccccccc"
+            and row["active"] == 1
+            for row in enabled_token_rows
+        )
+
+        enabled_scan_rows = session.execute(select(models.auction_enabled_token_scans)).mappings().all()
+        assert any(
+            row["auction_address"] == "0x0000000000000000000000000000000000000001"
+            and row["status"] == "SUCCESS"
+            for row in enabled_scan_rows
+        )
+
 
 @pytest.mark.asyncio
 async def test_scanner_uses_cached_auction_mapping_when_refresh_fails() -> None:
@@ -412,6 +472,8 @@ async def test_scanner_uses_cached_auction_mapping_when_refresh_fails() -> None:
         fee_burner_token_repo = FeeBurnerTokenRepository(session)
         balance_repo = BalanceRepository(session)
         fee_burner_balance_repo = FeeBurnerTokenBalanceRepository(session)
+        auction_enabled_token_repo = AuctionEnabledTokenRepository(session)
+        auction_enabled_token_scan_repo = AuctionEnabledTokenScanRepository(session)
         scan_run_repo = ScanRunRepository(session)
         scan_item_error_repo = ScanItemErrorRepository(session)
 
@@ -446,6 +508,11 @@ async def test_scanner_uses_cached_auction_mapping_when_refresh_fails() -> None:
             fee_burner_token_repository=fee_burner_token_repo,
             balance_repository=balance_repo,
             fee_burner_balance_repository=fee_burner_balance_repo,
+            auction_state_reader=FakeAuctionStateReader(
+                values_by_auction={"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": ["0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"]}
+            ),
+            auction_enabled_token_repository=auction_enabled_token_repo,
+            auction_enabled_token_scan_repository=auction_enabled_token_scan_repo,
             scan_run_repository=scan_run_repo,
             scan_item_error_repository=scan_item_error_repo,
             alert_sink=NullAlertSink(),
@@ -477,6 +544,9 @@ async def test_scanner_uses_cached_auction_mapping_when_refresh_fails() -> None:
             fee_burner_token_repository=fee_burner_token_repo,
             balance_repository=balance_repo,
             fee_burner_balance_repository=fee_burner_balance_repo,
+            auction_state_reader=FakeAuctionStateReader(error=RuntimeError("enabled-token rpc failed")),
+            auction_enabled_token_repository=auction_enabled_token_repo,
+            auction_enabled_token_scan_repository=auction_enabled_token_scan_repo,
             scan_run_repository=scan_run_repo,
             scan_item_error_repository=scan_item_error_repo,
             alert_sink=NullAlertSink(),
@@ -500,3 +570,15 @@ async def test_scanner_uses_cached_auction_mapping_when_refresh_fails() -> None:
         assert strategy_rows_by_address["0x1111111111111111111111111111111111111111"]["auction_error_message"] == (
             "auction mapping rpc failed"
         )
+
+        enabled_token_rows = session.execute(select(models.auction_enabled_tokens_latest)).mappings().all()
+        assert len(enabled_token_rows) == 1
+        assert enabled_token_rows[0]["auction_address"] == "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        assert enabled_token_rows[0]["token_address"] == "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+        assert enabled_token_rows[0]["active"] == 1
+
+        enabled_scan_rows = session.execute(select(models.auction_enabled_token_scans)).mappings().all()
+        assert len(enabled_scan_rows) == 1
+        assert enabled_scan_rows[0]["auction_address"] == "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        assert enabled_scan_rows[0]["status"] == "FAILED"
+        assert enabled_scan_rows[0]["error_message"] == "enabled-token rpc failed"
