@@ -151,4 +151,6 @@ class TxnRunResult:
     kicks_attempted: int
     kicks_succeeded: int
     kicks_failed: int
+    eligible_candidates_found: int | None = None
+    deferred_same_auction_count: int = 0
     failure_summary: dict[str, int] | None = None

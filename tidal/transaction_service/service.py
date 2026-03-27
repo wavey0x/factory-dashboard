@@ -13,7 +13,7 @@ import structlog
 from tidal.normalizers import normalize_address
 from tidal.persistence.repositories import KickTxRepository, TxnRunRepository
 from tidal.time import utcnow_iso
-from tidal.transaction_service.evaluator import check_pre_send, shortlist_candidates, sort_candidates
+from tidal.transaction_service.evaluator import build_shortlist, check_pre_send, sort_candidates
 from tidal.transaction_service.kicker import AuctionKicker
 from tidal.transaction_service.types import (
     KickAction,
@@ -124,12 +124,13 @@ class TxnService:
         })
 
         # 2. Shortlist candidates from SQLite.
-        candidates = shortlist_candidates(
+        shortlist = build_shortlist(
             self.session,
             usd_threshold=self.usd_threshold,
             max_data_age_seconds=self.max_data_age_seconds,
             source_type=source_type,
         )
+        candidates = shortlist.selected_candidates
 
         logger.info(
             "txn_run_started",
@@ -137,6 +138,8 @@ class TxnService:
             live=live,
             source_type=source_type,
             candidates_shortlisted=len(candidates),
+            candidates_eligible=len(shortlist.eligible_candidates),
+            deferred_same_auction_count=shortlist.deferred_same_auction_count,
         )
 
         # 3. Pre-send checks (cooldown, circuit breaker).
@@ -323,6 +326,8 @@ class TxnService:
             kicks_attempted=kicks_attempted,
             kicks_succeeded=kicks_succeeded,
             kicks_failed=kicks_failed,
+            eligible_candidates_found=len(shortlist.eligible_candidates),
+            deferred_same_auction_count=shortlist.deferred_same_auction_count,
             failure_summary=failure_summary,
         )
 

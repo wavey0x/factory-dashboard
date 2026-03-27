@@ -209,6 +209,8 @@ def _echo_txn_text_summary(
     tx_hashes = [str(row["tx_hash"]) for row in run_rows if row.get("tx_hash")]
     skipped_count = sum(1 for row in run_rows if str(row.get("status")) == "USER_SKIPPED")
     type_label = _display_source_type_filter(source_type)
+    eligible_candidates_found = getattr(result, "eligible_candidates_found", None)
+    deferred_same_auction_count = getattr(result, "deferred_same_auction_count", 0)
 
     if skipped_count and skipped_count == len(run_rows):
         typer.echo("Skipped by operator. No transaction sent.")
@@ -233,6 +235,8 @@ def _echo_txn_text_summary(
     typer.echo(f"Run ID:       {result.run_id}")
     if type_label:
         typer.echo(f"Type:         {type_label}")
+    if eligible_candidates_found is not None and eligible_candidates_found != result.candidates_found:
+        typer.echo(f"Eligible:     {eligible_candidates_found}")
     typer.echo(f"Candidates:   {result.candidates_found}")
     if live:
         typer.echo(f"Attempted:    {result.kicks_attempted}")
@@ -242,6 +246,10 @@ def _echo_txn_text_summary(
             typer.echo(f"Skipped:      {skipped_count}")
     else:
         typer.echo(f"Would kick:   {result.kicks_attempted}")
+
+    if deferred_same_auction_count:
+        typer.echo(f"Deferred:     {deferred_same_auction_count}")
+        typer.echo("Note:         only one lot per auction can be kicked at a time; deferred tokens stay pending for later runs.")
 
     if verbose and result.failure_summary:
         typer.echo("Failure summary:")

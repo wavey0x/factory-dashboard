@@ -91,6 +91,8 @@ Examples:
 - `tidal txn daemon --live --no-batch` — daemon with individual kick() per candidate
 - `tidal healthcheck`
 
+Shortlist behavior: only the highest-USD token per auction is kickable in a single evaluation cycle. Additional above-threshold tokens on the same auction stay deferred until a later run, because the auction can only carry one active lot at a time.
+
 ## UI Dashboard
 
 A React dashboard in [`ui/`](./ui) is deployed to Vercel as a static site. API calls are rewritten to the external dashboard API via `vercel.json`:

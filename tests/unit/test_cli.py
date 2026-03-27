@@ -105,3 +105,30 @@ def test_echo_txn_text_summary_for_mixed_confirm_and_skip(capsys):
     assert "Confirmed." in output
     assert "Skipped:      1" in output
     assert "Aborted. No transaction sent." not in output
+
+
+def test_echo_txn_text_summary_reports_deferred_same_auction_tokens(capsys):
+    result = SimpleNamespace(
+        run_id="run-789",
+        candidates_found=1,
+        kicks_attempted=1,
+        kicks_succeeded=1,
+        kicks_failed=0,
+        eligible_candidates_found=4,
+        deferred_same_auction_count=3,
+        failure_summary=None,
+    )
+
+    _echo_txn_text_summary(
+        result=result,
+        live=True,
+        source_type="fee_burner",
+        run_rows=[{"status": "CONFIRMED", "tx_hash": "0xabc"}],
+        verbose=False,
+    )
+
+    output = capsys.readouterr().out
+    assert "Eligible:     4" in output
+    assert "Candidates:   1" in output
+    assert "Deferred:     3" in output
+    assert "only one lot per auction can be kicked at a time" in output

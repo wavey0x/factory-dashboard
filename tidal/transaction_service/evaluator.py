@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 import structlog
@@ -13,6 +14,15 @@ from tidal.persistence.repositories import KickTxRepository
 from tidal.transaction_service.types import KickAction, KickCandidate, KickDecision, SkipReason, SourceType
 
 logger = structlog.get_logger(__name__)
+
+
+@dataclass(slots=True)
+class ShortlistResult:
+    """Selected candidates plus visibility into same-auction deferrals."""
+
+    eligible_candidates: list[KickCandidate]
+    selected_candidates: list[KickCandidate]
+    deferred_same_auction_count: int
 
 
 def candidate_sort_key(candidate: KickCandidate) -> tuple[float, str, str, str]:
@@ -41,6 +51,21 @@ def shortlist_candidates(
     max_data_age_seconds: int,
     source_type: SourceType | None = None,
 ) -> list[KickCandidate]:
+    return build_shortlist(
+        session,
+        usd_threshold=usd_threshold,
+        max_data_age_seconds=max_data_age_seconds,
+        source_type=source_type,
+    ).selected_candidates
+
+
+def build_shortlist(
+    session: Session,
+    *,
+    usd_threshold: float,
+    max_data_age_seconds: int,
+    source_type: SourceType | None = None,
+) -> ShortlistResult:
     """Query SQLite for source-token pairs above threshold with fresh data."""
 
     now = datetime.now(timezone.utc)
@@ -180,7 +205,12 @@ def shortlist_candidates(
     if source_type is not None:
         candidates = [candidate for candidate in candidates if candidate.source_type == source_type]
 
-    return _best_candidate_per_auction(candidates)
+    selected_candidates = _best_candidate_per_auction(candidates)
+    return ShortlistResult(
+        eligible_candidates=sort_candidates(candidates),
+        selected_candidates=selected_candidates,
+        deferred_same_auction_count=max(0, len(candidates) - len(selected_candidates)),
+    )
 
 
 def check_pre_send(

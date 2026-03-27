@@ -528,7 +528,9 @@ async def test_dry_run_keeps_one_candidate_per_auction(session):
     result = await service.run_once(live=False, source_type="fee_burner")
 
     assert result.status == "DRY_RUN"
+    assert result.eligible_candidates_found == 2
     assert result.candidates_found == 1
+    assert result.deferred_same_auction_count == 1
     assert result.kicks_attempted == 1
 
     kick_txs = session.execute(select(models.kick_txs)).mappings().all()
