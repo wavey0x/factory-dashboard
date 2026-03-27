@@ -929,6 +929,13 @@ tbody tr:hover td {
   text-align: right;
 }
 
+.kick-log-table thead th.kick-time-col,
+.kick-log-table tbody td.kick-time-cell {
+  width: 120px;
+  min-width: 120px;
+  white-space: nowrap;
+}
+
 .kick-log-table tbody td {
   border-bottom: 1px solid var(--divider-subtle);
   padding: 8px;
@@ -1050,12 +1057,6 @@ tbody tr:hover td {
   text-align: center;
 }
 
-.kick-log-header-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
 .kick-auctionscan-link {
   position: relative;
   display: inline-flex;
@@ -1129,11 +1130,9 @@ tbody tr:hover td {
     minmax(220px, 1.7fr)
     minmax(120px, 0.85fr)
     minmax(220px, 1.45fr)
-    minmax(110px, 0.8fr);
+    minmax(214px, 1.5fr);
   gap: 16px;
   align-items: start;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--divider-row);
 }
 
 .fee-burner-top-item {
@@ -1142,18 +1141,6 @@ tbody tr:hover td {
 
 .fee-burner-source .entity-cell {
   margin-top: 4px;
-}
-
-.fee-burner-total {
-  text-align: right;
-}
-
-.fee-burner-total-value {
-  margin-top: 4px;
-  font-size: 12px;
-  font-weight: 400;
-  line-height: 1.4;
-  color: var(--text-primary);
 }
 
 .fee-burner-value {
@@ -1172,7 +1159,9 @@ tbody tr:hover td {
 }
 
 .fee-burner-balances {
-  margin-top: 12px;
+  justify-self: end;
+  width: 100%;
+  max-width: 320px;
 }
 
 .fee-burner-balances .fee-burner-label {
@@ -1186,6 +1175,25 @@ tbody tr:hover td {
 .fee-burner-card .token-item {
   width: 100%;
   grid-template-columns: var(--token-icon-size) minmax(0, 1fr) 86px;
+}
+
+.fee-burner-balance-total {
+  display: flex;
+  justify-content: flex-end;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.fee-burner-balance-total-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+
+.fee-burner-balance-total-value {
+  color: var(--text-primary);
 }
 
 .kick-log-empty {
@@ -1381,6 +1389,11 @@ tbody tr:hover td {
   .fee-burner-top-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .fee-burner-balances {
+    justify-self: stretch;
+    max-width: none;
+  }
 }
 
 @media (max-width: 600px) {
@@ -1436,10 +1449,6 @@ tbody tr:hover td {
   .fee-burner-top-row {
     grid-template-columns: 1fr;
     gap: 12px;
-  }
-
-  .fee-burner-total {
-    text-align: left;
   }
 
   /* ── Kick Log cards ── */

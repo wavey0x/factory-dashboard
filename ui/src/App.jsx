@@ -54,6 +54,18 @@ function shortenAddress(address) {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
 }
 
+function truncateMiddle(value, maxLength = 18) {
+  if (!value || value.length <= maxLength) {
+    return value || "—";
+  }
+
+  const ellipsis = "...";
+  const visibleChars = maxLength - ellipsis.length;
+  const frontChars = Math.ceil(visibleChars / 2);
+  const backChars = Math.floor(visibleChars / 2);
+  return `${value.slice(0, frontChars)}${ellipsis}${value.slice(-backChars)}`;
+}
+
 function formatStrategyDisplayName(name) {
   if (!name) {
     return "Unnamed Strategy";
@@ -1193,20 +1205,22 @@ function KickDetailModal({ kick, onClose }) {
 }
 
 function KickLogRow({ kick, nowMs, isExpanded, onToggle, rowRef, isMobile }) {
+  const sourceLabel = truncateMiddle(kick.sourceName || kick.sourceAddress, 18);
+
   return (
     <>
       <tr ref={rowRef} className={`kick-log-row ${isExpanded ? "is-expanded" : ""}`} onClick={onToggle}>
-        <td className="mono muted" title={kick.createdAt} data-label="Time">
+        <td className="mono muted kick-time-cell" title={kick.createdAt} data-label="Time">
           {formatRelativeTimestamp(kick.createdAt, nowMs)}
+        </td>
+        <td data-label="Status">
+          <StatusBadge status={kick.status} operationType={kick.operationType} />
         </td>
         <td className="mono" data-label="Pair">
           {formatKickPairLabel(kick)}
         </td>
         <td className="mono align-right" data-label="USD Value">
           {kick.operationType === "settle" ? "N/A" : kick.usdValue ? `$${formatBalance(kick.usdValue)}` : "—"}
-        </td>
-        <td data-label="Status">
-          <StatusBadge status={kick.status} operationType={kick.operationType} />
         </td>
         <td data-label="Auction">
           {kick.auctionAddress ? (
@@ -1238,7 +1252,7 @@ function KickLogRow({ kick, nowMs, isExpanded, onToggle, rowRef, isMobile }) {
                 rel="noopener noreferrer"
                 onClick={(e) => e.stopPropagation()}
               >
-                {kick.sourceName || shortenAddress(kick.sourceAddress)}
+                {sourceLabel}
               </a>
               <CopyIconButton
                 valueToCopy={kick.sourceAddress}
@@ -1484,17 +1498,13 @@ function KickLogPage({ nowMs, initialRunId }) {
         <table className="kick-log-table">
           <thead>
             <tr>
-              <th>Time</th>
+              <th className="kick-time-col">Time</th>
+              <th>Status</th>
               <th>Pair</th>
               <th className="align-right">USD Value</th>
-              <th>Status</th>
               <th>Auction</th>
               <th>Source</th>
-              <th className="kick-auctionscan-col" title="AuctionScan">
-                <span className="kick-log-header-icon">
-                  <AuctionScanFavicon />
-                </span>
-              </th>
+              <th className="kick-auctionscan-col" title="AuctionScan" aria-label="AuctionScan" />
               <th>Tx</th>
             </tr>
           </thead>
@@ -1670,25 +1680,26 @@ function FeeBurnerPage({
                     onToggleExpand={() => onToggleExpand(row.sourceAddress)}
                   />
                 </div>
-                <div className="fee-burner-top-item fee-burner-total">
-                  <div className="fee-burner-label">Total USD</div>
-                  <div className="mono fee-burner-total-value">
-                    {row.totalUsdValue ? `$${formatBalance(row.totalUsdValue)}` : "?"}
-                  </div>
+                <div className="fee-burner-top-item fee-burner-balances">
+                  <div className="fee-burner-label">Token Balances</div>
+                  {row.balances.length ? (
+                    <>
+                      <TokenBalances
+                        balances={row.balances}
+                        displayMode={displayMode}
+                        onToggleMode={onToggleMode}
+                      />
+                      <div className="fee-burner-balance-total">
+                        <span className="fee-burner-balance-total-label">Total</span>
+                        <span className="mono fee-burner-balance-total-value">
+                          {row.totalUsdValue ? `$${formatBalance(row.totalUsdValue)}` : "?"}
+                        </span>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="row-secondary">No balances above the visibility threshold.</div>
+                  )}
                 </div>
-              </div>
-
-              <div className="fee-burner-balances">
-                <div className="fee-burner-label">Token Balances</div>
-                {row.balances.length ? (
-                  <TokenBalances
-                    balances={row.balances}
-                    displayMode={displayMode}
-                    onToggleMode={onToggleMode}
-                  />
-                ) : (
-                  <div className="row-secondary">No balances above the visibility threshold.</div>
-                )}
               </div>
             </article>
           ))}
