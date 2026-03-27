@@ -1022,6 +1022,7 @@ class AuctionKicker:
                         "sell_price_usd": pk.candidate.price_usd,
                         "want_address": pk.candidate.want_address,
                         "want_symbol": pk.candidate.want_symbol,
+                        "want_price_usd": pk.candidate.want_price_usd,
                         "buffer_bps": pk.start_price_buffer_bps,
                         "min_buffer_bps": pk.min_price_buffer_bps,
                         "step_decay_rate_bps": pk.step_decay_rate_bps,

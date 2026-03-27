@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from collections.abc import Callable
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 import structlog
@@ -277,34 +278,66 @@ def _make_confirm_fn() -> Callable[[dict], bool]:
             profile_name = k.get("pricing_profile_name") or "default"
             amount = float(k["sell_amount"])
             amount_str = f"{amount:,.4f}" if amount < 1 else f"{amount:,.2f}"
-            quote_amount = float(k["quote_amount"])
-            usd_value = float(k["usd_value"])
-            want_price_str = f"~${usd_value / quote_amount:,.2f}/{want_sym}" if quote_amount else ""
+            quote_amount = Decimal(str(k["quote_amount"]))
+            usd_value = Decimal(str(k["usd_value"]))
 
             starting_price = int(k["starting_price"])
             minimum_price = int(k["minimum_price"])
-            min_usd_str = f"~${usd_value / minimum_price:,.2f}/{want_sym}" if minimum_price else ""
             step_decay_rate_bps = k.get("step_decay_rate_bps")
             step_decay_str = (
                 f"{step_decay_rate_bps / 100:.2f}%"
                 if step_decay_rate_bps is not None
                 else "—"
             )
+            quote_amount_str = f"{float(quote_amount):,.4f}" if quote_amount < 1 else f"{float(quote_amount):,.2f}"
+            quote_value_line = None
+            divergence_line = None
+            want_price_usd = k.get("want_price_usd")
+            if want_price_usd is not None:
+                try:
+                    want_price = Decimal(str(want_price_usd))
+                    quote_value_usd = quote_amount * want_price
+                    quote_value_line = f"  Quote out:   {quote_amount_str} {want_sym} (~${float(quote_value_usd):,.2f} at cached {want_sym} price)"
+                    if usd_value > 0 and quote_value_usd > 0:
+                        mismatch_ratio = abs(usd_value - quote_value_usd) / usd_value
+                        if mismatch_ratio >= Decimal("0.20"):
+                            divergence_line = (
+                                f"  Warning:     cached sell value and quote value differ by {float(mismatch_ratio * 100):,.1f}%"
+                            )
+                except (InvalidOperation, ValueError, TypeError):
+                    quote_value_line = f"  Quote out:   {quote_amount_str} {want_sym}"
+            else:
+                quote_value_line = f"  Quote out:   {quote_amount_str} {want_sym}"
+
+            rate_line = None
+            if amount > 0:
+                quote_rate = quote_amount / Decimal(str(amount))
+                start_rate = Decimal(starting_price) / Decimal(str(amount))
+                min_rate = Decimal(minimum_price) / Decimal(str(amount))
+                rate_line = (
+                    f"  Rate:        {float(quote_rate):,.4f} quoted | {float(start_rate):,.4f} start | "
+                    f"{float(min_rate):,.4f} floor {want_sym}/{token_sym}"
+                )
             precision_line = None
-            if quote_amount > 0 and starting_price > quote_amount * 2:
+            if quote_amount > 0 and Decimal(starting_price) > quote_amount * 2:
                 precision_line = f"               \u21b3 ceiled lot based on {quote_amount:.4f} quote"
 
             content = [
                 "Kick (1 of 1)",
                 f"  Source:      {source_name} ({short_address(k['source'])})",
                 f"  Auction:     {k['auction']}",
-                f"  Sell amount: {amount_str} {token_sym} (~${usd_value:,.2f})",
-                f"  Start quote: {k['starting_price_display']} | {want_price_str}",
-                f"  Min price:   {k['minimum_price_display']} | {min_usd_str}",
+                f"  Sell amount: {amount_str} {token_sym} (cached ~${float(usd_value):,.2f})",
+                quote_value_line,
+                f"  Start quote: {k['starting_price_display']}",
+                f"  Min price:   {k['minimum_price_display']}",
                 f"  Profile:     {profile_name} | decay {step_decay_str}",
             ]
+            if rate_line:
+                content.append(rate_line)
             if precision_line:
                 content.append(precision_line)
+            if divergence_line:
+                content.append(divergence_line)
             content.extend([
                 f"  Gas est:     {gas_estimate:,} (~{gas_cost_eth:.6f} ETH)",
                 f"  Fees:        priority {priority_fee:.2f} gwei | max {max_fee} gwei",

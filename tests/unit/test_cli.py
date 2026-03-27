@@ -21,6 +21,7 @@ def test_make_confirm_fn_displays_pricing_profile(capsys):
                 "minimum_price": "2375",
                 "minimum_price_display": "2,375 USDC (minus 5% buffer)",
                 "want_symbol": "USDC",
+                "want_price_usd": "1",
                 "buffer_bps": 1000,
                 "min_buffer_bps": 500,
                 "step_decay_rate_bps": 1,
@@ -44,9 +45,54 @@ def test_make_confirm_fn_displays_pricing_profile(capsys):
     output = capsys.readouterr().out
     assert result is True
     assert "1 candidate ready for submission" in output
+    assert "Quote out:   2,500.00 USDC (~$2,500.00 at cached USDC price)" in output
+    assert "Rate:        2.5000 quoted | 2.7500 start | 2.3750 floor USDC/CRV" in output
     assert "Profile:     stable | decay 0.01%" in output
     assert "Submitting transaction..." in output
     confirm_mock.assert_called_once_with("Send this transaction?", default=False)
+
+
+def test_make_confirm_fn_warns_on_cached_sell_vs_quote_mismatch(capsys):
+    confirm_fn = _make_confirm_fn()
+    summary = {
+        "kicks": [
+            {
+                "source": "0x1111111111111111111111111111111111111111",
+                "source_name": "Test Strategy",
+                "token_symbol": "WFRAX",
+                "auction": "0x2222222222222222222222222222222222222222",
+                "sell_amount": "3473.41",
+                "usd_value": "10000",
+                "starting_price": "1725",
+                "starting_price_display": "1,725 crvUSD (incl. 10% buffer)",
+                "minimum_price": "1489",
+                "minimum_price_display": "1,489 crvUSD (minus 5% buffer)",
+                "want_symbol": "crvUSD",
+                "want_price_usd": "1",
+                "buffer_bps": 1000,
+                "min_buffer_bps": 500,
+                "step_decay_rate_bps": 50,
+                "pricing_profile_name": "volatile",
+                "quote_amount": "1568",
+            }
+        ],
+        "batch_size": 1,
+        "total_usd": "10000",
+        "gas_estimate": 210000,
+        "gas_limit": 252000,
+        "base_fee_gwei": 0.1,
+        "priority_fee_gwei": 0.05,
+        "max_fee_per_gas_gwei": 2.5,
+        "gas_cost_eth": 0.000021,
+    }
+
+    with patch("tidal.cli.typer.confirm", return_value=False):
+        _ = confirm_fn(summary)
+
+    output = capsys.readouterr().out
+    assert "Sell amount: 3,473.41 WFRAX (cached ~$10,000.00)" in output
+    assert "Quote out:   1,568.00 crvUSD (~$1,568.00 at cached crvUSD price)" in output
+    assert "cached sell value and quote value differ by 84.3%" in output
 
 
 def test_resolve_txn_output_mode_defaults_to_text_for_confirm():
