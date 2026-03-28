@@ -84,6 +84,15 @@ def test_kick_rejects_invalid_auction_address() -> None:
     assert "invalid address" in result.output
 
 
+def test_kick_rejects_bypass_confirmation_without_broadcast() -> None:
+    runner = CliRunner()
+    result = runner.invoke(app, ["kick", "run", "--bypass-confirmation"])
+
+    assert result.exit_code != 0
+    assert "Invalid value for --bypass-confirmation" in result.output
+    assert "--broadcast" in result.output
+
+
 @pytest.mark.parametrize(
     ("flag_args", "expected"),
     [
@@ -177,7 +186,7 @@ def test_auction_enable_tokens_rejects_invalid_extra_token() -> None:
     assert "invalid address" in result.output
 
 
-def test_auction_enable_tokens_rejects_invalid_caller() -> None:
+def test_auction_enable_tokens_rejects_invalid_sender() -> None:
     runner = CliRunner()
     result = runner.invoke(
         app,
@@ -185,10 +194,27 @@ def test_auction_enable_tokens_rejects_invalid_caller() -> None:
             "auction",
             "enable-tokens",
             "0x1111111111111111111111111111111111111111",
-            "--caller",
+            "--sender",
             "not-an-address",
         ],
     )
 
     assert result.exit_code != 0
     assert "invalid address" in result.output
+
+
+def test_auction_enable_tokens_rejects_bypass_confirmation_without_broadcast() -> None:
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "auction",
+            "enable-tokens",
+            "0x1111111111111111111111111111111111111111",
+            "--bypass-confirmation",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "Invalid value for --bypass-confirmation" in result.output
+    assert "--broadcast" in result.output

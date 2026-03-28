@@ -24,9 +24,9 @@ The work is done when all of the following are true:
 1. An operator can complete the five core actions entirely from the CLI without falling back to the UI or one-off scripts.
 2. All mutating commands share the same safety model:
    - preview by default
-   - `--live` for writes
-   - `--yes` to skip confirmation
-   - explicit signer selection
+   - `--broadcast` for writes
+   - `--bypass-confirmation` to skip confirmation
+   - explicit sender and wallet selection
 3. All important command results are available in both human-readable text and stable JSON.
 4. The CLI answers "why did this happen?" well enough that operators do not need to open SQLite manually.
 5. The command tree uses operator verbs, not internal implementation names.
@@ -41,22 +41,34 @@ tidal scan daemon [--config FILE] [--interval-seconds N] [--json]
 
 tidal auction deploy --want TOKEN --receiver ADDRESS [--factory ADDRESS]
                      [--governance ADDRESS] [--starting-price INT] [--salt HEX]
-                     [--live] [--yes] [--keystore FILE] [--passphrase-env VAR]
-                     [--caller ADDRESS] [--json]
+                     [--broadcast] [--bypass-confirmation]
+                     [--sender ADDRESS]
+                     [--account NAME | --keystore FILE]
+                     [--password-file FILE] [--json]
 
 tidal auction enable-tokens AUCTION [--extra-token TOKEN ...]
-                            [--live] [--yes] [--keystore FILE]
-                            [--passphrase-env VAR] [--caller ADDRESS] [--json]
+                            [--broadcast] [--bypass-confirmation]
+                            [--sender ADDRESS]
+                            [--account NAME | --keystore FILE]
+                            [--password-file FILE] [--json]
 
 tidal auction sweep-and-settle AUCTION TOKEN
-                               [--live] [--yes] [--keystore FILE]
-                               [--passphrase-env VAR] [--caller ADDRESS] [--json]
+                               [--broadcast] [--bypass-confirmation]
+                               [--sender ADDRESS]
+                               [--account NAME | --keystore FILE]
+                               [--password-file FILE] [--json]
 
 tidal kick run [--source ADDRESS] [--auction ADDRESS] [--limit N]
-               [--live] [--yes] [--json] [--explain]
+               [--broadcast] [--bypass-confirmation]
+               [--sender ADDRESS]
+               [--account NAME | --keystore FILE]
+               [--password-file FILE] [--json] [--explain]
 
 tidal kick daemon [--source ADDRESS] [--auction ADDRESS] [--interval-seconds N]
-                  [--live] [--json]
+                  [--broadcast]
+                  [--sender ADDRESS]
+                  [--account NAME | --keystore FILE]
+                  [--password-file FILE] [--json]
 
 tidal kick inspect [--source ADDRESS] [--auction ADDRESS] [--limit N]
                    [--show-all] [--json]
@@ -100,20 +112,31 @@ Every command should follow the same operating rules.
 
 ### Mutating command safety
 
-- Default mode is preview, never live write.
-- `--live` enables broadcast/write behavior.
-- If `--live` is set and `--yes` is not set, prompt once for confirmation.
+- Default mode is preview, never a broadcast write.
+- `--broadcast` enables broadcast/write behavior.
+- If `--broadcast` is set and `--bypass-confirmation` is not set, prompt once for confirmation.
 - Only prompt for:
   - confirmation
-  - keystore passphrase when not provided by environment
+  - keystore password when not provided by `--password-file`
 - Do not prompt for optional workflow choices that can be expressed as flags.
 
-### Signer and caller selection
+### Sender and wallet selection
 
-- `--keystore FILE` overrides auto-discovery.
-- `--passphrase-env VAR` points to the env var holding the passphrase.
-- `--caller ADDRESS` is supported anywhere a preview caller matters.
-- Preview caller selection and live signer selection should be surfaced consistently across deploy, enable, sweep, and kick.
+- Mirror Foundry's operator model: `--sender ADDRESS` chooses the address, wallet flags choose how it is signed.
+- `--sender ADDRESS` replaces `--caller ADDRESS` in the public CLI contract.
+- In preview mode, `--sender` becomes the `from` address for `eth_call`-based previews.
+- In broadcast mode, sender resolution order should be:
+  1. Explicit `--sender ADDRESS`
+  2. Exactly one configured wallet backend
+  3. Otherwise fail with a validation error
+- Do not copy Foundry's default fallback sender. For a work tool, silent fallback hides operator mistakes.
+- Support Foundry-style wallet flags:
+  - `--account NAME` loads `~/.foundry/keystores/NAME`
+  - `--keystore FILE` loads an explicit keystore path
+  - `--password-file FILE` supplies the keystore password non-interactively
+- Environment-based password loading can remain as a fallback, but it should not be the primary documented interface.
+- Keep the wallet option layout extensible for future additions such as hardware wallets or remote signers.
+- Do not add `--unlocked` unless there is a concrete need to send via RPC-managed accounts.
 
 ### Exit codes
 
@@ -379,7 +402,7 @@ Replace `txn` with a proper `kick` surface and expose explainability.
    - preflight failure
    - execution failure
 4. Add `kick inspect` to show why a candidate is or is not kickable without sending anything.
-5. Add `--explain` to `kick run` so preview/live output includes richer decision detail.
+5. Add `--explain` to `kick run` so preview and broadcast output includes richer decision detail.
 6. Ensure failure output includes:
    - clear reason text
    - quote status
@@ -419,16 +442,17 @@ Port single-auction deploy into the main CLI and remove the standalone helper fr
    - `--governance`
    - `--starting-price`
    - `--salt`
-   - `--live`
-   - `--yes`
+   - `--broadcast`
+   - `--bypass-confirmation`
+   - `--sender`
+   - `--account`
    - `--keystore`
-   - `--passphrase-env`
-   - `--caller`
+   - `--password-file`
 3. Keep the strong preview behavior from the current helper:
    - show existing matches
    - show predicted auction address
    - show deployment payload
-4. Reuse the shared signer/caller handling from the CLI foundation work.
+4. Reuse the shared sender/wallet handling from the CLI foundation work.
 5. Once parity is reached, retire `deploy_single_auction.py` as a supported entrypoint.
 
 ### Done when
@@ -461,15 +485,16 @@ Make the remaining auction mutation commands look and behave like the rest of th
    - warnings
    - per-token detail
 3. Normalize `sweep-and-settle` around the same flags:
-   - `--live`
-   - `--yes`
+   - `--broadcast`
+   - `--bypass-confirmation`
+   - `--sender`
+   - `--account`
    - `--keystore`
-   - `--passphrase-env`
-   - `--caller`
+   - `--password-file`
    - `--json`
 4. Keep prompts minimal:
    - confirmation only
-   - passphrase only
+   - password only
 5. Ensure both commands have machine-readable output that does not require text scraping.
 
 ### Done when
@@ -529,7 +554,7 @@ Testing should be done alongside each phase, not saved for the end.
   - quote URL propagation
 
 - `tests/unit/test_auction_enable.py`
-  - result shaping for preview/live
+  - result shaping for preview/broadcast
 
 Add new unit coverage as needed:
 
@@ -558,7 +583,7 @@ At the end of the refactor, manually verify:
 1. `tidal kick inspect` explains an ineligible source clearly.
 2. `tidal logs show <run_id>` displays full quote URL and full failure reason.
 3. `tidal auction deploy` works in preview mode with only flags and no unnecessary prompts.
-4. `tidal auction enable-tokens` and `tidal auction sweep-and-settle` follow the same live/confirm/signer pattern.
+4. `tidal auction enable-tokens` and `tidal auction sweep-and-settle` follow the same broadcast/confirmation/signer pattern.
 
 ## Execution Order
 

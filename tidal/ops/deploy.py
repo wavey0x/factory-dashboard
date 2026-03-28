@@ -64,7 +64,7 @@ class AuctionDeployPreview:
     governance: str
     starting_price: int
     salt: str
-    caller_address: str | None
+    sender_address: str | None
     existing_matches: list[ExistingAuctionMatch]
     predicted_address: str | None
     predicted_address_exists: bool
@@ -287,7 +287,7 @@ def preview_deployment(
     governance: str,
     starting_price: int,
     salt: str,
-    caller_address: str | None,
+    sender_address: str | None,
 ) -> AuctionDeployPreview:
     existing_auctions = read_factory_auction_addresses(w3, factory_address)
     existing_matches = read_existing_matches(
@@ -308,7 +308,7 @@ def preview_deployment(
         starting_price,
         HexBytes(salt),
     )
-    call_kwargs = {"from": to_checksum_address(caller_address)} if caller_address else {}
+    call_kwargs = {"from": to_checksum_address(sender_address)} if sender_address else {}
 
     predicted_address: str | None = None
     gas_estimate: int | None = None
@@ -333,7 +333,7 @@ def preview_deployment(
         governance=governance,
         starting_price=starting_price,
         salt=salt,
-        caller_address=caller_address,
+        sender_address=sender_address,
         existing_matches=existing_matches,
         predicted_address=predicted_address,
         predicted_address_exists=predicted_address in existing_auctions if predicted_address is not None else False,

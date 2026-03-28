@@ -10,12 +10,12 @@ from typing import TYPE_CHECKING
 from tidal.cli_support import (
     build_sync_web3,
     load_signer_from_options,
-    read_keystore_address,
+    resolve_sender_address,
     resolve_keystore_path,
+    validate_sender_matches_signer,
 )
 from tidal.config import Settings, load_settings
 from tidal.errors import ConfigurationError
-from tidal.normalizers import normalize_address
 from tidal.persistence.db import Database
 from tidal.runtime import build_web3_client
 
@@ -59,34 +59,57 @@ class CLIContext:
         *,
         required: bool,
         required_for: str,
+        account_name: str | None = None,
         keystore_path: str | Path | None = None,
-        passphrase_env: str | None = None,
+        password_file: str | Path | None = None,
     ) -> "TransactionSigner | None":
         return load_signer_from_options(
             self.settings,
             required=required,
             required_for=required_for,
+            account_name=account_name,
             keystore_path=keystore_path,
-            passphrase_env=passphrase_env,
+            password_file=password_file,
         )
 
-    def resolved_keystore_path(self, *, keystore_path: str | Path | None = None) -> Path | None:
+    def resolved_keystore_path(
+        self,
+        *,
+        account_name: str | None = None,
+        keystore_path: str | Path | None = None,
+    ) -> Path | None:
         return resolve_keystore_path(
             self.settings,
+            account_name=account_name,
             keystore_path=keystore_path,
             required=False,
         )
 
-    def resolve_preview_caller(
+    def resolve_sender(
         self,
         *,
-        caller: str | None = None,
+        sender: str | None = None,
+        account_name: str | None = None,
         keystore_path: str | Path | None = None,
         signer: "TransactionSigner | None" = None,
     ) -> str | None:
-        if signer is not None:
-            return signer.address
-        if caller is not None:
-            return normalize_address(caller)
-        resolved_keystore = self.resolved_keystore_path(keystore_path=keystore_path)
-        return read_keystore_address(resolved_keystore)
+        return resolve_sender_address(
+            self.settings,
+            sender=sender,
+            account_name=account_name,
+            keystore_path=keystore_path,
+            signer=signer,
+        )
+
+    def validate_sender(
+        self,
+        *,
+        sender: str | None,
+        signer: "TransactionSigner | None",
+        required_for: str,
+    ) -> str | None:
+        return validate_sender_matches_signer(
+            sender=sender,
+            signer=signer,
+            required_for=required_for,
+        )

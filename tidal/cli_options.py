@@ -26,19 +26,19 @@ JsonOption = Annotated[
     ),
 ]
 
-LiveOption = Annotated[
+BroadcastOption = Annotated[
     bool,
     typer.Option(
-        "--live",
-        help="Broadcast or persist a live transaction.",
+        "--broadcast",
+        help="Broadcast the transaction instead of running a preview.",
     ),
 ]
 
-YesOption = Annotated[
+BypassConfirmationOption = Annotated[
     bool,
     typer.Option(
-        "--yes",
-        help="Skip interactive confirmation.",
+        "--bypass-confirmation",
+        help="Skip interactive confirmation before broadcasting.",
     ),
 ]
 
@@ -66,23 +66,34 @@ KeystoreOption = Annotated[
         exists=True,
         file_okay=True,
         dir_okay=False,
-        help="Override signer keystore path.",
+        help="Use the keystore at the given path.",
     ),
 ]
 
-PassphraseEnvOption = Annotated[
+AccountOption = Annotated[
     str | None,
     typer.Option(
-        "--passphrase-env",
-        help="Environment variable that contains the keystore passphrase.",
+        "--account",
+        help="Use a keystore from ~/.foundry/keystores by filename.",
     ),
 ]
 
-CallerOption = Annotated[
+PasswordFileOption = Annotated[
+    Path | None,
+    typer.Option(
+        "--password-file",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        help="Path to a file containing the keystore password.",
+    ),
+]
+
+SenderOption = Annotated[
     str | None,
     typer.Option(
-        "--caller",
-        help="Override caller address for preview execution.",
+        "--sender",
+        help="Execution address for preview and broadcast.",
     ),
 ]
 

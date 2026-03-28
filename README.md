@@ -84,11 +84,11 @@ Examples:
 - `tidal scan run`
 - `tidal scan daemon --interval-seconds 300`
 - `tidal kick run` — dry-run evaluation of kick candidates
-- `tidal kick run --live` — evaluate and send kick() transactions
-- `tidal kick run --live --source 0x...` — target a specific source address
-- `tidal kick run --live --auction 0x...` — target a specific auction address
+- `tidal kick run --broadcast` — evaluate and send kick() transactions
+- `tidal kick run --broadcast --source 0x...` — target a specific source address
+- `tidal kick run --broadcast --auction 0x...` — target a specific auction address
 - `tidal kick inspect --source 0x...` — explain why a source is ready, deferred, or blocked by cooldown
-- `tidal kick daemon --live` — run the kick service continuously
+- `tidal kick daemon --broadcast` — run the kick service continuously
 - `tidal auction deploy --want 0xWant --receiver 0xReceiver` — preview or broadcast a single auction deployment
 - `tidal auction enable-tokens 0x...` — inspect an auction and queue `enable(address)` calls for relevant sell tokens
 - `tidal auction sweep-and-settle 0xAuction 0xToken` — preview or broadcast a manual `sweepAndSettle()` transaction
@@ -96,6 +96,8 @@ Examples:
 - `tidal logs scans --limit 20` — inspect recent scan runs
 - `tidal logs show <run_id>` — inspect one kick or scan run in detail
 - `tidal healthcheck`
+
+Broadcasting commands use a Foundry-style wallet surface: `--sender`, `--account`, `--keystore`, and `--password-file`.
 
 Shortlist behavior: only the highest-USD token per auction is kickable in a single evaluation cycle. Additional above-threshold tokens on the same auction stay deferred until a later run, because the auction can only carry one active lot at a time.
 Targeted `--source` and `--auction` filters are applied before that per-auction collapse.
