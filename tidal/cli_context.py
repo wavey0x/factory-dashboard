@@ -53,15 +53,15 @@ class ExecutionContext:
 class CLIContext:
     config_path: Path | None = None
     api_base_url: str | None = None
-    api_token: str | None = None
+    api_key: str | None = None
     settings: Settings = field(init=False)
 
     def __post_init__(self) -> None:
         self.settings = load_settings(self.config_path)
         if self.api_base_url is None:
             self.api_base_url = self.settings.tidal_api_base_url
-        if self.api_token is None:
-            self.api_token = self.settings.tidal_api_token
+        if self.api_key is None:
+            self.api_key = self.settings.tidal_api_key
 
     def require_rpc(self) -> None:
         if not self.settings.rpc_url:
@@ -70,8 +70,8 @@ class CLIContext:
     def require_api(self) -> None:
         if not self.api_base_url:
             raise ConfigurationError("TIDAL_API_BASE_URL is required for this command")
-        if not self.api_token:
-            raise ConfigurationError("TIDAL_API_TOKEN is required for this command")
+        if not self.api_key:
+            raise ConfigurationError("TIDAL_API_KEY is required for this command")
 
     @contextmanager
     def session(self) -> "Iterator[object]":
@@ -91,7 +91,7 @@ class CLIContext:
         self.require_api()
         return ControlPlaneClient(
             base_url=str(self.api_base_url),
-            token=str(self.api_token),
+            token=str(self.api_key),
             timeout_seconds=self.settings.tidal_api_request_timeout_seconds,
         )
 

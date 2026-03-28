@@ -1,7 +1,7 @@
 {
   "rewrites": [
-    { "source": "/api/v1/tidal", "destination": "https://api.wavey.info/api/v1/tidal" },
-    { "source": "/api/v1/tidal/:path*", "destination": "https://api.wavey.info/api/v1/tidal/:path*" },
+    { "source": "/api/v1/tidal", "destination": "https://api.tidal.wavey.info/api/v1/tidal" },
+    { "source": "/api/v1/tidal/:path*", "destination": "https://api.tidal.wavey.info/api/v1/tidal/:path*" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

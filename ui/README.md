@@ -27,7 +27,7 @@ React dashboard for the monorepo Tidal control-plane API.
 Configure the dashboard API with either:
 
 ```bash
-VITE_TIDAL_API_BASE_URL=https://api.wavey.info/api/v1/tidal npm run dev
+VITE_TIDAL_API_BASE_URL=https://api.tidal.wavey.info/api/v1/tidal npm run dev
 ```
 
 or by keeping the default `/api/v1/tidal` base path and proxying locally:

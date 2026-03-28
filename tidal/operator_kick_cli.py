@@ -10,7 +10,7 @@ from tidal.cli_context import CLIContext, normalize_cli_address
 from tidal.cli_options import (
     AccountOption,
     ApiBaseUrlOption,
-    ApiTokenOption,
+    ApiKeyOption,
     AuctionAddressOption,
     BroadcastOption,
     BypassConfirmationOption,
@@ -69,7 +69,7 @@ def _inspect_result_from_api(data: dict[str, object]) -> KickInspectResult:
 def kick_inspect(
     config: ConfigOption = None,
     api_base_url: ApiBaseUrlOption = None,
-    api_token: ApiTokenOption = None,
+    api_key: ApiKeyOption = None,
     json_output: JsonOption = False,
     source_type: SourceTypeOption = None,
     source_address: SourceAddressOption = None,
@@ -77,7 +77,7 @@ def kick_inspect(
     limit: LimitOption = None,
     show_all: bool = typer.Option(False, "--show-all", help="Show deferred and limited candidates."),
 ) -> None:
-    cli_ctx = CLIContext(config, api_base_url=api_base_url, api_token=api_token)
+    cli_ctx = CLIContext(config, api_base_url=api_base_url, api_key=api_key)
     payload = {
         "sourceType": _normalize_source_type_filter(source_type),
         "sourceAddress": normalize_cli_address(source_address, param_hint="--source"),
@@ -103,7 +103,7 @@ def kick_inspect(
 def kick_run(
     config: ConfigOption = None,
     api_base_url: ApiBaseUrlOption = None,
-    api_token: ApiTokenOption = None,
+    api_key: ApiKeyOption = None,
     broadcast: BroadcastOption = False,
     bypass_confirmation: BypassConfirmationOption = False,
     json_output: JsonOption = False,
@@ -120,7 +120,7 @@ def kick_run(
     del verbose
     if bypass_confirmation and not broadcast:
         raise typer.BadParameter("--bypass-confirmation requires --broadcast", param_hint="--bypass-confirmation")
-    cli_ctx = CLIContext(config, api_base_url=api_base_url, api_token=api_token)
+    cli_ctx = CLIContext(config, api_base_url=api_base_url, api_key=api_key)
     normalized_source_type = _normalize_source_type_filter(source_type)
     normalized_source_address = normalize_cli_address(source_address, param_hint="--source")
     normalized_auction_address = normalize_cli_address(auction_address, param_hint="--auction")

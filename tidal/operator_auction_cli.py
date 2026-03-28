@@ -8,7 +8,7 @@ from tidal.cli_context import CLIContext, normalize_cli_address
 from tidal.cli_options import (
     AccountOption,
     ApiBaseUrlOption,
-    ApiTokenOption,
+    ApiKeyOption,
     BroadcastOption,
     BypassConfirmationOption,
     ConfigOption,
@@ -91,7 +91,7 @@ def deploy(
     starting_price: int = typer.Option(..., "--starting-price", min=0, help="Starting price for the new auction."),
     config: ConfigOption = None,
     api_base_url: ApiBaseUrlOption = None,
-    api_token: ApiTokenOption = None,
+    api_key: ApiKeyOption = None,
     factory: str | None = typer.Option(None, "--factory", help="Auction factory address."),
     governance: str | None = typer.Option(None, "--governance", help="Governance / trade handler address."),
     salt: str | None = typer.Option(None, "--salt", help="Optional deployment salt."),
@@ -105,7 +105,7 @@ def deploy(
 ) -> None:
     if bypass_confirmation and not broadcast:
         raise typer.BadParameter("--bypass-confirmation requires --broadcast", param_hint="--bypass-confirmation")
-    cli_ctx = CLIContext(config, api_base_url=api_base_url, api_token=api_token)
+    cli_ctx = CLIContext(config, api_base_url=api_base_url, api_key=api_key)
     exec_ctx = cli_ctx.resolve_execution(
         broadcast=broadcast,
         required_for="broadcast auction deployment",
@@ -146,7 +146,7 @@ def enable_tokens(
     auction_address: str = typer.Argument(..., metavar="AUCTION", help="Auction address to inspect."),
     config: ConfigOption = None,
     api_base_url: ApiBaseUrlOption = None,
-    api_token: ApiTokenOption = None,
+    api_key: ApiKeyOption = None,
     extra_token: list[str] | None = typer.Option(None, "--extra-token", help="Extra token address to probe."),
     broadcast: BroadcastOption = False,
     bypass_confirmation: BypassConfirmationOption = False,
@@ -158,7 +158,7 @@ def enable_tokens(
 ) -> None:
     if bypass_confirmation and not broadcast:
         raise typer.BadParameter("--bypass-confirmation requires --broadcast", param_hint="--bypass-confirmation")
-    cli_ctx = CLIContext(config, api_base_url=api_base_url, api_token=api_token)
+    cli_ctx = CLIContext(config, api_base_url=api_base_url, api_key=api_key)
     exec_ctx = cli_ctx.resolve_execution(
         broadcast=broadcast,
         required_for="broadcast enable-tokens execution",
@@ -194,7 +194,7 @@ def settle(
     auction_address: str = typer.Argument(..., metavar="AUCTION", help="Auction contract address."),
     config: ConfigOption = None,
     api_base_url: ApiBaseUrlOption = None,
-    api_token: ApiTokenOption = None,
+    api_key: ApiKeyOption = None,
     broadcast: BroadcastOption = False,
     bypass_confirmation: BypassConfirmationOption = False,
     token_address: str | None = typer.Option(None, "--token", help="Expected active token address."),
@@ -207,7 +207,7 @@ def settle(
 ) -> None:
     if bypass_confirmation and not broadcast:
         raise typer.BadParameter("--bypass-confirmation requires --broadcast", param_hint="--bypass-confirmation")
-    cli_ctx = CLIContext(config, api_base_url=api_base_url, api_token=api_token)
+    cli_ctx = CLIContext(config, api_base_url=api_base_url, api_key=api_key)
     exec_ctx = cli_ctx.resolve_execution(
         broadcast=broadcast,
         required_for="broadcast settlement execution",

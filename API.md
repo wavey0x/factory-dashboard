@@ -159,12 +159,12 @@ The operator CLI needs remote control-plane configuration.
 Add shared API options:
 
 - `--api-base-url`
-- `--api-token`
+- `--api-key`
 
 Preferred environment variables:
 
 - `TIDAL_API_BASE_URL`
-- `TIDAL_API_TOKEN`
+- `TIDAL_API_KEY`
 
 Recommended behavior:
 
@@ -175,7 +175,7 @@ Recommended behavior:
 Settings-loading rule:
 
 - `--config` remains available on both entrypoints
-- `tidal` may load config for API settings such as `TIDAL_API_BASE_URL` and `TIDAL_API_TOKEN`
+- `tidal` may load config for API settings such as `TIDAL_API_BASE_URL` and `TIDAL_API_KEY`
 - loading operator config must not resolve, validate, or initialize DB state
 - DB path and `database_url` must stay lazy and server-only in practice
 

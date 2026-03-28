@@ -43,7 +43,7 @@ Operator CLI installs use `tidal`, not `tidal-server`. Configure them with:
 
 ```bash
 export TIDAL_API_BASE_URL=http://localhost:8787
-export TIDAL_API_TOKEN=your-token
+export TIDAL_API_KEY=your-key
 ```
 
 ## Auction Pricing Policy
@@ -122,7 +122,7 @@ A React dashboard in [`ui/`](./ui) is deployed to Vercel as a static site. API c
 ```json
 {
   "rewrites": [
-    { "source": "/api/v1/tidal/:path*", "destination": "https://api.wavey.info/api/v1/tidal/:path*" }
+    { "source": "/api/v1/tidal/:path*", "destination": "https://api.tidal.wavey.info/api/v1/tidal/:path*" }
   ]
 }
 ```
@@ -139,7 +139,7 @@ npm run dev
 
 For local dev, either:
 
-- set `VITE_TIDAL_API_BASE_URL` to your deployed control-plane API, or
+- set `VITE_TIDAL_API_BASE_URL` to your deployed control-plane API, for example `https://api.tidal.wavey.info/api/v1/tidal`, or
 - keep the default `/api/v1/tidal` base path and point the Vite proxy at your local API with `TIDAL_API_PROXY_TARGET`
 - set `VITE_TIDAL_API_TOKEN` when the UI should attach a bearer token to API requests
 

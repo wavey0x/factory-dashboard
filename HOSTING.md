@@ -29,10 +29,6 @@ RPC_URL=http://127.0.0.1:8545
 # API server
 TIDAL_API_PORT=8020
 TIDAL_API_HOST=127.0.0.1
-
-# Scan/kick daemon config (uncomment when ready)
-# TIDAL_SCAN_INTERVAL=300
-# TIDAL_KICK_INTERVAL=60
 ```
 
 ## 3. Install and Migrate
@@ -59,7 +55,7 @@ tidal-server auth create --label wavey
 
 ### API server
 
-`sudo nano /etc/systemd/system/tidal-server.service`:
+`sudo nano /etc/systemd/system/tidal-api.service`:
 
 ```ini
 [Unit]
@@ -72,7 +68,7 @@ User=wavey
 Group=wavey
 WorkingDirectory=/home/wavey/tidal
 EnvironmentFile=/home/wavey/tidal/.env
-ExecStart=/home/wavey/tidal/venv/bin/tidal-server api serve --host 127.0.0.1 --port 8020
+ExecStart=/home/wavey/tidal/venv/bin/tidal-server api serve
 Restart=on-failure
 RestartSec=5
 
@@ -80,60 +76,34 @@ RestartSec=5
 WantedBy=multi-user.target
 ```
 
-### Scan daemon (optional, enable when ready)
+### Scan (oneshot, triggered by timer)
 
-`sudo nano /etc/systemd/system/tidal-scan-daemon.service`:
+`sudo nano /etc/systemd/system/tidal-scan.service`:
 
 ```ini
 [Unit]
-Description=Tidal Scan Daemon
-After=tidal-server.service
+Description=Tidal Scan (oneshot)
+After=network.target
 
 [Service]
-Type=simple
+Type=oneshot
 User=wavey
 Group=wavey
 WorkingDirectory=/home/wavey/tidal
 EnvironmentFile=/home/wavey/tidal/.env
-ExecStart=/home/wavey/tidal/venv/bin/tidal-server scan daemon
-Restart=on-failure
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
+ExecStart=/home/wavey/tidal/venv/bin/tidal-server scan run
 ```
 
-### Kick daemon (optional, enable when ready)
-
-`sudo nano /etc/systemd/system/tidal-kick-daemon.service`:
-
-```ini
-[Unit]
-Description=Tidal Kick Daemon
-After=tidal-server.service
-
-[Service]
-Type=simple
-User=wavey
-Group=wavey
-WorkingDirectory=/home/wavey/tidal
-EnvironmentFile=/home/wavey/tidal/.env
-ExecStart=/home/wavey/tidal/venv/bin/tidal-server kick daemon
-Restart=on-failure
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-```
+Pair this with your existing systemd timer that triggers `tidal-scan.service`.
 
 ### Start it up
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now tidal-server
+sudo systemctl enable --now tidal-api
 
 # Verify it's running
-curl http://127.0.0.1:8020/api/v1/tidal/health
+curl http://127.0.0.1:8020/health
 ```
 
 ## 5. Nginx
@@ -188,15 +158,17 @@ sudo systemctl reload nginx
 
 ```bash
 # Through nginx
-curl https://api.tidal.wavey.info/api/v1/tidal/health
+curl https://api.tidal.wavey.info/health
 
 # From a laptop (operator CLI, using the key from step 3)
-tidal --api-base-url https://api.tidal.wavey.info --api-token <key> logs kicks
+export TIDAL_API_BASE_URL=https://api.tidal.wavey.info
+export TIDAL_API_KEY=<key>
+tidal logs kicks
 ```
 
 ## Notes
 
-**SQLite and WAL mode**: The API server, scan daemon, and kick daemon all share the same SQLite file under `data/tidal.db`. WAL mode handles concurrent readers with a single writer, which is fine for this workload. All three run as `wavey` from the same working directory, so file permissions are not an issue.
+**SQLite and WAL mode**: The API server and scan service share the same SQLite file at `data/tidal.db`. WAL mode handles concurrent readers with a single writer, which is fine for this workload. Both run as `wavey` from the same working directory, so file permissions are not an issue.
 
 **Gitignore**: Add `data/` to `.gitignore` so the database file is never committed.
 
@@ -207,13 +179,12 @@ cd /home/wavey/tidal
 git pull
 uv pip install -e .
 tidal-server db migrate
-sudo systemctl restart tidal-server
+sudo systemctl restart tidal-api
 ```
 
 **Logs**:
 
 ```bash
-journalctl -u tidal-server -f
-journalctl -u tidal-scan-daemon -f
-journalctl -u tidal-kick-daemon -f
+journalctl -u tidal-api -f
+journalctl -u tidal-scan -f
 ```

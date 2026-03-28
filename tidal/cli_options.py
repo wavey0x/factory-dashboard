@@ -139,11 +139,11 @@ ApiBaseUrlOption = Annotated[
     ),
 ]
 
-ApiTokenOption = Annotated[
+ApiKeyOption = Annotated[
     str | None,
     typer.Option(
-        "--api-token",
-        envvar="TIDAL_API_TOKEN",
-        help="Bearer token for the Tidal control-plane API.",
+        "--api-key",
+        envvar="TIDAL_API_KEY",
+        help="API key for the Tidal control-plane API.",
     ),
 ]

@@ -7,7 +7,7 @@ from dataclasses import asdict
 import typer
 
 from tidal.cli_context import CLIContext, normalize_cli_address
-from tidal.cli_options import ApiBaseUrlOption, ApiTokenOption, AuctionAddressOption, ConfigOption, JsonOption, LimitOption, SourceAddressOption
+from tidal.cli_options import ApiBaseUrlOption, ApiKeyOption, AuctionAddressOption, ConfigOption, JsonOption, LimitOption, SourceAddressOption
 from tidal.cli_renderers import emit_json, render_kick_logs, render_run_detail, render_scan_runs
 from tidal.control_plane.client import ControlPlaneError
 from tidal.ops.logs import KickLogRecord, ScanItemErrorRecord, ScanRunDetail, ScanRunRecord, TxnRunDetail
@@ -75,14 +75,14 @@ def _run_detail_from_api(row: dict[str, object]) -> TxnRunDetail | ScanRunDetail
 def logs_kicks(
     config: ConfigOption = None,
     api_base_url: ApiBaseUrlOption = None,
-    api_token: ApiTokenOption = None,
+    api_key: ApiKeyOption = None,
     json_output: JsonOption = False,
     source_address: SourceAddressOption = None,
     auction_address: AuctionAddressOption = None,
     limit: LimitOption = 20,
     status: str | None = typer.Option(None, "--status", help="Filter by kick status."),
 ) -> None:
-    cli_ctx = CLIContext(config, api_base_url=api_base_url, api_token=api_token)
+    cli_ctx = CLIContext(config, api_base_url=api_base_url, api_key=api_key)
     normalized_source = normalize_cli_address(source_address)
     normalized_auction = normalize_cli_address(auction_address)
     try:
@@ -110,12 +110,12 @@ def logs_kicks(
 def logs_scans(
     config: ConfigOption = None,
     api_base_url: ApiBaseUrlOption = None,
-    api_token: ApiTokenOption = None,
+    api_key: ApiKeyOption = None,
     json_output: JsonOption = False,
     limit: LimitOption = 20,
     status: str | None = typer.Option(None, "--status", help="Filter by scan status."),
 ) -> None:
-    cli_ctx = CLIContext(config, api_base_url=api_base_url, api_token=api_token)
+    cli_ctx = CLIContext(config, api_base_url=api_base_url, api_key=api_key)
     try:
         with cli_ctx.control_plane_client() as client:
             response = client.get_scan_logs(limit=limit or 20, offset=0, status=status)
@@ -136,10 +136,10 @@ def logs_show(
     run_id: str = typer.Argument(..., metavar="RUN_ID", help="Run identifier from scan or kick history."),
     config: ConfigOption = None,
     api_base_url: ApiBaseUrlOption = None,
-    api_token: ApiTokenOption = None,
+    api_key: ApiKeyOption = None,
     json_output: JsonOption = False,
 ) -> None:
-    cli_ctx = CLIContext(config, api_base_url=api_base_url, api_token=api_token)
+    cli_ctx = CLIContext(config, api_base_url=api_base_url, api_key=api_key)
     try:
         with cli_ctx.control_plane_client() as client:
             response = client.get_run_detail(run_id)
