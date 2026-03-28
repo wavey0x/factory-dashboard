@@ -20,7 +20,6 @@ def post_kick_inspect(
     payload: KickInspectRequest,
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
-    _operator: OperatorIdentity = Depends(get_operator),
 ) -> dict[str, object]:
     data = inspect_kicks(
         session,
@@ -59,8 +58,6 @@ async def get_kick_auctionscan(
     kick_id: int,
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
-    _operator: OperatorIdentity = Depends(get_operator),
 ) -> dict[str, object]:
     data = await AuctionScanService(session, settings).resolve_kick_auctionscan(kick_id)
     return {"status": "ok", "warnings": [], "data": data}
-

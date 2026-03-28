@@ -39,8 +39,10 @@ TIDAL_API_PROXY_TARGET=http://localhost:8787 npm run dev
 If the API expects a bearer token, also set:
 
 ```bash
-VITE_TIDAL_API_TOKEN=your-token npm run dev
+VITE_TIDAL_API_KEY=your-key npm run dev
 ```
+
+Legacy `VITE_TIDAL_API_TOKEN` is still accepted by the frontend for compatibility.
 
 ## Endpoints
 

@@ -28,7 +28,6 @@ async def get_deploy_defaults(
     strategy: str,
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
-    _operator: OperatorIdentity = Depends(get_operator),
 ) -> dict[str, object]:
     data = await load_strategy_deploy_defaults(session, settings, strategy_address=strategy)
     return {"status": "ok", "warnings": data.pop("warnings", []), "data": data}

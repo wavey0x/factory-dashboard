@@ -141,7 +141,8 @@ For local dev, either:
 
 - set `VITE_TIDAL_API_BASE_URL` to your deployed control-plane API, for example `https://api.tidal.wavey.info/api/v1/tidal`, or
 - keep the default `/api/v1/tidal` base path and point the Vite proxy at your local API with `TIDAL_API_PROXY_TARGET`
-- set `VITE_TIDAL_API_TOKEN` when the UI should attach a bearer token to API requests
+- set `VITE_TIDAL_API_KEY` when the UI should attach a bearer token to API requests
+  Legacy `VITE_TIDAL_API_TOKEN` is still accepted by the frontend for compatibility.
 
 ## Multicall Batching
 

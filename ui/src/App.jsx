@@ -7,7 +7,7 @@ const MIN_USD_VISIBLE = new Big("0.01");
 const THEME_SEQUENCE = ["light", "dark"];
 const THEME_STORAGE_KEY = "tidal_theme_preference";
 const LEGACY_THEME_STORAGE_KEY = "factory_dashboard_theme_preference";
-const API_TOKEN = import.meta.env.VITE_TIDAL_API_TOKEN || "";
+const API_TOKEN = import.meta.env.VITE_TIDAL_API_KEY || import.meta.env.VITE_TIDAL_API_TOKEN || "";
 const API_BASE_URL = (
   import.meta.env.VITE_TIDAL_API_BASE_URL
   || import.meta.env.VITE_FACTORY_DASHBOARD_API_BASE_URL
