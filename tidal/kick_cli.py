@@ -55,7 +55,7 @@ def _normalize_source_type_filter(value: str | None) -> SourceType | None:
     normalized = value.strip().lower().replace("-", "_")
     if normalized in {"strategy", "fee_burner"}:
         return normalized  # type: ignore[return-value]
-    raise typer.BadParameter("expected 'strategy' or 'fee-burner'", param_hint="--type")
+    raise typer.BadParameter("expected 'strategy' or 'fee-burner'", param_hint="--source-type")
 
 
 def _normalize_address_filter(value: str | None, *, param_hint: str) -> str | None:

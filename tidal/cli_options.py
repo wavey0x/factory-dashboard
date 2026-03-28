@@ -100,7 +100,7 @@ SenderOption = Annotated[
 SourceTypeOption = Annotated[
     str | None,
     typer.Option(
-        "--type",
+        "--source-type",
         help="Filter by source type: strategy or fee-burner.",
     ),
 ]
