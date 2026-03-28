@@ -1,0 +1,177 @@
+from pathlib import Path
+
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
+
+from tidal.api.app import create_app
+from tidal.api.services.action_audit import create_prepared_action
+from tidal.config import Settings
+from tidal.persistence import models
+
+
+def _make_settings(tmp_path: Path) -> Settings:
+    return Settings(
+        db_path=tmp_path / "tidal.db",
+        tidal_api_operator_tokens={"tester": "secret-token"},
+        rpc_url="",
+    )
+
+
+def _init_db(settings: Settings) -> None:
+    engine = create_engine(settings.database_url, future=True)
+    models.metadata.create_all(engine)
+
+
+def _seed_dashboard_data(settings: Settings) -> None:
+    engine = create_engine(settings.database_url, future=True)
+    with Session(engine, future=True) as session:
+        session.execute(
+            models.vaults.insert().values(
+                address="0x1000000000000000000000000000000000000001",
+                chain_id=1,
+                name="Test Vault",
+                symbol="tvTEST",
+                active=1,
+                first_seen_at="2026-03-28T00:00:00+00:00",
+                last_seen_at="2026-03-28T00:00:00+00:00",
+            )
+        )
+        session.execute(
+            models.strategies.insert().values(
+                address="0x2000000000000000000000000000000000000002",
+                chain_id=1,
+                vault_address="0x1000000000000000000000000000000000000001",
+                name="Test Strategy",
+                adapter="yearn_curve_strategy",
+                active=1,
+                auction_address="0x3000000000000000000000000000000000000003",
+                want_address="0x4000000000000000000000000000000000000004",
+                first_seen_at="2026-03-28T00:00:00+00:00",
+                last_seen_at="2026-03-28T00:00:00+00:00",
+            )
+        )
+        session.execute(
+            models.tokens.insert(),
+            [
+                {
+                    "address": "0x4000000000000000000000000000000000000004",
+                    "chain_id": 1,
+                    "name": "USDC",
+                    "symbol": "USDC",
+                    "decimals": 6,
+                    "is_core_reward": 0,
+                    "price_usd": "1",
+                    "price_status": "SUCCESS",
+                    "price_fetched_at": "2026-03-28T00:00:00+00:00",
+                    "first_seen_at": "2026-03-28T00:00:00+00:00",
+                    "last_seen_at": "2026-03-28T00:00:00+00:00",
+                },
+                {
+                    "address": "0x5000000000000000000000000000000000000005",
+                    "chain_id": 1,
+                    "name": "CRV",
+                    "symbol": "CRV",
+                    "decimals": 18,
+                    "is_core_reward": 0,
+                    "price_usd": "0.5",
+                    "price_status": "SUCCESS",
+                    "price_fetched_at": "2026-03-28T00:00:00+00:00",
+                    "first_seen_at": "2026-03-28T00:00:00+00:00",
+                    "last_seen_at": "2026-03-28T00:00:00+00:00",
+                },
+            ],
+        )
+        session.execute(
+            models.strategy_token_balances_latest.insert().values(
+                strategy_address="0x2000000000000000000000000000000000000002",
+                token_address="0x5000000000000000000000000000000000000005",
+                raw_balance="1000000000000000000",
+                normalized_balance="1.0",
+                block_number=1,
+                scanned_at="2026-03-28T00:00:00+00:00",
+            )
+        )
+        session.commit()
+
+
+def test_dashboard_endpoint_returns_rows(tmp_path: Path) -> None:
+    settings = _make_settings(tmp_path)
+    _init_db(settings)
+    _seed_dashboard_data(settings)
+    client = TestClient(create_app(settings))
+
+    response = client.get(
+        "/api/v1/tidal/dashboard",
+        headers={"Authorization": "Bearer secret-token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert payload["data"]["summary"]["strategyCount"] == 1
+    assert len(payload["data"]["rows"]) == 1
+    assert payload["data"]["rows"][0]["sourceName"] == "Test Strategy"
+
+
+def test_actions_broadcast_and_receipt_routes_update_status(tmp_path: Path) -> None:
+    settings = _make_settings(tmp_path)
+    _init_db(settings)
+    app = create_app(settings)
+    engine = create_engine(settings.database_url, future=True)
+    with Session(engine, future=True) as session:
+        action_id = create_prepared_action(
+            session,
+            operator_id="tester",
+            action_type="deploy",
+            sender="0x6000000000000000000000000000000000000006",
+            request_payload={"receiver": "0x6000000000000000000000000000000000000006"},
+            preview_payload={"receiver": "0x6000000000000000000000000000000000000006"},
+            transactions=[
+                {
+                    "operation": "deploy",
+                    "to": "0x7000000000000000000000000000000000000007",
+                    "data": "0xdeadbeef",
+                    "value": "0x0",
+                    "chainId": 1,
+                    "gasEstimate": 210000,
+                    "gasLimit": 252000,
+                }
+            ],
+            resource_address="0x6000000000000000000000000000000000000006",
+        )
+
+    client = TestClient(app)
+    headers = {"Authorization": "Bearer secret-token"}
+    broadcast_response = client.post(
+        f"/api/v1/tidal/actions/{action_id}/broadcast",
+        headers=headers,
+        json={
+            "sender": "0x6000000000000000000000000000000000000006",
+            "txHash": "0xabc",
+            "broadcastAt": "2026-03-28T00:01:00+00:00",
+            "txIndex": 0,
+        },
+    )
+    assert broadcast_response.status_code == 200
+    assert broadcast_response.json()["data"]["status"] == "BROADCAST_REPORTED"
+
+    receipt_response = client.post(
+        f"/api/v1/tidal/actions/{action_id}/receipt",
+        headers=headers,
+        json={
+            "txIndex": 0,
+            "receiptStatus": "CONFIRMED",
+            "blockNumber": 123,
+            "gasUsed": 210000,
+            "gasPriceGwei": "0.1",
+            "observedAt": "2026-03-28T00:02:00+00:00",
+        },
+    )
+    assert receipt_response.status_code == 200
+    assert receipt_response.json()["data"]["status"] == "CONFIRMED"
+
+    list_response = client.get("/api/v1/tidal/actions", headers=headers)
+    assert list_response.status_code == 200
+    assert list_response.json()["data"]["items"][0]["actionId"] == action_id
+

@@ -6,14 +6,13 @@ Monorepo for the Yearn tidal. It contains the scanner that builds the dataset, t
 
 - `tidal/scanner/`: discovers Yearn vaults and strategies, reads configured fee burners, resolves sell tokens, reads balances, refreshes token prices and auction mappings, and writes the latest dashboard state into SQLite.
 - `tidal/transaction_service/`: reads the scanner's cached state, selects kick candidates across strategies and fee burners, estimates and submits auction kick transactions, and records transaction runs back into SQLite.
+- `tidal/api/`: FastAPI control plane served from this repo at `/api/v1/tidal`.
+- `tidal/read/`: reusable read models for dashboard rows, logs, and action history.
+- `tidal/control_plane/`: shared HTTP client used by the operator CLI.
 - `ui/`: React dashboard that renders the cached strategy, fee burner, token, vault, and auction data from the read-only API.
 - `contracts/`: Foundry project for the on-chain `AuctionKicker` helper contract and its deployment/test scripts.
 - `tidal/persistence/` and `alembic/`: shared database models, repositories, and migrations used by the scanner and transaction service.
 - `tidal/chain/`, `tidal/pricing/`, and `tidal/runtime.py`: shared chain readers, pricing integrations, and service wiring used across the backend components.
-
-Out of scope for this repo:
-
-- the read-only dashboard API that serves `GET /tidal` from the SQLite database lives separately
 
 ## Quick Start
 
@@ -29,12 +28,23 @@ Out of scope for this repo:
 3. Edit `config.yaml` to configure operational settings. Copy `.env.example` to `.env` and set `RPC_URL`.
 4. Run migrations:
    ```bash
-   tidal db migrate
+   tidal-server db migrate
    ```
 5. Run one scan:
    ```bash
-   tidal scan run
+   tidal-server scan run
    ```
+6. Start the control-plane API:
+   ```bash
+   tidal-server api serve
+   ```
+
+Operator CLI installs use `tidal`, not `tidal-server`. Configure them with:
+
+```bash
+export TIDAL_API_BASE_URL=http://localhost:8787
+export TIDAL_API_TOKEN=your-token
+```
 
 ## Auction Pricing Policy
 
@@ -80,23 +90,25 @@ Examples:
 
 ## Commands
 
-- `tidal db migrate`
-- `tidal scan run`
-- `tidal scan daemon --interval-seconds 300`
-- `tidal kick run` — dry-run evaluation of kick candidates
-- `tidal kick run --broadcast` — evaluate and send kick() transactions
-- `tidal kick run --broadcast --source 0x...` — target a specific source address
-- `tidal kick run --broadcast --auction 0x...` — target a specific auction address
-- `tidal kick inspect --source 0x...` — explain why a source is ready, deferred, or blocked by cooldown
-- `tidal kick daemon --broadcast` — run the kick service continuously
-- `tidal auction deploy --want 0xWant --receiver 0xReceiver` — preview or broadcast a single auction deployment
-- `tidal auction enable-tokens 0x...` — inspect an auction and queue `enable(address)` calls for relevant sell tokens
-- `tidal auction settle 0xAuction` — inspect the active lot and preview the correct settlement action
-- `tidal auction settle 0xAuction --broadcast` — broadcast `settle()` or `sweepAndSettle()` when the active lot is currently settleable
-- `tidal logs kicks --limit 20` — inspect recent kick attempts, including failures and quote URLs
-- `tidal logs scans --limit 20` — inspect recent scan runs
-- `tidal logs show <run_id>` — inspect one kick or scan run in detail
-- `tidal healthcheck`
+Operator CLI:
+
+- `tidal logs kicks`
+- `tidal logs scans`
+- `tidal logs show <run_id>`
+- `tidal kick inspect`
+- `tidal kick run`
+- `tidal kick run --broadcast`
+- `tidal auction deploy --want 0xWant --receiver 0xReceiver --starting-price 1234`
+- `tidal auction enable-tokens 0xAuction`
+- `tidal auction settle 0xAuction`
+
+Server/admin CLI:
+
+- `tidal-server db migrate`
+- `tidal-server scan run`
+- `tidal-server scan daemon --interval-seconds 300`
+- `tidal-server kick daemon --broadcast`
+- `tidal-server api serve`
 
 Broadcasting commands use a Foundry-style wallet surface: `--sender`, `--account`, `--keystore`, and `--password-file`.
 
@@ -105,12 +117,12 @@ Targeted `--source` and `--auction` filters are applied before that per-auction 
 
 ## UI Dashboard
 
-A React dashboard in [`ui/`](./ui) is deployed to Vercel as a static site. API calls are rewritten to the external dashboard API via `vercel.json`:
+A React dashboard in [`ui/`](./ui) is deployed to Vercel as a static site. API calls are rewritten to the monorepo control-plane API via `vercel.json`:
 
 ```json
 {
   "rewrites": [
-    { "source": "/api/:path*", "destination": "https://api.wavey.info/tidal/:path*" }
+    { "source": "/api/v1/tidal/:path*", "destination": "https://api.wavey.info/api/v1/tidal/:path*" }
   ]
 }
 ```
@@ -127,8 +139,9 @@ npm run dev
 
 For local dev, either:
 
-- set `VITE_TIDAL_API_BASE_URL` to your external dashboard API, or
-- keep the default `/api` base path and point the Vite proxy at your local API with `TIDAL_API_PROXY_TARGET`
+- set `VITE_TIDAL_API_BASE_URL` to your deployed control-plane API, or
+- keep the default `/api/v1/tidal` base path and point the Vite proxy at your local API with `TIDAL_API_PROXY_TARGET`
+- set `VITE_TIDAL_API_TOKEN` when the UI should attach a bearer token to API requests
 
 ## Multicall Batching
 
@@ -169,9 +182,18 @@ Tuning knobs: `auction_factory_address` and `multicall_auction_batch_calls` in `
 
 ## Dashboard API
 
-The scanner writes all dashboard state to SQLite. A separate read-only API serves `GET /tidal` from the same database file.
+The scanner writes all dashboard state to SQLite. The monorepo FastAPI control plane serves it at:
 
-See [`EXTERNAL_PLAN.md`](./EXTERNAL_PLAN.md) for the full endpoint spec, confirmed schema, SQL queries, and response shape.
+- `GET /health`
+- `GET /api/v1/tidal/dashboard`
+- `GET /api/v1/tidal/logs/kicks`
+- `GET /api/v1/tidal/logs/scans`
+- `GET /api/v1/tidal/logs/runs/{run_id}`
+- `GET /api/v1/tidal/actions`
+- `POST /api/v1/tidal/kick/prepare`
+- `POST /api/v1/tidal/auctions/deploy/prepare`
+- `POST /api/v1/tidal/auctions/{auction}/enable-tokens/prepare`
+- `POST /api/v1/tidal/auctions/{auction}/settle/prepare`
 
 Key tables the API reads:
 

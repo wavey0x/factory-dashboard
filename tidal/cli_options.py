@@ -129,3 +129,21 @@ LimitOption = Annotated[
         help="Limit the number of selected candidates.",
     ),
 ]
+
+ApiBaseUrlOption = Annotated[
+    str | None,
+    typer.Option(
+        "--api-base-url",
+        envvar="TIDAL_API_BASE_URL",
+        help="Base URL for the Tidal control-plane API.",
+    ),
+]
+
+ApiTokenOption = Annotated[
+    str | None,
+    typer.Option(
+        "--api-token",
+        envvar="TIDAL_API_TOKEN",
+        help="Bearer token for the Tidal control-plane API.",
+    ),
+]

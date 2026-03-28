@@ -14,7 +14,7 @@ from typing import Any
 
 import yaml
 from dotenv import load_dotenv
-from pydantic import AliasChoices, BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -91,6 +91,12 @@ class Settings(BaseSettings):
     price_retry_attempts: int = Field(default=3, alias="PRICE_RETRY_ATTEMPTS")
     price_concurrency: int = Field(default=10, alias="PRICE_CONCURRENCY")
     price_delay_seconds: float = Field(default=0, alias="PRICE_DELAY_SECONDS")
+    auctionscan_base_url: str = Field(default="https://auctionscan.info", alias="AUCTIONSCAN_BASE_URL")
+    auctionscan_api_base_url: str = Field(
+        default="https://auctionscan.info/api",
+        alias="AUCTIONSCAN_API_BASE_URL",
+    )
+    auctionscan_recheck_seconds: int = Field(default=90, alias="AUCTIONSCAN_RECHECK_SECONDS")
 
     telegram_alerts_enabled: bool = Field(default=False, alias="TELEGRAM_ALERTS_ENABLED")
     telegram_bot_token: str | None = Field(default=None, alias="TELEGRAM_BOT_TOKEN")
@@ -119,6 +125,39 @@ class Settings(BaseSettings):
         default_factory=list,
         alias="MONITORED_FEE_BURNERS",
     )
+    tidal_api_base_url: str | None = Field(default=None, alias="TIDAL_API_BASE_URL")
+    tidal_api_token: str | None = Field(default=None, alias="TIDAL_API_TOKEN")
+    tidal_api_host: str = Field(default="0.0.0.0", alias="TIDAL_API_HOST")
+    tidal_api_port: int = Field(default=8787, alias="TIDAL_API_PORT")
+    tidal_api_request_timeout_seconds: int = Field(default=30, alias="TIDAL_API_REQUEST_TIMEOUT_SECONDS")
+    tidal_api_receipt_reconcile_interval_seconds: int = Field(
+        default=30,
+        alias="TIDAL_API_RECEIPT_RECONCILE_INTERVAL_SECONDS",
+    )
+    tidal_api_receipt_reconcile_threshold_seconds: int = Field(
+        default=60,
+        alias="TIDAL_API_RECEIPT_RECONCILE_THRESHOLD_SECONDS",
+    )
+    tidal_api_cors_allowed_origins: list[str] = Field(
+        default_factory=list,
+        alias="TIDAL_API_CORS_ALLOWED_ORIGINS",
+    )
+    tidal_api_operator_tokens: dict[str, str] = Field(
+        default_factory=dict,
+        alias="TIDAL_API_OPERATOR_TOKENS",
+    )
+
+    @field_validator("tidal_api_cors_allowed_origins", mode="before")
+    @classmethod
+    def _coerce_cors_origins(cls, value: object) -> object:
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return []
+            if stripped.startswith("["):
+                return value
+            return [item.strip() for item in stripped.split(",") if item.strip()]
+        return value
 
     @property
     def resolved_db_path(self) -> Path:

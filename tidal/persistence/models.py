@@ -239,6 +239,49 @@ kick_txs = Table(
     Column("created_at", String, nullable=False),
 )
 
+api_actions = Table(
+    "api_actions",
+    metadata,
+    Column("action_id", String, primary_key=True),
+    Column("action_type", String, nullable=False),
+    Column("status", String, nullable=False),
+    Column("operator_id", String, nullable=False),
+    Column("sender", String, nullable=True),
+    Column("resource_address", String, nullable=True),
+    Column("auction_address", String, nullable=True),
+    Column("source_address", String, nullable=True),
+    Column("token_address", String, nullable=True),
+    Column("request_json", Text, nullable=False),
+    Column("preview_json", Text, nullable=False),
+    Column("error_message", Text, nullable=True),
+    Column("created_at", String, nullable=False),
+    Column("updated_at", String, nullable=False),
+)
+
+api_action_transactions = Table(
+    "api_action_transactions",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("action_id", String, nullable=False),
+    Column("tx_index", Integer, nullable=False),
+    Column("operation", String, nullable=False),
+    Column("to_address", String, nullable=False),
+    Column("data", Text, nullable=False),
+    Column("value", String, nullable=False),
+    Column("chain_id", Integer, nullable=False),
+    Column("gas_estimate", Integer, nullable=True),
+    Column("gas_limit", Integer, nullable=True),
+    Column("tx_hash", String, nullable=True),
+    Column("broadcast_at", String, nullable=True),
+    Column("receipt_status", String, nullable=True),
+    Column("block_number", Integer, nullable=True),
+    Column("gas_used", Integer, nullable=True),
+    Column("gas_price_gwei", Text, nullable=True),
+    Column("error_message", Text, nullable=True),
+    Column("created_at", String, nullable=False),
+    Column("updated_at", String, nullable=False),
+)
+
 Index("ix_strategy_token_balances_strategy_scanned", strategy_token_balances_latest.c.strategy_address, strategy_token_balances_latest.c.scanned_at)
 Index("ix_fee_burner_token_balances_scanned", fee_burner_token_balances_latest.c.fee_burner_address, fee_burner_token_balances_latest.c.scanned_at)
 Index("ix_auction_enabled_tokens_latest_active", auction_enabled_tokens_latest.c.auction_address, auction_enabled_tokens_latest.c.active)
@@ -247,3 +290,7 @@ Index("ix_scan_item_errors_source_identity", scan_item_errors.c.source_address, 
 Index("ix_scan_item_errors_identity", scan_item_errors.c.strategy_address, scan_item_errors.c.token_address, scan_item_errors.c.stage, scan_item_errors.c.error_code)
 Index("ix_kick_txs_source_token_created", kick_txs.c.source_address, kick_txs.c.token_address, kick_txs.c.created_at.desc())
 Index("ix_kick_txs_strategy_token_created", kick_txs.c.strategy_address, kick_txs.c.token_address, kick_txs.c.created_at.desc())
+Index("ix_api_actions_status_created", api_actions.c.status, api_actions.c.created_at.desc())
+Index("ix_api_actions_operator_created", api_actions.c.operator_id, api_actions.c.created_at.desc())
+Index("ix_api_action_transactions_action_tx_index", api_action_transactions.c.action_id, api_action_transactions.c.tx_index, unique=True)
+Index("ix_api_action_transactions_receipt_pending", api_action_transactions.c.tx_hash, api_action_transactions.c.receipt_status, api_action_transactions.c.broadcast_at)

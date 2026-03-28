@@ -7,10 +7,11 @@ const MIN_USD_VISIBLE = new Big("0.01");
 const THEME_SEQUENCE = ["light", "dark"];
 const THEME_STORAGE_KEY = "tidal_theme_preference";
 const LEGACY_THEME_STORAGE_KEY = "factory_dashboard_theme_preference";
+const API_TOKEN = import.meta.env.VITE_TIDAL_API_TOKEN || "";
 const API_BASE_URL = (
   import.meta.env.VITE_TIDAL_API_BASE_URL
   || import.meta.env.VITE_FACTORY_DASHBOARD_API_BASE_URL
-  || "/api"
+  || "/api/v1/tidal"
 ).replace(/\/$/, "");
 const ETHERSCAN_TX_URL = "https://etherscan.io/tx/";
 const ETHERSCAN_ADDRESS_URL = "https://etherscan.io/address/";
@@ -22,6 +23,17 @@ const FAINT_STATUSES = new Set(["DRY_RUN", "SUBMITTED", "USER_SKIPPED", "SKIP"])
 
 function apiUrl(path) {
   return `${API_BASE_URL}${path}`;
+}
+
+async function apiFetch(path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  if (API_TOKEN) {
+    headers.set("Authorization", `Bearer ${API_TOKEN}`);
+  }
+  return fetch(apiUrl(path), {
+    ...options,
+    headers,
+  });
 }
 
 function parseLocation() {
@@ -178,7 +190,7 @@ function formatDeployConfirmation(spec) {
     `Deploy auction for ${spec.strategyName || shortenAddress(spec.strategyAddress)}?`,
     "",
     `Factory: ${shortenAddress(spec.factoryAddress)}`,
-    `Receiver: ${shortenAddress(spec.receiverAddress)}`,
+    `Receiver: ${shortenAddress(spec.receiverAddress || spec.strategyAddress)}`,
     `Want: ${spec.wantSymbol || shortenAddress(spec.wantAddress)}`,
   ];
 
@@ -199,6 +211,33 @@ function formatDeployConfirmation(spec) {
 
   lines.push("", "Queue this transaction in your connected wallet?");
   return lines.join("\n");
+}
+
+async function waitForTransactionReceipt(provider, txHash, attempts = 60, delayMs = 2000) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const receipt = await provider.request({
+      method: "eth_getTransactionReceipt",
+      params: [txHash],
+    });
+    if (receipt) {
+      return receipt;
+    }
+    await new Promise((resolve) => {
+      window.setTimeout(resolve, delayMs);
+    });
+  }
+  return null;
+}
+
+function hexToNumber(value) {
+  if (value == null) {
+    return null;
+  }
+  const normalized = String(value);
+  const parsed = normalized.startsWith("0x")
+    ? Number.parseInt(normalized, 16)
+    : Number.parseInt(normalized, 10);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function formatDeployError(error) {
@@ -1332,14 +1371,15 @@ function KickLogPage({ nowMs, initialRunId }) {
       setLoading(true);
       setError("");
       try {
-        const response = await fetch(apiUrl("/kicks?limit=500"), {
+        const response = await apiFetch("/logs/kicks?limit=500", {
           signal: controller.signal,
         });
         if (!response.ok) throw new Error("Unable to load kicks");
         const payload = await response.json();
+        const data = payload?.data || {};
         if (!isMounted) return;
-        setKicks(Array.isArray(payload.kicks) ? payload.kicks.map(normalizeKick) : []);
-        setTotal(payload.total || 0);
+        setKicks(Array.isArray(data.kicks) ? data.kicks.map(normalizeKick) : []);
+        setTotal(data.total || 0);
       } catch (err) {
         if (isMounted && err.name !== "AbortError") {
           setError(err.message || "Unable to load kicks");
@@ -1418,25 +1458,26 @@ function KickLogPage({ nowMs, initialRunId }) {
     )));
 
     try {
-      const response = await fetch(apiUrl(`/kicks/${kickId}/auctionscan`));
+      const response = await apiFetch(`/kicks/${kickId}/auctionscan`);
       if (!response.ok) {
         throw new Error("Unable to resolve AuctionScan link");
       }
       const payload = await response.json();
+      const data = payload?.data || {};
       setKicks((prev) => prev.map((kick) => {
         if (kick.id !== kickId) {
           return kick;
         }
         return normalizeKick({
           ...kick,
-          chainId: payload.chainId ?? kick.chainId,
-          auctionScanEligible: payload.eligible,
-          auctionScanResolved: payload.resolved,
-          auctionScanRoundId: payload.roundId,
-          auctionScanAuctionUrl: payload.auctionUrl,
-          auctionScanRoundUrl: payload.roundUrl,
-          auctionScanLastCheckedAt: payload.lastCheckedAt,
-          auctionScanMatchedAt: payload.matchedAt,
+          chainId: data.chainId ?? kick.chainId,
+          auctionScanEligible: data.eligible,
+          auctionScanResolved: data.resolved,
+          auctionScanRoundId: data.roundId,
+          auctionScanAuctionUrl: data.auctionUrl,
+          auctionScanRoundUrl: data.roundUrl,
+          auctionScanLastCheckedAt: data.lastCheckedAt,
+          auctionScanMatchedAt: data.matchedAt,
           auctionScanResolving: false,
           auctionScanResolveError: "",
         });
@@ -1857,7 +1898,7 @@ export default function App() {
       setError("");
 
       try {
-        const response = await fetch(apiUrl(""), {
+        const response = await apiFetch("/dashboard", {
           signal: controller.signal,
         });
 
@@ -1866,24 +1907,25 @@ export default function App() {
         }
 
         const payload = await response.json();
+        const data = payload?.data || {};
 
         if (!isMounted) {
           return;
         }
 
-        const summaryPayload = payload.summary
+        const summaryPayload = data.summary
           ? {
-              ...payload.summary,
-              latestScanAt: payload.latestScanAt || payload.summary.latestScanAt || null,
+              ...data.summary,
+              latestScanAt: data.latestScanAt || data.summary.latestScanAt || null,
             }
           : {
-              strategyCount: Array.isArray(payload.rows) ? payload.rows.length : 0,
-              tokenCount: Array.isArray(payload.tokens) ? payload.tokens.length : 0,
-              latestScanAt: payload.latestScanAt || null,
+              strategyCount: Array.isArray(data.rows) ? data.rows.length : 0,
+              tokenCount: Array.isArray(data.tokens) ? data.tokens.length : 0,
+              latestScanAt: data.latestScanAt || null,
             };
 
         setSummary(summaryPayload);
-        setRows(payload.rows || []);
+        setRows(data.rows || []);
       } catch (loadError) {
         if (isMounted && loadError.name !== "AbortError") {
           setError(loadError.message || "Unable to load dashboard");
@@ -2145,9 +2187,7 @@ export default function App() {
     updateDeployState(sourceAddress, { status: "preparing", error: "" });
 
     try {
-      const response = await fetch(apiUrl(`/strategies/${sourceAddress}/deploy-auction-tx`), {
-        method: "POST",
-      });
+      const response = await apiFetch(`/strategies/${sourceAddress}/deploy-defaults`);
 
       let payload = null;
       try {
@@ -2157,15 +2197,15 @@ export default function App() {
       }
 
       if (!response.ok) {
-        throw new Error(payload?.error || "Unable to prepare deploy transaction");
+        throw new Error(payload?.detail || "Unable to load deploy defaults");
       }
 
-      const txRequest = payload?.txRequest;
-      if (!txRequest?.to || !txRequest?.data) {
-        throw new Error("Deploy transaction payload is incomplete");
+      const deployDefaults = payload?.data;
+      if (!deployDefaults?.wantAddress || !deployDefaults?.factoryAddress || !deployDefaults?.startingPrice) {
+        throw new Error("Deploy defaults payload is incomplete");
       }
 
-      setDeployConfirm({ sourceAddress, payload, txRequest, provider });
+      setDeployConfirm({ sourceAddress, payload: deployDefaults, provider });
     } catch (deployError) {
       updateDeployState(sourceAddress, {
         status: "idle",
@@ -2183,7 +2223,7 @@ export default function App() {
 
   async function handleDeployConfirm() {
     if (!deployConfirm) return;
-    const { sourceAddress, txRequest, provider } = deployConfirm;
+    const { sourceAddress, payload: deployDefaults, provider } = deployConfirm;
     setDeployConfirm(null);
 
     updateDeployState(sourceAddress, { status: "wallet", error: "" });
@@ -2193,6 +2233,40 @@ export default function App() {
       const account = Array.isArray(accounts) ? accounts[0] : null;
       if (!account) {
         throw new Error("No wallet account connected");
+      }
+
+      const prepareResponse = await apiFetch("/auctions/deploy/prepare", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          want: deployDefaults.wantAddress,
+          receiver: deployDefaults.receiverAddress || deployDefaults.strategyAddress || sourceAddress,
+          sender: account,
+          factory: deployDefaults.factoryAddress,
+          governance: deployDefaults.governanceAddress,
+          startingPrice: deployDefaults.startingPrice,
+          salt: deployDefaults.salt,
+        }),
+      });
+
+      let preparedPayload = null;
+      try {
+        preparedPayload = await prepareResponse.json();
+      } catch {
+        preparedPayload = null;
+      }
+
+      if (!prepareResponse.ok) {
+        throw new Error(preparedPayload?.detail || "Unable to prepare deploy transaction");
+      }
+
+      const preparedAction = preparedPayload?.data;
+      const txRequest = preparedAction?.transactions?.[0];
+      const actionId = preparedAction?.actionId;
+      if (!txRequest?.to || !txRequest?.data || !actionId) {
+        throw new Error("Deploy transaction payload is incomplete");
       }
 
       const requiredChainId = normalizeChainIdValue(txRequest.chainId);
@@ -2217,6 +2291,37 @@ export default function App() {
           },
         ],
       });
+
+      await apiFetch(`/actions/${actionId}/broadcast`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          txIndex: 0,
+          sender: account,
+          txHash,
+          broadcastAt: new Date().toISOString(),
+        }),
+      });
+
+      const receipt = await waitForTransactionReceipt(provider, txHash);
+      if (receipt) {
+        await apiFetch(`/actions/${actionId}/receipt`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            txIndex: 0,
+            receiptStatus: receipt.status === "0x1" ? "CONFIRMED" : "REVERTED",
+            blockNumber: hexToNumber(receipt.blockNumber),
+            gasUsed: hexToNumber(receipt.gasUsed),
+            gasPriceGwei: null,
+            observedAt: new Date().toISOString(),
+          }),
+        });
+      }
 
       updateDeployState(sourceAddress, { status: "submitted", error: "", txHash });
     } catch (deployError) {

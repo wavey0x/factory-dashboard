@@ -7,7 +7,7 @@ from typer.testing import CliRunner
 
 import tidal.auction_cli as auction_cli_module
 import tidal.kick_cli as kick_cli_module
-from tidal.cli import app
+from tidal.server_cli import app
 from tidal.transaction_service.types import AuctionInspection
 
 

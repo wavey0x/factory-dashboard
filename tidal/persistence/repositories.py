@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable
 from dataclasses import asdict
 
@@ -697,3 +698,150 @@ class KickTxRepository:
         if row is None:
             return None
         return dict(row)
+
+
+class APIActionRepository:
+    def __init__(self, session: Session):
+        self.session = session
+
+    def create(
+        self,
+        *,
+        action_row: dict[str, object],
+        transaction_rows: Iterable[dict[str, object]],
+    ) -> None:
+        self.session.execute(insert(models.api_actions).values(**action_row))
+        for row in transaction_rows:
+            self.session.execute(insert(models.api_action_transactions).values(**row))
+        self.session.commit()
+
+    def list_actions(
+        self,
+        *,
+        limit: int,
+        offset: int,
+        operator_id: str | None = None,
+        status: str | None = None,
+        action_type: str | None = None,
+    ) -> list[dict[str, object]]:
+        stmt = select(models.api_actions).order_by(models.api_actions.c.created_at.desc()).limit(limit).offset(offset)
+        if operator_id is not None:
+            stmt = stmt.where(models.api_actions.c.operator_id == operator_id)
+        if status is not None:
+            stmt = stmt.where(models.api_actions.c.status == status)
+        if action_type is not None:
+            stmt = stmt.where(models.api_actions.c.action_type == action_type)
+        return [dict(row) for row in self.session.execute(stmt).mappings().all()]
+
+    def get_action(self, action_id: str) -> dict[str, object] | None:
+        row = self.session.execute(
+            select(models.api_actions).where(models.api_actions.c.action_id == action_id)
+        ).mappings().first()
+        if row is None:
+            return None
+        return dict(row)
+
+    def get_action_transactions(self, action_id: str) -> list[dict[str, object]]:
+        stmt = (
+            select(models.api_action_transactions)
+            .where(models.api_action_transactions.c.action_id == action_id)
+            .order_by(models.api_action_transactions.c.tx_index.asc())
+        )
+        return [dict(row) for row in self.session.execute(stmt).mappings().all()]
+
+    def update_transaction_broadcast(
+        self,
+        action_id: str,
+        *,
+        tx_index: int,
+        tx_hash: str,
+        broadcast_at: str,
+    ) -> None:
+        self.session.execute(
+            models.api_action_transactions.update()
+            .where(
+                models.api_action_transactions.c.action_id == action_id,
+                models.api_action_transactions.c.tx_index == tx_index,
+            )
+            .values(
+                tx_hash=tx_hash,
+                broadcast_at=broadcast_at,
+                updated_at=broadcast_at,
+            )
+        )
+        self.session.commit()
+
+    def update_transaction_receipt(
+        self,
+        action_id: str,
+        *,
+        tx_index: int,
+        receipt_status: str,
+        block_number: int | None,
+        gas_used: int | None,
+        gas_price_gwei: str | None,
+        observed_at: str,
+        error_message: str | None = None,
+    ) -> None:
+        values: dict[str, object] = {
+            "receipt_status": receipt_status,
+            "block_number": block_number,
+            "gas_used": gas_used,
+            "gas_price_gwei": gas_price_gwei,
+            "updated_at": observed_at,
+        }
+        if error_message is not None:
+            values["error_message"] = error_message
+        self.session.execute(
+            models.api_action_transactions.update()
+            .where(
+                models.api_action_transactions.c.action_id == action_id,
+                models.api_action_transactions.c.tx_index == tx_index,
+            )
+            .values(**values)
+        )
+        self.session.commit()
+
+    def update_action_status(
+        self,
+        action_id: str,
+        *,
+        status: str,
+        updated_at: str,
+        error_message: str | None = None,
+    ) -> None:
+        values: dict[str, object] = {
+            "status": status,
+            "updated_at": updated_at,
+        }
+        if error_message is not None:
+            values["error_message"] = error_message
+        self.session.execute(
+            models.api_actions.update()
+            .where(models.api_actions.c.action_id == action_id)
+            .values(**values)
+        )
+        self.session.commit()
+
+    def pending_receipt_transactions(self, *, older_than: str) -> list[dict[str, object]]:
+        stmt = (
+            select(models.api_action_transactions)
+            .where(
+                models.api_action_transactions.c.tx_hash.is_not(None),
+                models.api_action_transactions.c.receipt_status.is_(None),
+                models.api_action_transactions.c.broadcast_at.is_not(None),
+                models.api_action_transactions.c.broadcast_at <= older_than,
+            )
+            .order_by(models.api_action_transactions.c.broadcast_at.asc())
+        )
+        return [dict(row) for row in self.session.execute(stmt).mappings().all()]
+
+    @staticmethod
+    def decode_json_field(value: object) -> dict[str, object]:
+        if value is None:
+            return {}
+        try:
+            parsed = json.loads(str(value))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return {}
+        return parsed if isinstance(parsed, dict) else {}

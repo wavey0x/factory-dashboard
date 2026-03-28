@@ -1,6 +1,6 @@
 # Tidal UI
 
-React dashboard for viewing scan results from an external read-only dashboard API.
+React dashboard for the monorepo Tidal control-plane API.
 
 ## What it shows
 
@@ -27,15 +27,23 @@ React dashboard for viewing scan results from an external read-only dashboard AP
 Configure the dashboard API with either:
 
 ```bash
-VITE_TIDAL_API_BASE_URL=https://api.wavey.info/v1 npm run dev
+VITE_TIDAL_API_BASE_URL=https://api.wavey.info/api/v1/tidal npm run dev
 ```
 
-or by keeping the default `/api` base path and proxying locally:
+or by keeping the default `/api/v1/tidal` base path and proxying locally:
 
 ```bash
 TIDAL_API_PROXY_TARGET=http://localhost:8787 npm run dev
 ```
 
+If the API expects a bearer token, also set:
+
+```bash
+VITE_TIDAL_API_TOKEN=your-token npm run dev
+```
+
 ## Endpoints
 
-- `GET /api/dashboard`
+- `GET /api/v1/tidal/dashboard`
+- `GET /api/v1/tidal/logs/kicks`
+- `POST /api/v1/tidal/auctions/deploy/prepare`
