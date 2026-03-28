@@ -1117,8 +1117,9 @@ tbody tr:hover td {
 .fee-burner-card {
   border: 1px solid var(--divider-subtle);
   border-radius: 10px;
-  padding: 16px;
+  padding: 14px 16px 16px;
   background: var(--bg);
+  overflow: clip;
 }
 
 .fee-burner-label {
@@ -1129,15 +1130,14 @@ tbody tr:hover td {
   color: var(--text-faint);
 }
 
-.fee-burner-top-row {
+.fee-burner-meta-row {
   display: grid;
   grid-template-columns:
-    minmax(100px, 0.7fr)
-    minmax(220px, 1.7fr)
-    minmax(120px, 0.85fr)
-    minmax(220px, 1.45fr)
-    minmax(214px, 1.5fr);
-  gap: 16px;
+    minmax(92px, 0.65fr)
+    minmax(170px, 1.35fr)
+    minmax(108px, 0.78fr)
+    minmax(176px, 1.12fr);
+  gap: 12px;
   align-items: start;
 }
 
@@ -1164,36 +1164,48 @@ tbody tr:hover td {
   flex-wrap: wrap;
 }
 
-.fee-burner-balances {
-  justify-self: end;
-  width: 100%;
-  max-width: 320px;
+.fee-burner-balance-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--divider-subtle);
+  min-width: 0;
 }
 
-.fee-burner-balances .fee-burner-label {
-  margin-bottom: 8px;
+.fee-burner-balance-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.fee-burner-balance-panel .token-cell {
+  width: min(100%, 312px);
+  min-width: 0;
+  max-width: 100%;
 }
 
 .fee-burner-card .token-stack {
-  gap: 6px;
+  gap: 5px;
 }
 
 .fee-burner-card .token-item {
   width: 100%;
-  grid-template-columns: var(--token-icon-size) minmax(0, 1fr) 86px;
+  grid-template-columns: var(--token-icon-size) minmax(0, 1fr) 82px;
 }
 
 .fee-burner-balance-total {
-  display: grid;
-  grid-template-columns: var(--token-icon-size) minmax(0, 1fr) 86px;
+  display: inline-flex;
   align-items: baseline;
-  column-gap: 8px;
-  margin-top: 8px;
-  width: 100%;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
 }
 
 .fee-burner-balance-total-label {
-  grid-column: 2;
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -1201,10 +1213,9 @@ tbody tr:hover td {
 }
 
 .fee-burner-balance-total-value {
-  grid-column: 3;
-  justify-self: end;
   text-align: right;
   color: var(--text-primary);
+  min-width: 0;
 }
 
 .kick-log-empty {
@@ -1415,13 +1426,12 @@ tbody tr:hover td {
     grid-template-columns: 1fr;
   }
 
-  .fee-burner-top-row {
+  .fee-burner-meta-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .fee-burner-balances {
-    justify-self: stretch;
-    max-width: none;
+  .fee-burner-balance-panel .token-cell {
+    width: min(100%, 360px);
   }
 }
 
@@ -1475,7 +1485,7 @@ tbody tr:hover td {
     padding: 12px;
   }
 
-  .fee-burner-top-row {
+  .fee-burner-meta-row {
     grid-template-columns: 1fr;
     gap: 12px;
   }

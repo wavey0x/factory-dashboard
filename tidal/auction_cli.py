@@ -3,22 +3,25 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
+from dataclasses import asdict
 
 import typer
 from eth_utils import to_checksum_address
 
 from tidal.chain.contracts.abis import AUCTION_KICKER_ABI
-from tidal.cli_support import (
-    build_sync_web3,
-    discover_local_keystore_path,
-    maybe_load_signer,
-    prompt_bool,
-    read_keystore_address,
+from tidal.cli_context import CLIContext
+from tidal.cli_options import (
+    CallerOption,
+    ConfigOption,
+    JsonOption,
+    KeystoreOption,
+    LiveOption,
+    PassphraseEnvOption,
+    YesOption,
 )
-from tidal.config import load_settings
-from tidal.errors import AddressNormalizationError
-from tidal.logging import configure_logging
+from tidal.cli_renderers import emit_json
+from tidal.errors import AddressNormalizationError, ConfigurationError
+from tidal.logging import OutputMode, configure_logging
 from tidal.normalizers import normalize_address
 from tidal.ops.auction_enable import (
     AuctionInspection,
@@ -26,11 +29,20 @@ from tidal.ops.auction_enable import (
     TokenProbe,
     format_probe_reason,
 )
+from tidal.ops.deploy import (
+    build_default_salt,
+    default_factory_address,
+    default_governance_address,
+    preview_deployment,
+    read_token_symbol,
+    resolve_starting_price,
+    send_live_deployment,
+    summarize_matches,
+)
 from tidal.runtime import build_web3_client
 from tidal.transaction_service.kicker import _DEFAULT_PRIORITY_FEE_GWEI, _format_execution_error
-from tidal.transaction_service.signer import TransactionSigner
 
-app = typer.Typer(help="Auction operator commands")
+app = typer.Typer(help="Auction operator commands", no_args_is_help=True)
 
 
 def _normalize_address_value(value: str, *, param_hint: str) -> str:
@@ -75,40 +87,82 @@ def _print_probe_table(probes: list[TokenProbe]) -> None:
     typer.echo()
 
 
-async def _run_sweep_and_settle(
+def _render_deploy_preview(preview) -> None:
+    typer.echo("Deployment parameters:")
+    typer.echo(f"  factory       {to_checksum_address(preview.factory_address)}")
+    typer.echo(f"  want          {to_checksum_address(preview.want)}")
+    typer.echo(f"  receiver      {to_checksum_address(preview.receiver)}")
+    typer.echo(f"  governance    {to_checksum_address(preview.governance)}")
+    typer.echo(f"  startingPrice {preview.starting_price}")
+    typer.echo(f"  salt          {preview.salt}")
+    if preview.caller_address:
+        typer.echo(f"  caller        {to_checksum_address(preview.caller_address)}")
+    typer.echo()
+    if preview.existing_matches:
+        typer.echo("Existing matching auctions:")
+        for line in summarize_matches(preview.existing_matches):
+            typer.echo(f"  - {line}")
+    else:
+        typer.echo(summarize_matches(preview.existing_matches)[0])
+    if preview.predicted_address:
+        typer.echo(f"Predicted auction address: {to_checksum_address(preview.predicted_address)}")
+        typer.echo(
+            "Predicted auction address already exists in the selected factory."
+            if preview.predicted_address_exists
+            else "Predicted auction address is not currently deployed in the selected factory."
+        )
+    if preview.gas_estimate is not None:
+        typer.echo(f"Estimated gas: {preview.gas_estimate:,}")
+    if preview.preview_error:
+        typer.echo(f"Preview call failed: {preview.preview_error}")
+    if preview.gas_error:
+        typer.echo(f"Gas estimate failed: {preview.gas_error}")
+
+
+async def _preview_sweep_and_settle(
     *,
+    settings,
     auction_address: str,
     token_address: str,
-    config: Path | None,
-    broadcast: bool,
+    caller_address: str | None,
+    live: bool,
+    signer,
     receipt_timeout: int,
-) -> int:
-    settings = load_settings(config)
-    if not settings.rpc_url:
-        raise SystemExit("RPC_URL is required")
-    if not settings.txn_keystore_path or not settings.txn_keystore_passphrase:
-        raise SystemExit("TXN_KEYSTORE_PATH and TXN_KEYSTORE_PASSPHRASE must be configured")
-
-    signer = TransactionSigner(settings.txn_keystore_path, settings.txn_keystore_passphrase)
+) -> dict[str, object]:
     web3_client = build_web3_client(settings)
-
-    auction = to_checksum_address(auction_address)
-    token = to_checksum_address(token_address)
     kicker_address = to_checksum_address(settings.auction_kicker_address)
     contract = web3_client.contract(kicker_address, AUCTION_KICKER_ABI)
-    tx_data = contract.functions.sweepAndSettle(auction, token)._encode_transaction_data()
+    tx_data = contract.functions.sweepAndSettle(
+        to_checksum_address(auction_address),
+        to_checksum_address(token_address),
+    )._encode_transaction_data()
 
-    try:
-        gas_estimate = await web3_client.estimate_gas(
-            {
-                "from": signer.checksum_address,
-                "to": kicker_address,
-                "data": tx_data,
-                "chainId": settings.chain_id,
-            }
-        )
-    except Exception as exc:  # noqa: BLE001
-        raise SystemExit(f"Gas estimate failed: {_format_execution_error(exc)}") from exc
+    result: dict[str, object] = {
+        "auction_kicker": kicker_address,
+        "auction": to_checksum_address(auction_address),
+        "token": to_checksum_address(token_address),
+        "caller": to_checksum_address(caller_address) if caller_address else None,
+        "data": tx_data,
+    }
+
+    gas_estimate = None
+    gas_limit = None
+    warning = None
+    if caller_address:
+        try:
+            gas_estimate = await web3_client.estimate_gas(
+                {
+                    "from": to_checksum_address(caller_address),
+                    "to": kicker_address,
+                    "data": tx_data,
+                    "chainId": settings.chain_id,
+                }
+            )
+            gas_limit = min(int(gas_estimate * 1.2), settings.txn_max_gas_limit)
+        except Exception as exc:  # noqa: BLE001
+            warning = f"Gas estimate failed: {_format_execution_error(exc)}"
+    else:
+        warning = "No caller address available for preview gas estimation."
 
     base_fee_wei = await web3_client.get_base_fee()
     base_fee_gwei = base_fee_wei / 1e9
@@ -117,254 +171,442 @@ async def _run_sweep_and_settle(
     except Exception:  # noqa: BLE001
         suggested_priority_fee_wei = int(_DEFAULT_PRIORITY_FEE_GWEI * 1e9)
     priority_fee_wei = min(suggested_priority_fee_wei, settings.txn_max_priority_fee_gwei * 10**9)
+    result["gas_estimate"] = gas_estimate
+    result["gas_limit"] = gas_limit
+    result["base_fee_gwei"] = base_fee_gwei
+    result["priority_fee_gwei"] = priority_fee_wei / 1e9
+    if warning:
+        result["warning"] = warning
 
-    gas_limit = min(int(gas_estimate * 1.2), settings.txn_max_gas_limit)
+    if not live:
+        return result
+
+    if signer is None:
+        raise SystemExit("Signer is required for live sweep-and-settle execution.")
+
     tx = {
         "to": kicker_address,
         "data": tx_data,
         "chainId": settings.chain_id,
-        "gas": gas_limit,
+        "gas": gas_limit or settings.txn_max_gas_limit,
         "maxFeePerGas": int((max(settings.txn_max_base_fee_gwei, base_fee_gwei) + settings.txn_max_priority_fee_gwei) * 10**9),
         "maxPriorityFeePerGas": priority_fee_wei,
         "nonce": await web3_client.get_transaction_count(signer.address),
         "type": 2,
     }
+    signed_tx = signer.sign_transaction(tx)
+    tx_hash = await web3_client.send_raw_transaction(signed_tx)
+    receipt = await web3_client.get_transaction_receipt(tx_hash, timeout_seconds=receipt_timeout)
+    result["tx_hash"] = tx_hash
+    result["receipt_status"] = "CONFIRMED" if receipt.get("status") == 1 else "REVERTED"
+    result["block_number"] = receipt.get("blockNumber")
+    result["gas_used"] = receipt.get("gasUsed")
+    return result
 
-    typer.echo(f"AuctionKicker: {kicker_address}")
-    typer.echo(f"Auction:       {auction}")
-    typer.echo(f"Sell token:    {token}")
-    typer.echo(f"From:          {signer.checksum_address}")
-    typer.echo(f"Gas estimate:  {gas_estimate}")
-    typer.echo(f"Gas limit:     {gas_limit}")
-    typer.echo(f"Base fee:      {base_fee_gwei:.4f} gwei")
-    typer.echo(f"Priority fee:  {priority_fee_wei / 1e9:.4f} gwei")
-    typer.echo(f"Data:          {tx_data}")
 
-    if not broadcast:
-        typer.echo("Dry run only. Re-run with --broadcast to send.")
-        return 0
+@app.command("deploy")
+def deploy(
+    want: str = typer.Option(..., "--want", help="Want token address."),
+    receiver: str = typer.Option(..., "--receiver", help="Auction receiver address."),
+    config: ConfigOption = None,
+    factory: str | None = typer.Option(None, "--factory", help="Auction factory address."),
+    governance: str | None = typer.Option(None, "--governance", help="Governance / trade handler address."),
+    starting_price: int | None = typer.Option(None, "--starting-price", min=0, help="Starting price for the new auction."),
+    salt: str | None = typer.Option(None, "--salt", help="Optional deployment salt."),
+    live: LiveOption = False,
+    yes: YesOption = False,
+    keystore: KeystoreOption = None,
+    passphrase_env: PassphraseEnvOption = None,
+    caller: CallerOption = None,
+    json_output: JsonOption = False,
+) -> None:
+    """Preview or deploy a single auction from the configured factory."""
 
+    configure_logging(output_mode=OutputMode.TEXT)
+    cli_ctx = CLIContext(config)
     try:
-        signed_tx = signer.sign_transaction(tx)
-        tx_hash = await web3_client.send_raw_transaction(signed_tx)
-    except Exception as exc:  # noqa: BLE001
-        raise SystemExit(f"Transaction submission failed: {exc}") from exc
-    typer.echo(f"Submitted:     {tx_hash}")
+        w3 = cli_ctx.sync_web3()
+    except ConfigurationError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
 
-    try:
-        receipt = await web3_client.get_transaction_receipt(tx_hash, timeout_seconds=receipt_timeout)
-    except Exception as exc:  # noqa: BLE001
-        raise SystemExit(f"Receipt lookup failed: {exc}") from exc
+    normalized_want = _normalize_address_value(want, param_hint="--want")
+    normalized_receiver = _normalize_address_value(receiver, param_hint="--receiver")
+    normalized_factory = _normalize_address_value(factory, param_hint="--factory") if factory else default_factory_address(cli_ctx.settings)
+    normalized_governance = (
+        _normalize_address_value(governance, param_hint="--governance")
+        if governance
+        else default_governance_address()
+    )
+    normalized_caller = _normalize_address_value(caller, param_hint="--caller") if caller else None
+    signer = cli_ctx.resolve_signer(
+        required=live,
+        required_for="live auction deployment",
+        keystore_path=keystore,
+        passphrase_env=passphrase_env,
+    )
+    preview_caller = cli_ctx.resolve_preview_caller(caller=normalized_caller, keystore_path=keystore, signer=signer)
 
-    status = "CONFIRMED" if receipt.get("status") == 1 else "REVERTED"
-    typer.echo(f"Receipt:       {status}")
-    typer.echo(f"Block:         {receipt.get('blockNumber')}")
-    typer.echo(f"Gas used:      {receipt.get('gasUsed')}")
-    return 0 if status == "CONFIRMED" else 1
+    resolved_salt = salt or build_default_salt(normalized_want, normalized_receiver, normalized_governance)
+    resolved_starting_price = starting_price
+    if resolved_starting_price is None:
+        existing_preview = preview_deployment(
+            w3,
+            cli_ctx.settings,
+            factory_address=normalized_factory,
+            want=normalized_want,
+            receiver=normalized_receiver,
+            governance=normalized_governance,
+            starting_price=0,
+            salt=resolved_salt,
+            caller_address=preview_caller,
+        )
+        try:
+            resolved_starting_price = resolve_starting_price(provided=None, matches=existing_preview.existing_matches)
+        except ValueError as exc:
+            raise typer.BadParameter(str(exc), param_hint="--starting-price") from exc
+    initial_preview = preview_deployment(
+        w3,
+        cli_ctx.settings,
+        factory_address=normalized_factory,
+        want=normalized_want,
+        receiver=normalized_receiver,
+        governance=normalized_governance,
+        starting_price=resolved_starting_price,
+        salt=resolved_salt,
+        caller_address=preview_caller,
+    )
+
+    status = "ok" if (initial_preview.predicted_address or initial_preview.gas_estimate is not None) else "error"
+    warnings: list[str] = []
+    want_symbol = read_token_symbol(w3, normalized_want)
+    if want_symbol is None:
+        warnings.append("Could not resolve token symbol for the want token.")
+    if initial_preview.preview_error:
+        warnings.append(f"Preview call failed: {initial_preview.preview_error}")
+    if initial_preview.gas_error:
+        warnings.append(f"Gas estimate failed: {initial_preview.gas_error}")
+
+    execution = None
+    if live:
+        prompt = (
+            "Preview failed. Broadcast deployment transaction anyway?"
+            if initial_preview.preview_error or initial_preview.gas_error
+            else "Broadcast deployment transaction?"
+        )
+        if yes or typer.confirm(prompt, default=False):
+            if signer is None:
+                raise SystemExit("Signer is required for live deployment.")
+            execution = send_live_deployment(
+                w3,
+                signer=signer,
+                factory_address=initial_preview.factory_address,
+                want=initial_preview.want,
+                receiver=initial_preview.receiver,
+                governance=initial_preview.governance,
+                starting_price=initial_preview.starting_price,
+                salt=initial_preview.salt,
+            )
+        else:
+            status = "noop"
+
+    data = {
+        "preview": asdict(initial_preview),
+        "want_symbol": want_symbol,
+        "execution": asdict(execution) if execution is not None else None,
+    }
+    if json_output:
+        emit_json("auction.deploy", status=status, data=data, warnings=warnings)
+    else:
+        if want_symbol:
+            typer.echo(f"Want token symbol: {want_symbol}")
+        _render_deploy_preview(initial_preview)
+        for warning in warnings:
+            typer.echo(f"Warning: {warning}")
+        if not live:
+            typer.echo("Dry run only. No transaction was sent.")
+        elif status == "noop":
+            typer.echo("Aborted before broadcast.")
+        elif execution is not None:
+            typer.echo(f"Submitted tx: {execution.tx_hash}")
+            typer.echo(f"Receipt status: {execution.receipt_status}")
+            typer.echo(f"Block number: {execution.block_number}")
+
+    if execution is not None and execution.receipt_status != 1:
+        raise typer.Exit(code=4)
+    if status == "error":
+        raise typer.Exit(code=4)
+    if status == "noop":
+        raise typer.Exit(code=2)
 
 
 @app.command("enable-tokens")
 def enable_tokens(
-    auction_address: str = typer.Argument(..., metavar="AUCTION", help="Auction address to inspect"),
-    config: Path | None = typer.Option(None, exists=True, file_okay=True, dir_okay=False),
+    auction_address: str = typer.Argument(..., metavar="AUCTION", help="Auction address to inspect."),
+    config: ConfigOption = None,
     extra_token: list[str] | None = typer.Option(
         None,
         "--extra-token",
         help="Extra token address to probe. Can be supplied multiple times.",
     ),
-    keystore: Path | None = typer.Option(
-        None,
-        "--keystore",
-        exists=True,
-        file_okay=True,
-        dir_okay=False,
-        help="Override signer keystore path for live execution.",
-    ),
-    caller: str | None = typer.Option(
-        None,
-        "--caller",
-        help="Override caller address for execute() preview when not sending live.",
-    ),
+    live: LiveOption = False,
+    yes: YesOption = False,
+    keystore: KeystoreOption = None,
+    passphrase_env: PassphraseEnvOption = None,
+    caller: CallerOption = None,
+    json_output: JsonOption = False,
 ) -> None:
     """Inspect an auction and queue enable(address) calls for relevant tokens."""
 
-    configure_logging()
+    configure_logging(output_mode=OutputMode.TEXT)
+    cli_ctx = CLIContext(config)
+    try:
+        w3 = cli_ctx.sync_web3()
+    except ConfigurationError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
     normalized_auction_address = _normalize_address_value(auction_address, param_hint="AUCTION")
     normalized_extra_tokens = _normalize_address_list(extra_token, param_hint="--extra-token")
     normalized_caller = _normalize_address_value(caller, param_hint="--caller") if caller is not None else None
 
-    settings = load_settings(config)
-    w3 = build_sync_web3(settings)
-    enabler = AuctionTokenEnabler(w3, settings)
+    enabler = AuctionTokenEnabler(w3, cli_ctx.settings)
+    inspection = enabler.inspect_auction(normalized_auction_address)
+    source = enabler.resolve_source(inspection)
+    discovery = enabler.discover_tokens(
+        inspection=inspection,
+        source=source,
+        manual_tokens=normalized_extra_tokens,
+    )
+    probes = enabler.probe_tokens(
+        inspection=inspection,
+        source=source,
+        discovery=discovery,
+    )
+    eligible = [probe for probe in probes if probe.status == "eligible"]
+    selected_addresses = [probe.token_address for probe in eligible]
 
-    try:
-        inspection = enabler.inspect_auction(normalized_auction_address)
-        _print_auction_summary(inspection)
-
-        if not inspection.in_configured_factory:
-            if not prompt_bool("Auction is not in the configured factory. Continue anyway?", default=False):
-                typer.echo("Aborted.")
-                raise typer.Exit()
-
-        if not inspection.governance_matches_required:
-            if not prompt_bool(
-                "Auction governance does not match the configured Yearn trade handler. Continue anyway?",
-                default=False,
-            ):
-                typer.echo("Aborted.")
-                raise typer.Exit()
-
-        source = enabler.resolve_source(inspection)
-        typer.echo("Resolved source:")
-        typer.echo(f"  type          {source.source_type}")
-        typer.echo(f"  address       {to_checksum_address(source.source_address)}")
-        typer.echo(f"  name          {source.source_name or 'unknown'}")
-        typer.echo()
-
-        for warning in source.warnings:
-            typer.echo(f"Warning: {warning}")
-        if source.warnings:
-            typer.echo()
-
-        discovery = enabler.discover_tokens(
-            inspection=inspection,
-            source=source,
-            manual_tokens=normalized_extra_tokens,
+    preview_caller = None
+    signer = None
+    if selected_addresses:
+        signer = cli_ctx.resolve_signer(
+            required=live,
+            required_for="live enable-tokens execution",
+            keystore_path=keystore,
+            passphrase_env=passphrase_env,
         )
-        typer.echo(f"Discovered {len(discovery.tokens_by_address)} unique token candidate(s).")
-        for note in discovery.notes:
-            typer.echo(f"Note: {note}")
-        if discovery.notes:
-            typer.echo()
-
-        probes = enabler.probe_tokens(
-            inspection=inspection,
-            source=source,
-            discovery=discovery,
-        )
-        _print_probe_table(probes)
-
-        eligible = [probe for probe in probes if probe.status == "eligible"]
-        if not eligible:
-            typer.echo("No enable() calls need to be queued.")
-            return
-
-        selected_addresses = [probe.token_address for probe in eligible]
+        preview_caller = cli_ctx.resolve_preview_caller(caller=normalized_caller, keystore_path=keystore, signer=signer)
         commands, state = enabler.build_enable_plan(
             inspection=inspection,
             tokens=selected_addresses,
         )
-
-        default_keystore_path = keystore.expanduser() if keystore is not None else discover_local_keystore_path(settings)
-        default_preview_caller = read_keystore_address(default_keystore_path)
-
-        typer.echo("Wei-roll plan:")
-        typer.echo(f"  enable calls  {len(selected_addresses)}")
-        typer.echo(f"  commands      {len(commands)}")
-        typer.echo(f"  state slots   {len(state)}")
-        typer.echo()
-
-        if default_keystore_path is not None:
-            keystore_label = "Selected keystore" if keystore is not None else "Detected local keystore"
-            typer.echo(f"{keystore_label}: {default_keystore_path}")
-        use_live = prompt_bool(
-            "Broadcast a live trade handler transaction?",
-            default=default_keystore_path is not None,
-        )
-        signer = maybe_load_signer(
-            settings,
-            required=use_live,
-            required_for="live enable-tokens execution",
-            keystore_path=default_keystore_path,
-        )
-
-        if signer is not None:
-            preview_caller = signer.address
-            if normalized_caller is not None and normalized_caller != signer.address:
-                typer.echo(f"Note: ignoring --caller and previewing with signer address {to_checksum_address(signer.address)}")
-        else:
-            preview_caller = normalized_caller or default_preview_caller
-
-        if preview_caller:
-            is_mech = enabler.is_authorized_mech(inspection.governance, preview_caller)
-            typer.echo(
-                "Preview caller mech authorization: "
-                f"{'yes' if is_mech else 'no'} ({to_checksum_address(preview_caller)})"
-            )
-        else:
-            typer.echo("Preview caller mech authorization: skipped")
-
         preview = enabler.preview_execution(
             trade_handler_address=inspection.governance,
             commands=commands,
             state=state,
             caller_address=preview_caller,
         )
-        typer.echo("Preview:")
-        typer.echo(f"  execute call  {'ok' if preview.call_succeeded else 'failed'}")
-        typer.echo(f"  gas estimate  {preview.gas_estimate if preview.gas_estimate is not None else 'unavailable'}")
-        if preview.error_message:
-            typer.echo(f"  detail        {preview.error_message}")
-        typer.echo()
+        preview_authorized = enabler.is_authorized_mech(inspection.governance, preview_caller) if preview_caller else None
+    else:
+        commands = []
+        state = []
+        preview = None
+        preview_authorized = None
 
-        if not use_live:
-            typer.echo("Dry run only. No transaction was sent.")
-            return
+    warnings: list[str] = []
+    if not inspection.in_configured_factory:
+        warnings.append("Auction is not in the configured factory.")
+    if not inspection.governance_matches_required:
+        warnings.append("Auction governance does not match the configured Yearn trade handler.")
+    warnings.extend(source.warnings)
+    warnings.extend(discovery.notes)
+    status = "ok"
+    tx_hash = None
+    tx_gas_estimate = None
 
-        if signer is None:
-            raise SystemExit("Signer is required for live execution.")
-
-        if not preview.call_succeeded:
-            if not prompt_bool("Preview failed. Send the transaction anyway?", default=False):
-                typer.echo("Aborted before broadcast.")
-                return
-
-        if not prompt_bool("Send transaction now?", default=False):
-            typer.echo("Aborted before broadcast.")
-            return
-
-        tx_hash, gas_estimate = enabler.send_execute_transaction(
-            signer=signer,
-            trade_handler_address=inspection.governance,
-            commands=commands,
-            state=state,
+    if not eligible:
+        status = "noop"
+    elif live:
+        prompt = (
+            "Preview failed. Broadcast enable-tokens transaction anyway?"
+            if preview is not None and not preview.call_succeeded
+            else "Broadcast enable-tokens transaction?"
         )
-        typer.echo("Transaction sent:")
-        typer.echo(f"  tx hash       {tx_hash}")
-        typer.echo(f"  gas estimate  {gas_estimate}")
-    except RuntimeError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(code=1) from exc
+        if yes or typer.confirm(prompt, default=False):
+            if signer is None:
+                raise SystemExit("Signer is required for live execution.")
+            tx_hash, tx_gas_estimate = enabler.send_execute_transaction(
+                signer=signer,
+                trade_handler_address=inspection.governance,
+                commands=commands,
+                state=state,
+            )
+        else:
+            status = "noop"
+    elif preview is not None and not preview.call_succeeded:
+        status = "error"
+
+    data = {
+        "inspection": asdict(inspection),
+        "source": asdict(source),
+        "discovery_notes": discovery.notes,
+        "probes": [asdict(probe) for probe in probes],
+        "selected_tokens": selected_addresses,
+        "preview": asdict(preview) if preview is not None else None,
+        "preview_caller": preview_caller,
+        "preview_caller_authorized": preview_authorized,
+        "commands_count": len(commands),
+        "state_slots": len(state),
+        "tx_hash": tx_hash,
+        "tx_gas_estimate": tx_gas_estimate,
+    }
+    if json_output:
+        emit_json("auction.enable-tokens", status=status, data=data, warnings=warnings)
+    else:
+        _print_auction_summary(inspection)
+        typer.echo("Resolved source:")
+        typer.echo(f"  type          {source.source_type}")
+        typer.echo(f"  address       {to_checksum_address(source.source_address)}")
+        typer.echo(f"  name          {source.source_name or 'unknown'}")
+        typer.echo()
+        for warning in warnings:
+            typer.echo(f"Warning: {warning}")
+        if warnings:
+            typer.echo()
+        typer.echo(f"Discovered {len(discovery.tokens_by_address)} unique token candidate(s).")
+        _print_probe_table(probes)
+        typer.echo("Wei-roll plan:")
+        typer.echo(f"  enable calls  {len(selected_addresses)}")
+        typer.echo(f"  commands      {len(commands)}")
+        typer.echo(f"  state slots   {len(state)}")
+        typer.echo()
+        if preview is not None:
+            if preview_caller:
+                typer.echo(
+                    "Preview caller mech authorization: "
+                    f"{'yes' if preview_authorized else 'no'} ({to_checksum_address(preview_caller)})"
+                )
+            else:
+                typer.echo("Preview caller mech authorization: skipped")
+            typer.echo("Preview:")
+            typer.echo(f"  execute call  {'ok' if preview.call_succeeded else 'failed'}")
+            typer.echo(f"  gas estimate  {preview.gas_estimate if preview.gas_estimate is not None else 'unavailable'}")
+            if preview.error_message:
+                typer.echo(f"  detail        {preview.error_message}")
+            typer.echo()
+        if status == "noop" and not live:
+            typer.echo("No enable() calls need to be queued.")
+        elif not live:
+            typer.echo("Dry run only. No transaction was sent.")
+        elif status == "noop":
+            typer.echo("Aborted before broadcast.")
+        elif tx_hash is not None:
+            typer.echo("Transaction sent:")
+            typer.echo(f"  tx hash       {tx_hash}")
+            typer.echo(f"  gas estimate  {tx_gas_estimate}")
+
+    if status == "error":
+        raise typer.Exit(code=4)
+    if status == "noop":
+        raise typer.Exit(code=2)
 
 
 @app.command("sweep-and-settle")
 def sweep_and_settle(
-    auction_address: str = typer.Argument(..., metavar="AUCTION", help="Auction contract address"),
-    token_address: str = typer.Argument(..., metavar="TOKEN", help="Sell token to sweep and settle"),
-    config: Path | None = typer.Option(None, exists=True, file_okay=True, dir_okay=False),
-    broadcast: bool = typer.Option(
-        False,
-        help="Sign and send the transaction. Without this flag the command only prints the prepared transaction.",
-    ),
-    receipt_timeout: int = typer.Option(
-        120,
-        min=1,
-        help="Seconds to wait for a receipt after broadcasting",
-    ),
+    auction_address: str = typer.Argument(..., metavar="AUCTION", help="Auction contract address."),
+    token_address: str = typer.Argument(..., metavar="TOKEN", help="Sell token to sweep and settle."),
+    config: ConfigOption = None,
+    live: LiveOption = False,
+    yes: YesOption = False,
+    keystore: KeystoreOption = None,
+    passphrase_env: PassphraseEnvOption = None,
+    caller: CallerOption = None,
+    json_output: JsonOption = False,
+    receipt_timeout: int = typer.Option(120, "--receipt-timeout", min=1, help="Seconds to wait for a receipt after broadcasting."),
 ) -> None:
     """Call AuctionKicker.sweepAndSettle() for a specific auction token."""
 
-    configure_logging()
+    configure_logging(output_mode=OutputMode.TEXT)
+    cli_ctx = CLIContext(config)
+    try:
+        cli_ctx.require_rpc()
+    except ConfigurationError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
     normalized_auction_address = _normalize_address_value(auction_address, param_hint="AUCTION")
     normalized_token_address = _normalize_address_value(token_address, param_hint="TOKEN")
-    exit_code = asyncio.run(
-        _run_sweep_and_settle(
+    normalized_caller = _normalize_address_value(caller, param_hint="--caller") if caller else None
+    signer = cli_ctx.resolve_signer(
+        required=live,
+        required_for="live sweep-and-settle execution",
+        keystore_path=keystore,
+        passphrase_env=passphrase_env,
+    )
+    preview_caller = cli_ctx.resolve_preview_caller(caller=normalized_caller, keystore_path=keystore, signer=signer)
+    result = asyncio.run(
+        _preview_sweep_and_settle(
+            settings=cli_ctx.settings,
             auction_address=normalized_auction_address,
             token_address=normalized_token_address,
-            config=config,
-            broadcast=broadcast,
+            caller_address=preview_caller,
+            live=False,
+            signer=signer,
             receipt_timeout=receipt_timeout,
         )
     )
-    if exit_code != 0:
-        raise typer.Exit(code=exit_code)
+
+    status = "ok"
+    if result.get("warning"):
+        status = "error"
+
+    if live:
+        prompt = (
+            "Preview failed. Broadcast sweep-and-settle transaction anyway?"
+            if result.get("warning")
+            else "Broadcast sweep-and-settle transaction?"
+        )
+        if yes or typer.confirm(prompt, default=False):
+            result = asyncio.run(
+                _preview_sweep_and_settle(
+                    settings=cli_ctx.settings,
+                    auction_address=normalized_auction_address,
+                    token_address=normalized_token_address,
+                    caller_address=preview_caller,
+                    live=True,
+                    signer=signer,
+                    receipt_timeout=receipt_timeout,
+                )
+            )
+            status = "ok" if result.get("receipt_status") == "CONFIRMED" else "error"
+        else:
+            status = "noop"
+
+    if json_output:
+        emit_json("auction.sweep-and-settle", status=status, data=result, warnings=[str(result["warning"])] if result.get("warning") else [])
+    else:
+        typer.echo(f"AuctionKicker: {result['auction_kicker']}")
+        typer.echo(f"Auction:       {result['auction']}")
+        typer.echo(f"Sell token:    {result['token']}")
+        typer.echo(f"From:          {result['caller'] or '-'}")
+        typer.echo(f"Gas estimate:  {result.get('gas_estimate') or 'unavailable'}")
+        typer.echo(f"Gas limit:     {result.get('gas_limit') or 'unavailable'}")
+        typer.echo(f"Base fee:      {float(result['base_fee_gwei']):.4f} gwei")
+        typer.echo(f"Priority fee:  {float(result['priority_fee_gwei']):.4f} gwei")
+        typer.echo(f"Data:          {result['data']}")
+        if result.get("warning"):
+            typer.echo(f"Warning:       {result['warning']}")
+        if not live:
+            typer.echo("Dry run only. No transaction was sent.")
+        elif status == "noop":
+            typer.echo("Aborted before broadcast.")
+        else:
+            typer.echo(f"Submitted:     {result['tx_hash']}")
+            typer.echo(f"Receipt:       {result['receipt_status']}")
+            typer.echo(f"Block:         {result.get('block_number')}")
+            typer.echo(f"Gas used:      {result.get('gas_used')}")
+
+    if status == "error":
+        raise typer.Exit(code=4)
+    if status == "noop":
+        raise typer.Exit(code=2)

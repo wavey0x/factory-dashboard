@@ -1,0 +1,294 @@
+"""Shared CLI rendering helpers."""
+
+from __future__ import annotations
+
+import json
+from dataclasses import asdict, is_dataclass
+from decimal import Decimal, InvalidOperation
+from typing import Any
+
+import typer
+
+from tidal.logging import OutputMode
+from tidal.normalizers import short_address
+from tidal.ops.kick_inspect import KickInspectEntry, KickInspectResult
+from tidal.ops.logs import KickLogRecord, RunDetail, ScanRunRecord, ScanRunDetail, TxnRunDetail
+from tidal.transaction_service.types import SourceType
+
+
+def _jsonable(value: Any) -> Any:
+    if is_dataclass(value):
+        return {key: _jsonable(item) for key, item in asdict(value).items()}
+    if isinstance(value, dict):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(item) for item in value]
+    return value
+
+
+def emit_json(command: str, *, status: str, data: Any, warnings: list[str] | None = None) -> None:
+    typer.echo(
+        json.dumps(
+            {
+                "command": command,
+                "status": status,
+                "warnings": warnings or [],
+                "data": _jsonable(data),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+
+
+def kick_scope_label(
+    source_type: SourceType | None,
+    *,
+    source_address: str | None = None,
+    auction_address: str | None = None,
+) -> str:
+    type_label = source_type.replace("_", "-") if source_type else ""
+    scope = f"{type_label} candidates" if type_label else "candidates"
+    filters: list[str] = []
+    if source_address:
+        filters.append(f"source {short_address(source_address)}")
+    if auction_address:
+        filters.append(f"auction {short_address(auction_address)}")
+    if not filters:
+        return scope
+    return f"{scope} for {' and '.join(filters)}"
+
+
+def render_scan_summary(result: Any) -> None:
+    typer.echo(
+        (
+            f"scan_complete run_id={result.run_id} status={result.status} "
+            f"strategies={result.strategies_seen} pairs={result.pairs_seen} "
+            f"succeeded={result.pairs_succeeded} failed={result.pairs_failed}"
+        )
+    )
+
+
+def render_kick_run_summary(
+    *,
+    result: Any,
+    live: bool,
+    source_type: SourceType | None,
+    source_address: str | None,
+    auction_address: str | None,
+    run_rows: list[dict[str, object]],
+    verbose: bool,
+) -> None:
+    statuses = {str(row["status"]) for row in run_rows}
+    tx_hashes = [str(row["tx_hash"]) for row in run_rows if row.get("tx_hash")]
+    skipped_count = sum(1 for row in run_rows if str(row.get("status")) == "USER_SKIPPED")
+    type_label = source_type.replace("_", "-") if source_type else None
+    eligible_candidates_found = getattr(result, "eligible_candidates_found", None)
+    deferred_same_auction_count = getattr(result, "deferred_same_auction_count", 0)
+    limited_candidate_count = getattr(result, "limited_candidate_count", 0)
+
+    if skipped_count and skipped_count == len(run_rows):
+        typer.echo("Skipped by operator. No transaction sent.")
+    elif result.candidates_found == 0:
+        typer.echo("No eligible candidates.")
+    elif not live:
+        typer.echo("Dry run complete.")
+    elif result.kicks_failed and result.kicks_succeeded:
+        typer.echo("Completed with failures.")
+    elif "CONFIRMED" in statuses:
+        typer.echo("Confirmed.")
+    elif "SUBMITTED" in statuses:
+        typer.echo("Submitted.")
+    elif result.kicks_failed:
+        typer.echo("Failed.")
+    else:
+        typer.echo("Completed.")
+
+    if tx_hashes:
+        typer.echo(f"Tx hash:      {tx_hashes[0]}")
+
+    typer.echo(f"Run ID:       {result.run_id}")
+    if type_label:
+        typer.echo(f"Type:         {type_label}")
+    if source_address:
+        typer.echo(f"Source:       {source_address}")
+    if auction_address:
+        typer.echo(f"Auction:      {auction_address}")
+    if eligible_candidates_found is not None and eligible_candidates_found != result.candidates_found:
+        typer.echo(f"Eligible:     {eligible_candidates_found}")
+    typer.echo(f"Candidates:   {result.candidates_found}")
+    if live:
+        typer.echo(f"Attempted:    {result.kicks_attempted}")
+        typer.echo(f"Succeeded:    {result.kicks_succeeded}")
+        typer.echo(f"Failed:       {result.kicks_failed}")
+        if skipped_count:
+            typer.echo(f"Skipped:      {skipped_count}")
+    else:
+        typer.echo(f"Would kick:   {result.kicks_attempted}")
+
+    if deferred_same_auction_count:
+        typer.echo(f"Deferred:     {deferred_same_auction_count}")
+        typer.echo("Note:         only one lot per auction can be kicked at a time; deferred tokens stay pending for later runs.")
+    if limited_candidate_count:
+        typer.echo(f"Limited:      {limited_candidate_count}")
+
+    detailed_failure_rows = [row for row in run_rows if row.get("error_message")]
+    if len(detailed_failure_rows) == 1:
+        typer.echo(f"Failure:      {detailed_failure_rows[0]['error_message']}")
+
+    detailed_rows = [row for row in run_rows if row.get("operation_type", "kick") == "kick"]
+    if len(detailed_rows) == 1:
+        quote_response_json = detailed_rows[0].get("quote_response_json")
+        quote_url = None
+        if quote_response_json:
+            try:
+                payload = json.loads(str(quote_response_json))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                payload = None
+            if isinstance(payload, dict) and payload.get("requestUrl"):
+                quote_url = str(payload["requestUrl"])
+        if quote_url:
+            typer.echo("Quote URL:")
+            typer.echo(quote_url)
+
+    if verbose and result.failure_summary:
+        typer.echo("Failure summary:")
+        for message, count in sorted(result.failure_summary.items(), key=lambda item: (-item[1], item[0])):
+            typer.echo(f"  {count}x {message}")
+
+
+def _format_inspect_entry(entry: KickInspectEntry) -> str:
+    symbol = entry.token_symbol or "UNKNOWN"
+    source_name = entry.source_name or entry.source_address
+    line = (
+        f"  - {entry.state:<21} {symbol:<10} ${entry.usd_value:,.2f} "
+        f"{short_address(entry.source_address)} -> {short_address(entry.auction_address)}"
+    )
+    if entry.detail:
+        line += f" | {entry.detail}"
+    if entry.auction_active is True and entry.active_token:
+        line += f" | active={short_address(entry.active_token)}"
+    elif entry.auction_active is True:
+        line += " | active=yes"
+    elif entry.auction_active is False:
+        line += " | active=no"
+    if source_name != entry.source_address:
+        line += f" | {source_name}"
+    return line
+
+
+def render_kick_inspect(result: KickInspectResult, *, show_all: bool) -> None:
+    typer.echo("Kick inspect:")
+    if result.source_address:
+        typer.echo(f"  source       {result.source_address}")
+    if result.auction_address:
+        typer.echo(f"  auction      {result.auction_address}")
+    if result.source_type:
+        typer.echo(f"  type         {result.source_type.replace('_', '-')}")
+    if result.limit:
+        typer.echo(f"  limit        {result.limit}")
+    typer.echo(f"  eligible     {result.eligible_count}")
+    typer.echo(f"  selected     {result.selected_count}")
+    typer.echo(f"  ready        {result.ready_count}")
+    typer.echo(f"  cooldown     {result.cooldown_count}")
+    typer.echo(f"  deferred     {result.deferred_same_auction_count}")
+    typer.echo(f"  limited      {result.limited_count}")
+
+    sections: list[tuple[str, list[KickInspectEntry]]] = [
+        ("Ready", result.ready),
+        ("Cooldown", result.cooldown_skips),
+        ("Deferred", result.deferred_same_auction),
+        ("Limited", result.limited),
+    ]
+    for heading, entries in sections:
+        if not entries:
+            continue
+        if not show_all and heading not in {"Ready", "Cooldown"}:
+            continue
+        typer.echo()
+        typer.echo(f"{heading}:")
+        for entry in entries:
+            typer.echo(_format_inspect_entry(entry))
+
+
+def render_kick_logs(records: list[KickLogRecord]) -> None:
+    if not records:
+        typer.echo("No kick records found.")
+        return
+    for record in records:
+        token_label = record.token_symbol or short_address(record.token_address)
+        usd_label = f"${record.usd_value}" if record.usd_value is not None else "-"
+        typer.echo(
+            f"{record.created_at} {record.status:<15} {token_label:<12} {usd_label:<12} "
+            f"{short_address(record.auction_address)} run={record.run_id}"
+        )
+        if record.error_message:
+            typer.echo(f"  error: {record.error_message}")
+        if record.quote_url:
+            typer.echo(f"  quote: {record.quote_url}")
+
+
+def render_scan_runs(records: list[ScanRunRecord]) -> None:
+    if not records:
+        typer.echo("No scan runs found.")
+        return
+    for record in records:
+        typer.echo(
+            f"{record.started_at} {record.status:<15} run={record.run_id} "
+            f"pairs={record.pairs_seen} ok={record.pairs_succeeded} failed={record.pairs_failed} errors={record.error_count}"
+        )
+        if record.error_summary:
+            typer.echo(f"  summary: {record.error_summary}")
+
+
+def render_run_detail(detail: RunDetail) -> None:
+    if isinstance(detail, TxnRunDetail):
+        typer.echo("Kick run:")
+        typer.echo(f"  run id       {detail.run_id}")
+        typer.echo(f"  status       {detail.status}")
+        typer.echo(f"  live         {'yes' if detail.live else 'no'}")
+        typer.echo(f"  started      {detail.started_at}")
+        typer.echo(f"  finished     {detail.finished_at or '-'}")
+        typer.echo(f"  candidates   {detail.candidates_found}")
+        typer.echo(f"  attempted    {detail.kicks_attempted}")
+        typer.echo(f"  succeeded    {detail.kicks_succeeded}")
+        typer.echo(f"  failed       {detail.kicks_failed}")
+        if detail.error_summary:
+            typer.echo(f"  summary      {detail.error_summary}")
+        if detail.records:
+            typer.echo()
+            typer.echo("Attempts:")
+            for record in detail.records:
+                token_label = record.token_symbol or short_address(record.token_address)
+                typer.echo(
+                    f"  - {record.status:<15} {token_label:<12} {record.auction_address} created={record.created_at}"
+                )
+                if record.error_message:
+                    typer.echo(f"    error: {record.error_message}")
+                if record.tx_hash:
+                    typer.echo(f"    tx:    {record.tx_hash}")
+                if record.quote_url:
+                    typer.echo(f"    quote: {record.quote_url}")
+        return
+
+    typer.echo("Scan run:")
+    typer.echo(f"  run id       {detail.run_id}")
+    typer.echo(f"  status       {detail.status}")
+    typer.echo(f"  started      {detail.started_at}")
+    typer.echo(f"  finished     {detail.finished_at or '-'}")
+    typer.echo(f"  vaults       {detail.vaults_seen}")
+    typer.echo(f"  strategies   {detail.strategies_seen}")
+    typer.echo(f"  pairs        {detail.pairs_seen}")
+    typer.echo(f"  succeeded    {detail.pairs_succeeded}")
+    typer.echo(f"  failed       {detail.pairs_failed}")
+    if detail.error_summary:
+        typer.echo(f"  summary      {detail.error_summary}")
+    if detail.errors:
+        typer.echo()
+        typer.echo("Errors:")
+        for error in detail.errors:
+            typer.echo(
+                f"  - {error.stage}/{error.error_code} source={error.source_address or '-'} "
+                f"token={error.token_address or '-'}"
+            )
+            typer.echo(f"    {error.error_message}")

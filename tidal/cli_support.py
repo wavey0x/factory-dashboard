@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import getpass
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -105,6 +106,95 @@ def discover_local_keystore_path(settings: Any) -> Path | None:
     return None
 
 
+def resolve_keystore_path(
+    settings: Any,
+    *,
+    keystore_path: str | Path | None = None,
+    required: bool = False,
+    required_for: str = "live execution",
+) -> Path | None:
+    if keystore_path is not None:
+        resolved = Path(keystore_path).expanduser()
+        if resolved.is_file():
+            return resolved
+        raise SystemExit(f"Keystore file not found for {required_for}: {resolved}")
+
+    discovered = discover_local_keystore_path(settings)
+    if discovered is not None:
+        return discovered
+
+    configured = settings.txn_keystore_path
+    if configured:
+        resolved = Path(configured).expanduser()
+        if resolved.is_file():
+            return resolved
+        raise SystemExit(f"Configured keystore file not found for {required_for}: {resolved}")
+
+    if required:
+        raise SystemExit(f"Keystore path is required for {required_for}.")
+
+    return None
+
+
+def resolve_keystore_passphrase(
+    settings: Any,
+    *,
+    passphrase_env: str | None = None,
+    passphrase: str | None = None,
+    prompt_if_missing: bool = False,
+    required_for: str = "live execution",
+) -> str | None:
+    if passphrase is not None:
+        return passphrase
+
+    if passphrase_env:
+        env_value = os.getenv(passphrase_env)
+        if env_value:
+            return env_value
+        raise SystemExit(f"Environment variable {passphrase_env} is not set for {required_for}.")
+
+    if settings.txn_keystore_passphrase:
+        return settings.txn_keystore_passphrase
+
+    if prompt_if_missing:
+        return getpass.getpass("Keystore passphrase: ")
+
+    return None
+
+
+def load_signer_from_options(
+    settings: Any,
+    *,
+    required: bool,
+    required_for: str = "live execution",
+    keystore_path: str | Path | None = None,
+    passphrase_env: str | None = None,
+    passphrase: str | None = None,
+) -> TransactionSigner | None:
+    resolved_keystore_path = resolve_keystore_path(
+        settings,
+        keystore_path=keystore_path,
+        required=required,
+        required_for=required_for,
+    )
+    if resolved_keystore_path is None:
+        return None
+
+    resolved_passphrase = resolve_keystore_passphrase(
+        settings,
+        passphrase_env=passphrase_env,
+        passphrase=passphrase,
+        prompt_if_missing=required,
+        required_for=required_for,
+    )
+    if not resolved_passphrase:
+        if required:
+            raise SystemExit(f"Keystore passphrase is required for {required_for}.")
+        return None
+
+    return TransactionSigner(str(resolved_keystore_path), resolved_passphrase)
+
+
 def read_keystore_address(keystore_path: Path | None) -> str | None:
     if keystore_path is None or not keystore_path.is_file():
         return None
@@ -132,27 +222,15 @@ def maybe_load_signer(
     keystore_path: str | Path | None = None,
     passphrase: str | None = None,
 ) -> TransactionSigner | None:
-    resolved_keystore_path = None
-    if keystore_path is not None:
-        resolved_keystore_path = str(Path(keystore_path).expanduser())
-    else:
-        discovered_keystore = discover_local_keystore_path(settings)
-        resolved_keystore_path = str(discovered_keystore) if discovered_keystore is not None else settings.txn_keystore_path
-
-    if passphrase is None:
-        passphrase = settings.txn_keystore_passphrase
-
-    if not resolved_keystore_path and required:
-        resolved_keystore_path = prompt_text("Keystore path", required=True)
-    elif resolved_keystore_path and required:
-        print(f"Using keystore: {resolved_keystore_path}")
-    if resolved_keystore_path and not passphrase:
-        passphrase = getpass.getpass("Keystore passphrase: ")
-
-    if resolved_keystore_path and passphrase:
-        return TransactionSigner(resolved_keystore_path, passphrase)
-
-    if required:
-        raise SystemExit(f"Keystore path and passphrase are required for {required_for}.")
-
-    return None
+    try:
+        return load_signer_from_options(
+            settings,
+            required=required,
+            required_for=required_for,
+            keystore_path=keystore_path,
+            passphrase=passphrase,
+        )
+    except SystemExit:
+        if not required:
+            return None
+        raise

@@ -86,6 +86,7 @@ class TxnService:
         source_type: SourceType | None = None,
         source_address: str | None = None,
         auction_address: str | None = None,
+        limit: int | None = None,
     ) -> TxnRunResult:
         run_id = str(uuid.uuid4())
         started_at = utcnow_iso()
@@ -113,6 +114,7 @@ class TxnService:
                 source_type=source_type,
                 source_address=source_address,
                 auction_address=auction_address,
+                limit=limit,
             )
         finally:
             if lock_file is not None:
@@ -128,6 +130,7 @@ class TxnService:
         source_type: SourceType | None = None,
         source_address: str | None = None,
         auction_address: str | None = None,
+        limit: int | None = None,
     ) -> TxnRunResult:
         # 1. INSERT txn_runs with status=RUNNING.
         self.txn_run_repository.create({
@@ -149,6 +152,7 @@ class TxnService:
             source_type=source_type,
             source_address=source_address,
             auction_address=auction_address,
+            limit=limit,
         )
         candidates = shortlist.selected_candidates
 
@@ -162,6 +166,7 @@ class TxnService:
             candidates_shortlisted=len(candidates),
             candidates_eligible=len(shortlist.eligible_candidates),
             deferred_same_auction_count=shortlist.deferred_same_auction_count,
+            limited_candidates_count=len(shortlist.limited_candidates),
         )
 
         # 3. Pre-send checks (cooldown, circuit breaker).
@@ -352,6 +357,7 @@ class TxnService:
             kicks_failed=kicks_failed,
             eligible_candidates_found=len(shortlist.eligible_candidates),
             deferred_same_auction_count=shortlist.deferred_same_auction_count,
+            limited_candidate_count=len(shortlist.limited_candidates),
             failure_summary=failure_summary,
         )
 

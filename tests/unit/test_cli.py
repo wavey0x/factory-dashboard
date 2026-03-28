@@ -2,8 +2,8 @@ import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from tidal.cli import _echo_txn_text_summary, _make_confirm_fn, _resolve_txn_output_mode
-from tidal.logging import OutputMode
+from tidal.cli_renderers import render_kick_run_summary
+from tidal.kick_cli import _make_confirm_fn
 
 
 def test_make_confirm_fn_displays_pricing_profile(capsys):
@@ -40,7 +40,7 @@ def test_make_confirm_fn_displays_pricing_profile(capsys):
         "gas_cost_eth": 0.0021,
     }
 
-    with patch("tidal.cli.typer.confirm", return_value=True) as confirm_mock:
+    with patch("tidal.kick_cli.typer.confirm", return_value=True) as confirm_mock:
         result = confirm_fn(summary)
 
     output = capsys.readouterr().out
@@ -87,7 +87,7 @@ def test_make_confirm_fn_warns_on_sell_vs_quote_mismatch(capsys):
         "gas_cost_eth": 0.000021,
     }
 
-    with patch("tidal.cli.typer.confirm", return_value=False):
+    with patch("tidal.kick_cli.typer.confirm", return_value=False):
         _ = confirm_fn(summary)
 
     output = capsys.readouterr().out
@@ -97,11 +97,7 @@ def test_make_confirm_fn_warns_on_sell_vs_quote_mismatch(capsys):
     assert output.index("⚠️  Warning:") < output.index("Kick (1 of 1)")
 
 
-def test_resolve_txn_output_mode_defaults_to_text_for_confirm():
-    assert _resolve_txn_output_mode(requested=None, confirm=True) is OutputMode.TEXT
-
-
-def test_echo_txn_text_summary_for_aborted_confirm(capsys):
+def test_render_kick_run_summary_for_aborted_confirm(capsys):
     result = SimpleNamespace(
         run_id="run-123",
         candidates_found=1,
@@ -111,7 +107,7 @@ def test_echo_txn_text_summary_for_aborted_confirm(capsys):
         failure_summary=None,
     )
 
-    _echo_txn_text_summary(
+    render_kick_run_summary(
         result=result,
         live=True,
         source_type="fee_burner",
@@ -130,7 +126,7 @@ def test_echo_txn_text_summary_for_aborted_confirm(capsys):
     assert "Skipped:      1" in output
 
 
-def test_echo_txn_text_summary_for_mixed_confirm_and_skip(capsys):
+def test_render_kick_run_summary_for_mixed_confirm_and_skip(capsys):
     result = SimpleNamespace(
         run_id="run-456",
         candidates_found=2,
@@ -140,7 +136,7 @@ def test_echo_txn_text_summary_for_mixed_confirm_and_skip(capsys):
         failure_summary=None,
     )
 
-    _echo_txn_text_summary(
+    render_kick_run_summary(
         result=result,
         live=True,
         source_type="strategy",
@@ -159,7 +155,7 @@ def test_echo_txn_text_summary_for_mixed_confirm_and_skip(capsys):
     assert "Aborted. No transaction sent." not in output
 
 
-def test_echo_txn_text_summary_reports_deferred_same_auction_tokens(capsys):
+def test_render_kick_run_summary_reports_deferred_same_auction_tokens(capsys):
     result = SimpleNamespace(
         run_id="run-789",
         candidates_found=1,
@@ -171,7 +167,7 @@ def test_echo_txn_text_summary_reports_deferred_same_auction_tokens(capsys):
         failure_summary=None,
     )
 
-    _echo_txn_text_summary(
+    render_kick_run_summary(
         result=result,
         live=True,
         source_type="fee_burner",
@@ -188,7 +184,7 @@ def test_echo_txn_text_summary_reports_deferred_same_auction_tokens(capsys):
     assert "only one lot per auction can be kicked at a time" in output
 
 
-def test_echo_txn_text_summary_reports_target_filters(capsys):
+def test_render_kick_run_summary_reports_target_filters(capsys):
     result = SimpleNamespace(
         run_id="run-999",
         candidates_found=1,
@@ -198,7 +194,7 @@ def test_echo_txn_text_summary_reports_target_filters(capsys):
         failure_summary=None,
     )
 
-    _echo_txn_text_summary(
+    render_kick_run_summary(
         result=result,
         live=True,
         source_type="strategy",
@@ -213,7 +209,7 @@ def test_echo_txn_text_summary_reports_target_filters(capsys):
     assert "Auction:      0x2222222222222222222222222222222222222222" in output
 
 
-def test_echo_txn_text_summary_reports_single_failure_detail_and_quote_url(capsys):
+def test_render_kick_run_summary_reports_single_failure_detail_and_quote_url(capsys):
     result = SimpleNamespace(
         run_id="run-fail",
         candidates_found=1,
@@ -223,7 +219,7 @@ def test_echo_txn_text_summary_reports_single_failure_detail_and_quote_url(capsy
         failure_summary={"curve quote unavailable (status: error)": 1},
     )
 
-    _echo_txn_text_summary(
+    render_kick_run_summary(
         result=result,
         live=True,
         source_type="strategy",

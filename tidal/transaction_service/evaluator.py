@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 import structlog
@@ -23,6 +23,8 @@ class ShortlistResult:
     eligible_candidates: list[KickCandidate]
     selected_candidates: list[KickCandidate]
     deferred_same_auction_count: int
+    deferred_same_auction_candidates: list[KickCandidate] = field(default_factory=list)
+    limited_candidates: list[KickCandidate] = field(default_factory=list)
 
 
 def candidate_sort_key(candidate: KickCandidate) -> tuple[float, str, str, str]:
@@ -52,6 +54,7 @@ def shortlist_candidates(
     source_type: SourceType | None = None,
     source_address: str | None = None,
     auction_address: str | None = None,
+    limit: int | None = None,
 ) -> list[KickCandidate]:
     return build_shortlist(
         session,
@@ -60,6 +63,7 @@ def shortlist_candidates(
         source_type=source_type,
         source_address=source_address,
         auction_address=auction_address,
+        limit=limit,
     ).selected_candidates
 
 
@@ -71,6 +75,7 @@ def build_shortlist(
     source_type: SourceType | None = None,
     source_address: str | None = None,
     auction_address: str | None = None,
+    limit: int | None = None,
 ) -> ShortlistResult:
     """Query SQLite for source-token pairs above threshold with fresh data."""
 
@@ -218,11 +223,25 @@ def build_shortlist(
     if auction_address is not None:
         candidates = [candidate for candidate in candidates if candidate.auction_address.lower() == auction_address]
 
-    selected_candidates = _best_candidate_per_auction(candidates)
+    all_eligible_candidates = sort_candidates(candidates)
+    selected_before_limit = _best_candidate_per_auction(candidates)
+    selected_candidates = selected_before_limit[:limit] if limit is not None else selected_before_limit
+    selected_keys = {
+        (candidate.source_address, candidate.auction_address, candidate.token_address)
+        for candidate in selected_before_limit
+    }
+    deferred_same_auction_candidates = [
+        candidate
+        for candidate in all_eligible_candidates
+        if (candidate.source_address, candidate.auction_address, candidate.token_address) not in selected_keys
+    ]
+    limited_candidates = selected_before_limit[len(selected_candidates):]
     return ShortlistResult(
-        eligible_candidates=sort_candidates(candidates),
+        eligible_candidates=all_eligible_candidates,
         selected_candidates=selected_candidates,
-        deferred_same_auction_count=max(0, len(candidates) - len(selected_candidates)),
+        deferred_same_auction_candidates=deferred_same_auction_candidates,
+        deferred_same_auction_count=len(deferred_same_auction_candidates),
+        limited_candidates=limited_candidates,
     )
 
 
@@ -245,7 +264,12 @@ def check_pre_send(
         last_kick = kick_tx_repository.last_kick_for_pair(candidate.source_address, candidate.token_address)
         if last_kick is not None and last_kick["created_at"] >= min_cooldown_timestamp:
             decisions.append(
-                KickDecision(candidate=candidate, action=KickAction.SKIP, skip_reason=SkipReason.COOLDOWN)
+                KickDecision(
+                    candidate=candidate,
+                    action=KickAction.SKIP,
+                    skip_reason=SkipReason.COOLDOWN,
+                    detail=str(last_kick["created_at"]),
+                )
             )
             logger.debug(
                 "txn_candidate_skip",

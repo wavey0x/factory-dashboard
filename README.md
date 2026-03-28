@@ -33,7 +33,7 @@ Out of scope for this repo:
    ```
 5. Run one scan:
    ```bash
-   tidal scan
+   tidal scan run
    ```
 
 ## Auction Pricing Policy
@@ -81,18 +81,20 @@ Examples:
 ## Commands
 
 - `tidal db migrate`
-- `tidal scan`
+- `tidal scan run`
 - `tidal scan daemon --interval-seconds 300`
-- `tidal txn` — dry-run evaluation of kick candidates
-- `tidal txn --live` — evaluate and send individual kick() transactions per candidate
-- `tidal txn --confirm` — interactive confirmation before each kick (implies `--live`)
-- `tidal txn --live --source 0x...` — target a specific source address
-- `tidal txn --live --auction 0x...` — target a specific auction address
-- `tidal txn --live --batch` — send a single batchKick() transaction (all-or-nothing)
-- `tidal txn daemon --live` — run the transaction service continuously (uses batchKick by default)
-- `tidal txn daemon --live --no-batch` — daemon with individual kick() per candidate
-- `tidal auction enable-tokens 0x...` — inspect an auction and interactively queue `enable(address)` calls for relevant sell tokens
+- `tidal kick run` — dry-run evaluation of kick candidates
+- `tidal kick run --live` — evaluate and send kick() transactions
+- `tidal kick run --live --source 0x...` — target a specific source address
+- `tidal kick run --live --auction 0x...` — target a specific auction address
+- `tidal kick inspect --source 0x...` — explain why a source is ready, deferred, or blocked by cooldown
+- `tidal kick daemon --live` — run the kick service continuously
+- `tidal auction deploy --want 0xWant --receiver 0xReceiver` — preview or broadcast a single auction deployment
+- `tidal auction enable-tokens 0x...` — inspect an auction and queue `enable(address)` calls for relevant sell tokens
 - `tidal auction sweep-and-settle 0xAuction 0xToken` — preview or broadcast a manual `sweepAndSettle()` transaction
+- `tidal logs kicks --limit 20` — inspect recent kick attempts, including failures and quote URLs
+- `tidal logs scans --limit 20` — inspect recent scan runs
+- `tidal logs show <run_id>` — inspect one kick or scan run in detail
 - `tidal healthcheck`
 
 Shortlist behavior: only the highest-USD token per auction is kickable in a single evaluation cycle. Additional above-threshold tokens on the same auction stay deferred until a later run, because the auction can only carry one active lot at a time.

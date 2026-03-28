@@ -252,7 +252,7 @@ class AuctionKicker:
         self,
         *,
         web3_client: Web3Client,
-        signer: TransactionSigner,
+        signer: TransactionSigner | None,
         kick_tx_repository: KickTxRepository,
         price_provider: TokenPriceAggProvider,
         auction_kicker_address: str,
@@ -293,6 +293,11 @@ class AuctionKicker:
             step_decay_rate_bps=default_step_decay_rate_bps,
         )
         self.token_sizing_policy = token_sizing_policy
+
+    def _require_signer(self) -> TransactionSigner:
+        if self.signer is None:
+            raise RuntimeError("Signer is required for live execution.")
+        return self.signer
 
     def _resolve_erc20_reader(self) -> ERC20Reader:
         if self.erc20_reader is not None:
@@ -942,6 +947,7 @@ class AuctionKicker:
     ) -> list[KickResult]:
         now_iso = utcnow_iso()
         batch_size = len(prepared_kicks)
+        signer = self._require_signer()
 
         try:
             base_fee_wei = await self.web3_client.get_base_fee()
@@ -965,7 +971,7 @@ class AuctionKicker:
             )
 
         tx_params = {
-            "from": self.signer.checksum_address,
+            "from": signer.checksum_address,
             "to": kicker_address,
             "data": tx_data,
             "chainId": self.chain_id,
@@ -1068,7 +1074,7 @@ class AuctionKicker:
                     )
                 return results
 
-        nonce = await self.web3_client.get_transaction_count(self.signer.address)
+        nonce = await self.web3_client.get_transaction_count(signer.address)
         max_fee_wei = int((max(self.max_base_fee_gwei, base_fee_gwei) + self.max_priority_fee_gwei) * 10**9)
 
         full_tx = {
@@ -1083,7 +1089,7 @@ class AuctionKicker:
         }
 
         try:
-            signed_tx = self.signer.sign_transaction(full_tx)
+            signed_tx = signer.sign_transaction(full_tx)
             tx_hash = await self.web3_client.send_raw_transaction(signed_tx)
         except Exception as exc:  # noqa: BLE001
             logger.error("txn_batch_send_failed", error=str(exc), batch_size=batch_size)
@@ -1223,6 +1229,7 @@ class AuctionKicker:
         run_id: str,
     ) -> KickResult:
         now_iso = utcnow_iso()
+        signer = self._require_signer()
         kicker_address, kicker_contract = self._kicker_contract()
 
         op_kwargs = {
@@ -1265,7 +1272,7 @@ class AuctionKicker:
             to_checksum_address(prepared_operation.sell_token),
         )._encode_transaction_data()
         tx_params = {
-            "from": self.signer.checksum_address,
+            "from": signer.checksum_address,
             "to": kicker_address,
             "data": tx_data,
             "chainId": self.chain_id,
@@ -1298,7 +1305,7 @@ class AuctionKicker:
 
         gas_limit = min(int(gas_estimate * _GAS_ESTIMATE_BUFFER), self.max_gas_limit)
         priority_fee_wei = await self._resolve_priority_fee_wei()
-        nonce = await self.web3_client.get_transaction_count(self.signer.address)
+        nonce = await self.web3_client.get_transaction_count(signer.address)
         max_fee_wei = int((max(self.max_base_fee_gwei, base_fee_gwei) + self.max_priority_fee_gwei) * 10**9)
 
         full_tx = {
@@ -1313,7 +1320,7 @@ class AuctionKicker:
         }
 
         try:
-            signed_tx = self.signer.sign_transaction(full_tx)
+            signed_tx = signer.sign_transaction(full_tx)
             tx_hash = await self.web3_client.send_raw_transaction(signed_tx)
         except Exception as exc:  # noqa: BLE001
             return self._fail(

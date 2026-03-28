@@ -1648,7 +1648,7 @@ function FeeBurnerPage({
         <section className="fee-burner-grid">
           {rows.map((row) => (
             <article key={row.sourceAddress} className="fee-burner-card">
-              <div className="fee-burner-top-row">
+              <div className="fee-burner-meta-row">
                 <div className="fee-burner-top-item">
                   <div className="fee-burner-label">Last Scan</div>
                   <div className="fee-burner-value mono">
@@ -1690,26 +1690,28 @@ function FeeBurnerPage({
                     onToggleExpand={() => onToggleExpand(row.sourceAddress)}
                   />
                 </div>
-                <div className="fee-burner-top-item fee-burner-balances">
+              </div>
+              <div className="fee-burner-balance-panel">
+                <div className="fee-burner-balance-header">
                   <div className="fee-burner-label">Token Balances</div>
                   {row.balances.length ? (
-                    <>
-                      <TokenBalances
-                        balances={row.balances}
-                        displayMode={displayMode}
-                        onToggleMode={onToggleMode}
-                      />
-                      <div className="fee-burner-balance-total">
-                        <span className="fee-burner-balance-total-label">Total</span>
-                        <span className="mono fee-burner-balance-total-value">
-                          {row.totalUsdValue ? `$${formatBalance(row.totalUsdValue)}` : "?"}
-                        </span>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="row-secondary">No balances above the visibility threshold.</div>
-                  )}
+                    <div className="fee-burner-balance-total">
+                      <span className="fee-burner-balance-total-label">Total</span>
+                      <span className="mono fee-burner-balance-total-value">
+                        {row.totalUsdValue ? `$${formatBalance(row.totalUsdValue)}` : "?"}
+                      </span>
+                    </div>
+                  ) : null}
                 </div>
+                {row.balances.length ? (
+                  <TokenBalances
+                    balances={row.balances}
+                    displayMode={displayMode}
+                    onToggleMode={onToggleMode}
+                  />
+                ) : (
+                  <div className="row-secondary">No balances above the visibility threshold.</div>
+                )}
               </div>
             </article>
           ))}

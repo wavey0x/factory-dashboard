@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 from typer.testing import CliRunner
 
-import tidal.cli as cli_module
+import tidal.kick_cli as kick_cli_module
 from tidal.cli import app
 
 
@@ -21,6 +21,7 @@ class _FakeTxnService:
     async def run_once(self, **kwargs):  # noqa: ANN003
         return SimpleNamespace(
             run_id="run-1",
+            status="DRY_RUN",
             candidates_found=0,
             kicks_attempted=0,
             kicks_succeeded=0,
@@ -38,19 +39,19 @@ class _StopDaemon(Exception):
     pass
 
 
-def test_scan_once_requires_rpc_url(tmp_path, monkeypatch) -> None:
+def test_scan_run_requires_rpc_url(tmp_path, monkeypatch) -> None:
     monkeypatch.delenv("RPC_URL", raising=False)
     config_path = tmp_path / "config.yaml"
     config_path.write_text("RPC_URL: ''\nDB_PATH: ./test.db\n", encoding="utf-8")
 
     runner = CliRunner()
-    result = runner.invoke(app, ["scan", "--config", str(config_path)])
+    result = runner.invoke(app, ["scan", "run", "--config", str(config_path)])
 
     assert result.exit_code == 1
     assert "RPC_URL is required" in result.output
 
 
-def test_scan_once_requires_keystore_when_auto_settle_enabled(tmp_path, monkeypatch) -> None:
+def test_scan_run_requires_keystore_when_auto_settle_enabled(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("RPC_URL", "https://example-rpc.invalid")
     monkeypatch.delenv("TXN_KEYSTORE_PATH", raising=False)
     monkeypatch.delenv("TXN_KEYSTORE_PASSPHRASE", raising=False)
@@ -61,31 +62,23 @@ def test_scan_once_requires_keystore_when_auto_settle_enabled(tmp_path, monkeypa
     )
 
     runner = CliRunner()
-    result = runner.invoke(app, ["scan", "--config", str(config_path)])
+    result = runner.invoke(app, ["scan", "run", "--config", str(config_path)])
 
     assert result.exit_code == 1
     assert "TXN_KEYSTORE_PATH and TXN_KEYSTORE_PASSPHRASE are required" in result.output
 
 
-def test_txn_confirm_rejects_json_output() -> None:
+def test_kick_rejects_invalid_source_address() -> None:
     runner = CliRunner()
-    result = runner.invoke(app, ["txn", "--confirm", "--output", "json"])
-
-    assert result.exit_code != 0
-    assert "interactive confirmation requires --output text" in result.output
-
-
-def test_txn_rejects_invalid_source_address() -> None:
-    runner = CliRunner()
-    result = runner.invoke(app, ["txn", "--source", "not-an-address"])
+    result = runner.invoke(app, ["kick", "run", "--source", "not-an-address"])
 
     assert result.exit_code != 0
     assert "invalid address" in result.output
 
 
-def test_txn_rejects_invalid_auction_address() -> None:
+def test_kick_rejects_invalid_auction_address() -> None:
     runner = CliRunner()
-    result = runner.invoke(app, ["txn", "--auction", "not-an-address"])
+    result = runner.invoke(app, ["kick", "run", "--auction", "not-an-address"])
 
     assert result.exit_code != 0
     assert "invalid address" in result.output
@@ -99,7 +92,7 @@ def test_txn_rejects_invalid_auction_address() -> None:
         (["--allow-missing-curve-quote"], False),
     ],
 )
-def test_txn_threads_curve_quote_override(tmp_path, monkeypatch, flag_args, expected) -> None:
+def test_kick_threads_curve_quote_override(tmp_path, monkeypatch, flag_args, expected) -> None:
     config_path = _write_txn_config(tmp_path)
     captured = {}
 
@@ -108,13 +101,14 @@ def test_txn_threads_curve_quote_override(tmp_path, monkeypatch, flag_args, expe
         captured["require_curve_quote"] = kwargs.get("require_curve_quote")
         return _FakeTxnService()
 
-    monkeypatch.setattr(cli_module, "build_txn_service", fake_build_txn_service)
-    monkeypatch.setattr(cli_module, "configure_logging", lambda *args, **kwargs: None)
+    monkeypatch.setattr(kick_cli_module, "build_txn_service", fake_build_txn_service)
+    monkeypatch.setattr(kick_cli_module, "configure_logging", lambda *args, **kwargs: None)
+    monkeypatch.setattr(kick_cli_module, "_load_run_rows", lambda session, run_id: [])
 
     runner = CliRunner()
-    result = runner.invoke(app, ["txn", "--output", "json", "--config", str(config_path), *flag_args])
+    result = runner.invoke(app, ["kick", "run", "--json", "--config", str(config_path), *flag_args])
 
-    assert result.exit_code == 0
+    assert result.exit_code == 2
     assert captured["require_curve_quote"] is expected
 
 
@@ -126,7 +120,7 @@ def test_txn_threads_curve_quote_override(tmp_path, monkeypatch, flag_args, expe
         (["--allow-missing-curve-quote"], False),
     ],
 )
-def test_txn_daemon_threads_curve_quote_override(tmp_path, monkeypatch, flag_args, expected) -> None:
+def test_kick_daemon_threads_curve_quote_override(tmp_path, monkeypatch, flag_args, expected) -> None:
     config_path = _write_txn_config(tmp_path)
     captured = {}
 
@@ -138,13 +132,14 @@ def test_txn_daemon_threads_curve_quote_override(tmp_path, monkeypatch, flag_arg
     async def fake_sleep(_seconds: int | float) -> None:
         raise _StopDaemon()
 
-    monkeypatch.setattr(cli_module, "build_txn_service", fake_build_txn_service)
-    monkeypatch.setattr(cli_module, "build_web3_client", lambda settings: _FakeWeb3Client())
-    monkeypatch.setattr(cli_module, "configure_logging", lambda *args, **kwargs: None)
-    monkeypatch.setattr(cli_module.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(kick_cli_module, "build_txn_service", fake_build_txn_service)
+    monkeypatch.setattr(kick_cli_module, "configure_logging", lambda *args, **kwargs: None)
+    monkeypatch.setattr(kick_cli_module.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(kick_cli_module, "_load_run_rows", lambda session, run_id: [])
+    monkeypatch.setattr("tidal.cli_context.build_web3_client", lambda settings: _FakeWeb3Client())
 
     runner = CliRunner()
-    result = runner.invoke(app, ["txn", "daemon", "--config", str(config_path), *flag_args])
+    result = runner.invoke(app, ["kick", "daemon", "--config", str(config_path), *flag_args])
 
     assert isinstance(result.exception, _StopDaemon)
     assert captured["require_curve_quote"] is expected
@@ -197,27 +192,3 @@ def test_auction_enable_tokens_rejects_invalid_caller() -> None:
 
     assert result.exit_code != 0
     assert "invalid address" in result.output
-
-
-def test_auction_sweep_and_settle_requires_keystore(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("RPC_URL", "https://example-rpc.invalid")
-    monkeypatch.delenv("TXN_KEYSTORE_PATH", raising=False)
-    monkeypatch.delenv("TXN_KEYSTORE_PASSPHRASE", raising=False)
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text("db_path: ./test.db\n", encoding="utf-8")
-
-    runner = CliRunner()
-    result = runner.invoke(
-        app,
-        [
-            "auction",
-            "sweep-and-settle",
-            "0x1111111111111111111111111111111111111111",
-            "0x2222222222222222222222222222222222222222",
-            "--config",
-            str(config_path),
-        ],
-    )
-
-    assert result.exit_code == 1
-    assert "TXN_KEYSTORE_PATH and TXN_KEYSTORE_PASSPHRASE must be configured" in result.output

@@ -209,6 +209,7 @@ def build_txn_service(
     require_curve_quote: bool | None = None,
     skip_base_fee_check: bool = False,
     web3_client: Web3Client | None = None,
+    signer: TransactionSigner | None = None,
 ):
     from tidal.persistence.repositories import KickTxRepository, TxnRunRepository
     from tidal.transaction_service.kicker import AuctionKicker
@@ -222,10 +223,16 @@ def build_txn_service(
     txn_run_repository = TxnRunRepository(session)
     kick_tx_repository = KickTxRepository(session)
 
-    signer = TransactionSigner(
-        settings.txn_keystore_path,
-        settings.txn_keystore_passphrase,
-    )
+    resolved_signer = signer
+    if (
+        resolved_signer is None
+        and settings.txn_keystore_path
+        and settings.txn_keystore_passphrase
+    ):
+        resolved_signer = TransactionSigner(
+            settings.txn_keystore_path,
+            settings.txn_keystore_passphrase,
+        )
 
     multicall_client = MulticallClient(
         web3_client,
@@ -262,7 +269,7 @@ def build_txn_service(
 
     kicker = AuctionKicker(
         web3_client=web3_client,
-        signer=signer,
+        signer=resolved_signer,
         kick_tx_repository=kick_tx_repository,
         price_provider=price_provider,
         auction_kicker_address=settings.auction_kicker_address,

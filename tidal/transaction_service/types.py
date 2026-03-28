@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Literal
 
@@ -93,6 +93,7 @@ class KickDecision:
     candidate: KickCandidate
     action: KickAction
     skip_reason: SkipReason | None = None
+    detail: str | None = None
 
 
 @dataclass(slots=True)
@@ -154,4 +155,5 @@ class TxnRunResult:
     kicks_failed: int
     eligible_candidates_found: int | None = None
     deferred_same_auction_count: int = 0
+    limited_candidate_count: int = 0
     failure_summary: dict[str, int] | None = None
