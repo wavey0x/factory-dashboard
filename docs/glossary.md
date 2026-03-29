@@ -1,0 +1,61 @@
+# Glossary
+
+## Strategy
+
+A Yearn strategy that may hold sellable reward or inventory tokens and may be associated with an auction through its receiver address.
+
+## Fee burner
+
+A configured non-strategy source that accumulates tokens and maps to an auction via `(receiver, want)`.
+
+## Source
+
+A generic sell-side origin in Tidal. A source is either a strategy or a fee burner.
+
+## Auction
+
+A Yearn auction contract that can receive a sell token lot, price that lot in terms of a want token, and decay over time.
+
+## Want token
+
+The token the auction expects in exchange for the sell token lot.
+
+## Sell token
+
+The token currently being considered for an auction kick from a given source.
+
+## Kick
+
+The action that starts a new auction lot with a computed sell amount, starting price, and minimum price.
+
+## Prepare
+
+The server-side step that validates a candidate and computes the exact transaction inputs and confirmation summary before signing.
+
+## Broadcast
+
+The act of sending a signed Ethereum transaction to the network.
+
+## Receipt
+
+The observed transaction result after broadcast, including status, block number, and gas used.
+
+## Action
+
+An API-audited prepared workflow item such as kick, deploy, enable-tokens, or settle. Actions carry audit state across prepare, broadcast, and receipt reporting.
+
+## Shortlist
+
+The cached, ranked set of kick candidates produced from scanner data before cooldown checks and just-in-time preparation.
+
+## Deferred same-auction candidate
+
+A candidate that passes threshold checks but is not selected because another token on the same auction has a higher cached USD value.
+
+## Cooldown
+
+The guardrail that skips a `(source, token)` pair if it was kicked too recently.
+
+## Pricing profile
+
+The named configuration that defines start-price buffer, minimum-price buffer, and decay rate for a given `auction + sell token` combination.
