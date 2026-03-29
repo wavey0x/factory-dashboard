@@ -42,13 +42,15 @@ def _handle_prepared_action(
     command_name: str,
 ) -> None:  # noqa: ANN001
     broadcast_records: list[dict[str, object]] = []
+    transactions = data.get("transactions") or []
     if not json_output:
-        render_action_preview(data, heading="Prepared action")
+        if response["status"] == "ok" and isinstance(transactions, list) and transactions:
+            render_action_preview(data, heading="Prepared action")
         render_warnings(list(response.get("warnings") or []))
     try:
         with cli_ctx.control_plane_client() as client:
             if broadcast and response["status"] == "ok":
-                confirmation_prompt = f"Broadcast {len(data.get('transactions') or [])} transaction(s)?"
+                confirmation_prompt = f"Broadcast {len(transactions)} transaction(s)?"
                 if not bypass_confirmation:
                     render_confirmation_banner(confirmation_prompt)
                 if not bypass_confirmation and not typer.confirm(
@@ -65,7 +67,7 @@ def _handle_prepared_action(
                         action_id=str(data["actionId"]),
                         sender=exec_ctx.sender,
                         signer=exec_ctx.signer,
-                        transactions=list(data.get("transactions") or []),
+                        transactions=list(transactions),
                     )
     except RuntimeError as exc:
         typer.echo(str(exc), err=True)

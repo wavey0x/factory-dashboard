@@ -80,6 +80,25 @@ class _EnableTokensClient:
         }
 
 
+class _NoopEnableTokensClient:
+    def __enter__(self) -> "_NoopEnableTokensClient":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:  # noqa: ANN001
+        del exc_type, exc, tb
+
+    def prepare_enable_tokens(self, auction_address: str, payload: dict[str, object]) -> dict[str, object]:
+        del auction_address, payload
+        return {
+            "status": "noop",
+            "warnings": [],
+            "data": {
+                "preview": {},
+                "transactions": [],
+            },
+        }
+
+
 def test_operator_auction_enable_tokens_uses_styled_submission_flow(tmp_path, monkeypatch) -> None:
     config_path = _write_config(tmp_path)
     client = _EnableTokensClient()
@@ -146,3 +165,36 @@ def test_operator_auction_enable_tokens_uses_styled_submission_flow(tmp_path, mo
     assert "Submitting transaction..." in result.output
     assert "Confirmed" in result.output
     assert "Explorer:     https://etherscan.io/tx/0x1111111111111111111111111111111111111111111111111111111111111111" in result.output
+
+
+def test_operator_auction_enable_tokens_noop_skips_prepared_panel(tmp_path, monkeypatch) -> None:
+    config_path = _write_config(tmp_path)
+    client = _NoopEnableTokensClient()
+
+    monkeypatch.setattr(
+        operator_auction_cli_module.CLIContext,
+        "control_plane_client",
+        lambda self, auth=True: client,
+    )
+    monkeypatch.setattr(
+        operator_auction_cli_module.CLIContext,
+        "resolve_execution",
+        lambda self, **kwargs: SimpleNamespace(signer=None, sender=None),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        operator_app,
+        [
+            "auction",
+            "enable-tokens",
+            "0xe92af59d00becd5f70d2ba11ae1a74751503a185",
+            "--broadcast",
+            "--config",
+            str(config_path),
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "Prepared action" not in result.output
+    assert "No transaction was prepared." in result.output

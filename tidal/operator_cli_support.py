@@ -17,7 +17,6 @@ from tidal.cli_renderers import (
     render_prepared_action_summary,
     render_status_panel,
     render_warning_panel,
-    tx_explorer_url,
 )
 from tidal.control_plane.client import ControlPlaneClient
 from tidal.control_plane.outbox import ActionReportOutbox
@@ -45,28 +44,6 @@ def submission_progress(message: str) -> None:
     console = Console(file=sys.stdout, highlight=False, soft_wrap=True)
     with console.status(f"[bold cyan]{message}[/bold cyan]", spinner="dots"):
         yield
-
-
-def render_submission_outcome(records: list[dict[str, Any]], *, chain_id: int) -> None:
-    if not records:
-        return
-
-    record = records[-1]
-    tx_hash = str(record.get("txHash") or "")
-    explorer_url = tx_explorer_url(chain_id, tx_hash) if tx_hash else None
-    target = explorer_url or tx_hash or "transaction"
-    receipt_status = str(record.get("receiptStatus") or "").upper()
-
-    if receipt_status == "CONFIRMED":
-        render_status_panel("Confirmed", target, border_style="green")
-        return
-    if receipt_status in {"FAILED", "REVERTED"}:
-        render_status_panel("Failed", target, border_style="red")
-        return
-
-    render_status_panel("Submitted", target, border_style="yellow")
-
-
 def _send_action_report(
     *,
     outbox: ActionReportOutbox,

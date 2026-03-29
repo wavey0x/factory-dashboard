@@ -312,6 +312,9 @@ def kick_run(
             inspect_result = _inspect_result_from_api(inspect_response["data"])
             broadcast_records: list[dict[str, object]] = []
             prepared_actions: list[dict[str, object]] = []
+            prepared_candidate_count = 0
+            skipped_confirmation_count = 0
+            prepare_feedback_emitted = False
 
             if broadcast and inspect_result.ready_count:
                 total_ready = len(inspect_result.ready)
@@ -326,11 +329,15 @@ def kick_run(
 
                     if prepare_response["status"] == "noop" or not transactions:
                         if not json_output:
-                            for message in _prepare_skip_messages(prepared_data):
+                            skip_messages = _prepare_skip_messages(prepared_data)
+                            if skip_messages or warnings:
+                                prepare_feedback_emitted = True
+                            for message in skip_messages:
                                 typer.echo(f"Skipped during prepare: {message}")
                             render_warnings(warnings)
                         continue
 
+                    prepared_candidate_count += 1
                     if not json_output:
                         summary = _kick_submission_summary(
                             prepared_data,
@@ -361,6 +368,7 @@ def kick_run(
                     if not bypass_confirmation:
                         render_confirmation_banner("Send this transaction?")
                     if not bypass_confirmation and not typer.confirm("Send this transaction?", default=False):
+                        skipped_confirmation_count += 1
                         continue
                     if exec_ctx.signer is None or exec_ctx.sender is None:
                         raise typer.Exit(code=1)
@@ -408,6 +416,12 @@ def kick_run(
         else:
             if broadcast_records:
                 render_broadcast_result(broadcast_records)
+            elif inspect_result.ready_count == 0:
+                typer.echo("No ready kick candidates.")
+            elif prepared_candidate_count == 0 and prepare_feedback_emitted:
+                pass
+            elif prepared_candidate_count > 0 and skipped_confirmation_count == prepared_candidate_count:
+                typer.echo("All prepared kick transactions were skipped.")
             else:
                 typer.echo("No kick transactions were sent.")
 

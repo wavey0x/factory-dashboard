@@ -164,6 +164,48 @@ class _BroadcastClient:
         }
 
 
+class _PrepareNoopClient:
+    def __enter__(self) -> "_PrepareNoopClient":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:  # noqa: ANN001
+        del exc_type, exc, tb
+
+    def inspect_kicks(self, body: dict[str, object]) -> dict[str, object]:
+        del body
+        return {
+            "status": "ok",
+            "warnings": [],
+            "data": _inspect_payload(
+                [
+                    _ready_entry(
+                        token_address="0x3333333333333333333333333333333333333333",
+                        source_address="0x1111111111111111111111111111111111111111",
+                        auction_address="0x2222222222222222222222222222222222222222",
+                    )
+                ]
+            ),
+        }
+
+    def prepare_kicks(self, body: dict[str, object]) -> dict[str, object]:
+        del body
+        return {
+            "status": "noop",
+            "warnings": [],
+            "data": {
+                "preview": {
+                    "skippedDuringPrepare": [
+                        {
+                            "tokenSymbol": "CRV",
+                            "reason": "candidate was skipped during prepare",
+                        }
+                    ]
+                },
+                "transactions": [],
+            },
+        }
+
+
 def test_operator_kick_run_dry_run_uses_inspect_only(tmp_path, monkeypatch) -> None:
     config_path = _write_config(tmp_path)
     client = _DryRunClient()
@@ -256,3 +298,56 @@ def test_operator_kick_run_broadcast_prepares_candidates_one_by_one(tmp_path, mo
     assert "Explorer:     https://etherscan.io/tx/0x0000000000000000000000000000000000000000000000000000000000000001" in result.output
     assert "Gas limit:   252,000" in result.output
     assert "max 2.50 gwei" in result.output
+
+
+def test_operator_kick_run_prepare_noop_does_not_repeat_generic_footer(tmp_path, monkeypatch) -> None:
+    config_path = _write_config(tmp_path)
+    client = _PrepareNoopClient()
+
+    monkeypatch.setattr(
+        operator_kick_cli_module.CLIContext,
+        "control_plane_client",
+        lambda self, auth=True: client,
+    )
+    monkeypatch.setattr(
+        operator_kick_cli_module.CLIContext,
+        "resolve_execution",
+        lambda self, **kwargs: SimpleNamespace(
+            signer=SimpleNamespace(),
+            sender="0x9999999999999999999999999999999999999999",
+        ),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(operator_app, ["kick", "run", "--broadcast", "--config", str(config_path)])
+
+    assert result.exit_code == 2
+    assert "Skipped during prepare: CRV: candidate was skipped during prepare" in result.output
+    assert "No kick transactions were sent." not in result.output
+
+
+def test_operator_kick_run_declined_confirmations_reports_skipped_summary(tmp_path, monkeypatch) -> None:
+    config_path = _write_config(tmp_path)
+    client = _BroadcastClient()
+
+    monkeypatch.setattr(
+        operator_kick_cli_module.CLIContext,
+        "control_plane_client",
+        lambda self, auth=True: client,
+    )
+    monkeypatch.setattr(
+        operator_kick_cli_module.CLIContext,
+        "resolve_execution",
+        lambda self, **kwargs: SimpleNamespace(
+            signer=SimpleNamespace(),
+            sender="0x9999999999999999999999999999999999999999",
+        ),
+    )
+    monkeypatch.setattr(operator_kick_cli_module.typer, "confirm", lambda *args, **kwargs: False)
+
+    runner = CliRunner()
+    result = runner.invoke(operator_app, ["kick", "run", "--broadcast", "--config", str(config_path)])
+
+    assert result.exit_code == 2
+    assert "All prepared kick transactions were skipped." in result.output
+    assert "No kick transactions were sent." not in result.output
