@@ -289,7 +289,6 @@ def build_txn_service(
         auction_state_reader=auction_state_reader,
         pricing_policy=pricing_policy,
         token_sizing_policy=token_sizing_policy,
-        execution_report_fn=execution_report_fn,
     )
 
     lock_path = settings.resolved_db_path.parent / "txn_daemon.lock"
@@ -305,4 +304,5 @@ def build_txn_service(
         lock_path=lock_path,
         max_batch_kick_size=settings.max_batch_kick_size,
         batch_kick_delay_seconds=settings.batch_kick_delay_seconds,
+        execution_report_fn=execution_report_fn,
     )

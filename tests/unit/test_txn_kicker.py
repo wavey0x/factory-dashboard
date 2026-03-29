@@ -594,8 +594,6 @@ async def test_kick_emits_execution_report_on_confirmed_send(session):
     signer.checksum_address = "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
     signer.sign_transaction = MagicMock(return_value=b"\x00" * 32)
 
-    captured_reports: list[TransactionExecutionReport] = []
-
     with patch(
         "tidal.transaction_service.kicker.ERC20Reader"
     ) as MockERC20:
@@ -603,18 +601,13 @@ async def test_kick_emits_execution_report_on_confirmed_send(session):
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
         MockERC20.return_value = mock_erc20
 
-        kicker = _make_kicker(
-            session,
-            web3_client=web3_client,
-            signer=signer,
-            execution_report_fn=captured_reports.append,
-        )
+        kicker = _make_kicker(session, web3_client=web3_client, signer=signer)
         candidate = _make_candidate()
         result = await kicker.kick(candidate, "run-1")
 
     assert result.status == "CONFIRMED"
-    assert len(captured_reports) == 1
-    report = captured_reports[0]
+    assert result.execution_report is not None
+    report = result.execution_report
     assert report.operation == "kick"
     assert report.sender == signer.checksum_address
     assert report.tx_hash == "0xtxhash_report"

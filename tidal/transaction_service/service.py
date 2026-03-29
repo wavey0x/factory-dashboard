@@ -6,6 +6,7 @@ import asyncio
 import fcntl
 import uuid
 from collections import Counter
+from collections.abc import Callable
 from pathlib import Path
 
 import structlog
@@ -23,6 +24,7 @@ from tidal.transaction_service.types import (
     PreparedKick,
     PreparedSweepAndSettle,
     SourceType,
+    TransactionExecutionReport,
     TxnRunResult,
 )
 
@@ -66,6 +68,7 @@ class TxnService:
         lock_path: Path,
         max_batch_kick_size: int = 5,
         batch_kick_delay_seconds: float = 5,
+        execution_report_fn: Callable[[TransactionExecutionReport], None] | None = None,
     ):
         self.session = session
         self.kicker = kicker
@@ -77,6 +80,16 @@ class TxnService:
         self.lock_path = lock_path
         self.max_batch_kick_size = max_batch_kick_size
         self.batch_kick_delay_seconds = batch_kick_delay_seconds
+        self.execution_report_fn = execution_report_fn
+
+    def _emit_execution_report(self, result: KickResult) -> None:
+        report = result.execution_report
+        if report is None or self.execution_report_fn is None:
+            return
+        try:
+            self.execution_report_fn(report)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("txn_execution_report_failed", error=str(exc), tx_hash=report.tx_hash)
 
     async def run_once(
         self,
@@ -257,6 +270,7 @@ class TxnService:
                     exec_result = await self.kicker.execute_sweep_and_settle(result, run_id)
                 else:
                     exec_result = await self.kicker.execute_single(result, run_id)
+                self._emit_execution_report(exec_result)
                 if exec_result.status == KickStatus.CONFIRMED:
                     kicks_succeeded += 1
                 elif exec_result.status in (KickStatus.REVERTED, KickStatus.ERROR, KickStatus.ESTIMATE_FAILED):

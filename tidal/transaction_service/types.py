@@ -141,6 +141,7 @@ class KickResult:
     minimum_price: str | None = None
     live_balance_raw: int | None = None
     usd_value: str | None = None
+    execution_report: TransactionExecutionReport | None = None
 
 
 @dataclass(slots=True)

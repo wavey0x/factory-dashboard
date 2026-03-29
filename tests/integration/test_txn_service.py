@@ -13,7 +13,13 @@ from sqlalchemy.orm import Session
 from tidal.persistence import models
 from tidal.persistence.repositories import KickTxRepository, TxnRunRepository
 from tidal.transaction_service.service import TxnService
-from tidal.transaction_service.types import KickCandidate, KickResult, KickStatus, PreparedKick
+from tidal.transaction_service.types import (
+    KickCandidate,
+    KickResult,
+    KickStatus,
+    PreparedKick,
+    TransactionExecutionReport,
+)
 
 
 @pytest.fixture
@@ -268,6 +274,43 @@ async def test_live_kick_reverted(session):
 
     assert result.status == "FAILED"
     assert result.kicks_failed == 1
+
+
+@pytest.mark.asyncio
+async def test_live_non_batch_emits_execution_report_before_next_candidate(session):
+    _seed_candidate(session)
+
+    captured_reports: list[TransactionExecutionReport] = []
+
+    kicker = MagicMock()
+    kicker.prepare_kick = AsyncMock(side_effect=lambda c, run_id, inspection=None: _make_prepared_kick(c))
+    kicker.execute_single = AsyncMock(return_value=KickResult(
+        kick_tx_id=1,
+        status=KickStatus.CONFIRMED,
+        tx_hash="0xabc",
+        gas_used=180000,
+        block_number=12345,
+        execution_report=TransactionExecutionReport(
+            operation="kick",
+            sender="0x1111111111111111111111111111111111111111",
+            tx_hash="0xabc",
+            broadcast_at="2026-03-29T19:00:00+00:00",
+            chain_id=1,
+            gas_estimate=200000,
+            receipt_status="CONFIRMED",
+            block_number=12345,
+            gas_used=180000,
+        ),
+    ))
+
+    service = _build_txn_service(session, kicker=kicker)
+    service.execution_report_fn = captured_reports.append
+    result = await service.run_once(live=True, batch=False)
+
+    assert result.status == "SUCCESS"
+    assert len(captured_reports) == 1
+    assert captured_reports[0].tx_hash == "0xabc"
+    assert captured_reports[0].receipt_status == "CONFIRMED"
 
 
 @pytest.mark.asyncio

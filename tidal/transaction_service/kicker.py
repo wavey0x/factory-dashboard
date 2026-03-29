@@ -274,7 +274,6 @@ class AuctionKicker:
         auction_state_reader: AuctionStateReader | None = None,
         pricing_policy: AuctionPricingPolicy | None = None,
         token_sizing_policy: TokenSizingPolicy | None = None,
-        execution_report_fn: Callable[[TransactionExecutionReport], None] | None = None,
     ):
         self.web3_client = web3_client
         self.signer = signer
@@ -298,7 +297,6 @@ class AuctionKicker:
             step_decay_rate_bps=default_step_decay_rate_bps,
         )
         self.token_sizing_policy = token_sizing_policy
-        self.execution_report_fn = execution_report_fn
 
     def _require_signer(self) -> TransactionSigner:
         if self.signer is None:
@@ -319,14 +317,6 @@ class AuctionKicker:
             multicall_enabled=False,
             multicall_auction_batch_calls=1,
         )
-
-    def _emit_execution_report(self, report: TransactionExecutionReport) -> None:
-        if self.execution_report_fn is None:
-            return
-        try:
-            self.execution_report_fn(report)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("txn_execution_report_failed", error=str(exc), tx_hash=report.tx_hash)
 
     async def _resolve_priority_fee_wei(self) -> int:
         cap_wei = self.max_priority_fee_gwei * 10**9
@@ -1120,16 +1110,6 @@ class AuctionKicker:
         try:
             receipt = await self.web3_client.get_transaction_receipt(tx_hash, timeout_seconds=120)
         except Exception as exc:  # noqa: BLE001
-            self._emit_execution_report(
-                TransactionExecutionReport(
-                    operation="kick",
-                    sender=signer.checksum_address,
-                    tx_hash=tx_hash,
-                    broadcast_at=now_iso,
-                    chain_id=self.chain_id,
-                    gas_estimate=gas_estimate,
-                )
-            )
             logger.warning("txn_batch_receipt_timeout", tx_hash=tx_hash, error=str(exc))
             return [
                 KickResult(
@@ -1142,6 +1122,14 @@ class AuctionKicker:
                     live_balance_raw=pk.live_balance_raw,
                     usd_value=pk.usd_value_str,
                     error_message=f"receipt timeout: {exc}",
+                    execution_report=TransactionExecutionReport(
+                        operation="kick",
+                        sender=signer.checksum_address,
+                        tx_hash=tx_hash,
+                        broadcast_at=now_iso,
+                        chain_id=self.chain_id,
+                        gas_estimate=gas_estimate,
+                    ),
                 )
                 for i, pk in enumerate(prepared_kicks)
             ]
@@ -1170,20 +1158,6 @@ class AuctionKicker:
                 batch_size=batch_size,
             )
 
-        self._emit_execution_report(
-            TransactionExecutionReport(
-                operation="kick",
-                sender=signer.checksum_address,
-                tx_hash=tx_hash,
-                broadcast_at=now_iso,
-                chain_id=self.chain_id,
-                gas_estimate=gas_estimate,
-                receipt_status=final_status.value,
-                block_number=receipt_block,
-                gas_used=receipt_gas_used,
-            )
-        )
-
         results = []
         for i, pk in enumerate(prepared_kicks):
             self.kick_tx_repository.update_status(
@@ -1206,6 +1180,17 @@ class AuctionKicker:
                     minimum_price=pk.minimum_price_str,
                     live_balance_raw=pk.live_balance_raw,
                     usd_value=pk.usd_value_str,
+                    execution_report=TransactionExecutionReport(
+                        operation="kick",
+                        sender=signer.checksum_address,
+                        tx_hash=tx_hash,
+                        broadcast_at=now_iso,
+                        chain_id=self.chain_id,
+                        gas_estimate=gas_estimate,
+                        receipt_status=final_status.value,
+                        block_number=receipt_block,
+                        gas_used=receipt_gas_used,
+                    ),
                 )
             )
         return results
@@ -1377,16 +1362,6 @@ class AuctionKicker:
         try:
             receipt = await self.web3_client.get_transaction_receipt(tx_hash, timeout_seconds=120)
         except Exception as exc:  # noqa: BLE001
-            self._emit_execution_report(
-                TransactionExecutionReport(
-                    operation="sweep-and-settle",
-                    sender=signer.checksum_address,
-                    tx_hash=tx_hash,
-                    broadcast_at=now_iso,
-                    chain_id=self.chain_id,
-                    gas_estimate=gas_estimate,
-                )
-            )
             return KickResult(
                 kick_tx_id=kick_tx_id,
                 status=KickStatus.SUBMITTED,
@@ -1395,6 +1370,14 @@ class AuctionKicker:
                 minimum_price=prepared_operation.minimum_price_str,
                 usd_value=prepared_operation.usd_value_str,
                 error_message=f"receipt timeout: {exc}",
+                execution_report=TransactionExecutionReport(
+                    operation="sweep-and-settle",
+                    sender=signer.checksum_address,
+                    tx_hash=tx_hash,
+                    broadcast_at=now_iso,
+                    chain_id=self.chain_id,
+                    gas_estimate=gas_estimate,
+                ),
             )
 
         receipt_status = receipt.get("status", 0)
@@ -1412,20 +1395,6 @@ class AuctionKicker:
             block_number=receipt_block,
         )
 
-        self._emit_execution_report(
-            TransactionExecutionReport(
-                operation="sweep-and-settle",
-                sender=signer.checksum_address,
-                tx_hash=tx_hash,
-                broadcast_at=now_iso,
-                chain_id=self.chain_id,
-                gas_estimate=gas_estimate,
-                receipt_status=final_status.value,
-                block_number=receipt_block,
-                gas_used=receipt_gas_used,
-            )
-        )
-
         return KickResult(
             kick_tx_id=kick_tx_id,
             status=final_status,
@@ -1436,6 +1405,17 @@ class AuctionKicker:
             sell_amount=prepared_operation.sell_amount_str,
             minimum_price=prepared_operation.minimum_price_str,
             usd_value=prepared_operation.usd_value_str,
+            execution_report=TransactionExecutionReport(
+                operation="sweep-and-settle",
+                sender=signer.checksum_address,
+                tx_hash=tx_hash,
+                broadcast_at=now_iso,
+                chain_id=self.chain_id,
+                gas_estimate=gas_estimate,
+                receipt_status=final_status.value,
+                block_number=receipt_block,
+                gas_used=receipt_gas_used,
+            ),
         )
 
     async def kick(self, candidate: KickCandidate, run_id: str) -> KickResult:
