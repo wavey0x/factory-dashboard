@@ -157,12 +157,6 @@ def render_warning_panel(warnings: list[str]) -> None:
         return
     render_panel("Warnings", [f"- {warning}" for warning in warnings], border_style="yellow")
 
-
-def render_confirmation_banner(prompt: str | None = None) -> None:
-    del prompt
-    render_panel("Confirmation Required", ["Review the transaction and confirm below."], border_style="cyan")
-
-
 def render_status_panel(title: str, message: str, *, border_style: str) -> None:
     render_panel(title, [message], border_style=border_style)
 

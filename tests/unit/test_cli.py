@@ -61,7 +61,6 @@ def test_make_confirm_fn_displays_pricing_profile(capsys):
     assert "Gas limit:   252,000" in output
     assert "Rate:        2.5000 quoted | 2.7500 start | 2.3750 floor USDC/CRV" in output
     assert "Profile:     stable | decay 0.01%" in output
-    assert "Confirmation Required" in output
     assert "Submitting transaction..." in output
     confirm_mock.assert_called_once_with("Send this transaction?", default=False)
 

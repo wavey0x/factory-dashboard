@@ -17,7 +17,7 @@ from tidal.cli_options import (
     PasswordFileOption,
     SenderOption,
 )
-from tidal.cli_renderers import emit_json, render_confirmation_banner
+from tidal.cli_renderers import emit_json, render_status_panel
 from tidal.control_plane.client import ControlPlaneError
 from tidal.operator_cli_support import (
     execute_prepared_action_sync,
@@ -51,8 +51,6 @@ def _handle_prepared_action(
         with cli_ctx.control_plane_client() as client:
             if broadcast and response["status"] == "ok":
                 confirmation_prompt = f"Broadcast {len(transactions)} transaction(s)?"
-                if not bypass_confirmation:
-                    render_confirmation_banner(confirmation_prompt)
                 if not bypass_confirmation and not typer.confirm(
                     confirmation_prompt,
                     default=False,
@@ -81,9 +79,9 @@ def _handle_prepared_action(
         return
 
     if response["status"] == "noop":
-        typer.echo("No transaction was prepared.")
+        render_status_panel("No Transaction Prepared", "No transaction was prepared.", border_style="yellow")
     elif not broadcast:
-        typer.echo("Dry run only. No transaction was sent.")
+        render_status_panel("Dry Run", "No transaction was sent.", border_style="yellow")
     else:
         render_broadcast_result(broadcast_records)
 

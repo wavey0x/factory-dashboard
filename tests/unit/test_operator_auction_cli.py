@@ -160,8 +160,6 @@ def test_operator_auction_enable_tokens_uses_styled_submission_flow(tmp_path, mo
     assert "Auction:" in result.output
     assert "Tokens:" in result.output
     assert "Warnings" in result.output
-    assert "Confirmation Required" in result.output
-    assert "Review the transaction and confirm below." in result.output
     assert "Submitting transaction..." in result.output
     assert "Confirmed" in result.output
     assert "Explorer:     https://etherscan.io/tx/0x1111111111111111111111111111111111111111111111111111111111111111" in result.output
@@ -197,4 +195,5 @@ def test_operator_auction_enable_tokens_noop_skips_prepared_panel(tmp_path, monk
 
     assert result.exit_code == 2
     assert "Prepared action" not in result.output
+    assert "No Transaction Prepared" in result.output
     assert "No transaction was prepared." in result.output
