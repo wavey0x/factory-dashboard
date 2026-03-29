@@ -136,12 +136,13 @@ def test_operator_auction_enable_tokens_uses_styled_submission_flow(tmp_path, mo
     assert result.exit_code == 0
     assert client.calls[0][0] == "0xe92af59d00becd5f70d2ba11ae1a74751503a185"
     assert "Prepared action" in result.output
-    assert "Action Type:  enable-tokens" in result.output
-    assert "Auction details" in result.output
-    assert "Token plan" in result.output
+    assert "enable-tokens · 1 transaction" in result.output
+    assert "Review details" in result.output
+    assert "Auction:" in result.output
+    assert "Tokens:" in result.output
     assert "Warnings" in result.output
     assert "Confirmation Required" in result.output
+    assert "Review the transaction and confirm below." in result.output
     assert "Submitting transaction..." in result.output
     assert "Confirmed" in result.output
-    assert "Transaction" in result.output
     assert "Explorer:     https://etherscan.io/tx/0x1111111111111111111111111111111111111111111111111111111111111111" in result.output

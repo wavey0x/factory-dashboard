@@ -23,7 +23,6 @@ from tidal.operator_cli_support import (
     execute_prepared_action_sync,
     render_action_preview,
     render_broadcast_result,
-    render_submission_outcome,
     submission_progress,
     render_warnings,
 )
@@ -68,8 +67,6 @@ def _handle_prepared_action(
                         signer=exec_ctx.signer,
                         transactions=list(data.get("transactions") or []),
                     )
-                if not json_output:
-                    render_submission_outcome(broadcast_records, chain_id=cli_ctx.settings.chain_id)
     except RuntimeError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc

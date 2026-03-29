@@ -32,7 +32,6 @@ from tidal.operator_cli_support import (
     execute_prepared_action_sync,
     render_action_preview,
     render_broadcast_result,
-    render_submission_outcome,
     submission_progress,
     render_warnings,
 )
@@ -376,8 +375,6 @@ def kick_run(
                             signer=exec_ctx.signer,
                             transactions=transactions,
                         )
-                    if not json_output:
-                        render_submission_outcome(action_records, chain_id=cli_ctx.settings.chain_id)
                     broadcast_records.extend(action_records)
     except ControlPlaneError as exc:
         typer.echo(str(exc), err=True)

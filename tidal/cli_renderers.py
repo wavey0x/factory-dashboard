@@ -158,8 +158,9 @@ def render_warning_panel(warnings: list[str]) -> None:
     render_panel("Warnings", [f"- {warning}" for warning in warnings], border_style="yellow")
 
 
-def render_confirmation_banner(prompt: str) -> None:
-    render_panel("Confirmation Required", [prompt], border_style="cyan")
+def render_confirmation_banner(prompt: str | None = None) -> None:
+    del prompt
+    render_panel("Confirmation Required", ["Review the transaction and confirm below."], border_style="cyan")
 
 
 def render_status_panel(title: str, message: str, *, border_style: str) -> None:
@@ -198,17 +199,12 @@ def _prepared_action_detail_lines(action_type: str | None, preview: dict[str, An
     if normalized_action_type == "deploy":
         lines = [
             "",
-            "  Deployment details",
-            f"  Factory:     {_display_address(preview.get('factoryAddress'))}",
+            "  Review details",
+            f"  Auction:     {_display_address(preview.get('predictedAuctionAddress'))}",
             f"  Want:        {_display_address(preview.get('want'))}",
             f"  Receiver:    {_display_address(preview.get('receiver'))}",
-            f"  Governance:  {_display_address(preview.get('governance'))}",
             f"  Start price: {_format_broadcast_value(preview.get('startingPrice'))}",
-            f"  Salt:        {preview.get('salt') or '-'}",
         ]
-        predicted = preview.get("predictedAuctionAddress")
-        if predicted:
-            lines.append(f"  Predicted:   {_display_address(predicted)}")
         predicted_exists = preview.get("predictedAuctionAddressExists")
         if predicted_exists is not None:
             lines.append(f"  Exists now:  {_display_bool(predicted_exists)}")
@@ -224,60 +220,29 @@ def _prepared_action_detail_lines(action_type: str | None, preview: dict[str, An
 
     if normalized_action_type == "enable_tokens":
         inspection = preview.get("inspection") if isinstance(preview.get("inspection"), dict) else {}
-        source = preview.get("source") if isinstance(preview.get("source"), dict) else {}
         selected_tokens = [str(value) for value in preview.get("selectedTokens") or [] if value]
         probes = [item for item in preview.get("probes") or [] if isinstance(item, dict)]
-        preview_result = preview.get("preview") if isinstance(preview.get("preview"), dict) else {}
-        source_name = source.get("source_name") or source.get("sourceName")
-        source_address = source.get("source_address") or source.get("sourceAddress")
-        source_label = str(source_name or _display_address(source_address))
-        if source_name and source_address:
-            source_label = f"{source_name} ({short_address(str(source_address))})"
         lines = [
             "",
-            "  Auction details",
+            "  Review details",
             f"  Auction:     {_display_address(inspection.get('auction_address') or inspection.get('auctionAddress'))}",
-            f"  Governance:  {_display_address(inspection.get('governance'))}",
-            f"  Receiver:    {_display_address(inspection.get('receiver'))}",
-            f"  Want:        {_display_address(inspection.get('want'))}",
-            f"  Source:      {source_label}",
-            f"  Source type: {str(source.get('source_type') or source.get('sourceType') or '-').replace('_', '-')}",
-            "",
-            "  Token plan",
-            f"  Selected:    {len(selected_tokens)} token(s)",
-            f"  Commands:    {_format_broadcast_value(preview.get('commandsCount'))}",
-            f"  State slots: {_format_broadcast_value(preview.get('stateSlots'))}",
-            f"  In factory:  {_display_bool(inspection.get('in_configured_factory'))}",
-            f"  Yearn gov:   {_display_bool(inspection.get('governance_matches_required'))}",
         ]
         selected_label = _format_selected_tokens(selected_tokens, probes)
         if selected_label:
             lines.append(f"  Tokens:      {selected_label}")
-        if preview_result:
-            lines.append(f"  Preview:     {'ok' if preview_result.get('call_succeeded') else 'failed'}")
-            if preview_result.get("error_message"):
-                lines.append(f"  Reason:      {preview_result['error_message']}")
+        else:
+            lines.append(f"  Tokens:      {len(selected_tokens)} token(s)")
         return lines
 
     if normalized_action_type == "settle":
         inspection = preview.get("inspection") if isinstance(preview.get("inspection"), dict) else {}
         decision = preview.get("decision") if isinstance(preview.get("decision"), dict) else {}
-        active_tokens = inspection.get("active_tokens") or inspection.get("activeTokens") or []
         lines = [
             "",
-            "  Auction details",
+            "  Review details",
             f"  Auction:     {_display_address(inspection.get('auction_address') or inspection.get('auctionAddress'))}",
-            f"  Active:      {_display_bool(inspection.get('is_active_auction') if 'is_active_auction' in inspection else inspection.get('isActiveAuction'))}",
-            f"  Active lot:  {_display_address(inspection.get('active_token') or inspection.get('activeToken'))}",
-            f"  Tokens:      {len(active_tokens)} active token(s)",
-            f"  Available:   {_format_broadcast_value(inspection.get('active_available_raw') if 'active_available_raw' in inspection else inspection.get('activeAvailableRaw'))}",
-            f"  Price:       {_format_broadcast_value(inspection.get('active_price_raw') if 'active_price_raw' in inspection else inspection.get('activePriceRaw'))}",
-            f"  Min price:   {_format_broadcast_value(inspection.get('minimum_price_raw') if 'minimum_price_raw' in inspection else inspection.get('minimumPriceRaw'))}",
-            "",
-            "  Settlement plan",
             f"  Operation:   {str(decision.get('operation_type') or decision.get('operationType') or '-').replace('_', '-')}",
             f"  Token:       {_display_address(decision.get('token_address') or decision.get('tokenAddress'))}",
-            f"  Status:      {decision.get('status') or '-'}",
             f"  Reason:      {decision.get('reason') or '-'}",
         ]
         return lines
@@ -301,30 +266,27 @@ def _prepared_action_detail_lines(action_type: str | None, preview: dict[str, An
 
 def _prepared_action_transaction_lines(transactions: list[dict[str, Any]]) -> list[str]:
     lines = ["", "  Send details"]
+    single_transaction = len(transactions) == 1
     for index, tx in enumerate(transactions, 1):
+        prefix = "  " if single_transaction else "    "
         lines.extend(
             [
-                f"  Tx {index}:        {tx.get('operation') or 'transaction'} -> {_display_address(tx.get('to'))}",
-                f"    From:       {_display_address(tx.get('sender'))}",
-                f"    Chain ID:   {_format_broadcast_value(tx.get('chainId'))}",
-                f"    Gas est:    {_display_gas_value(tx.get('gasEstimate'))}",
-                f"    Gas limit:  {_display_gas_value(tx.get('gasLimit'))}",
+                *( [f"  Tx {index}:        {tx.get('operation') or 'transaction'}"] if not single_transaction else [] ),
+                f"{prefix}From:        {_display_address(tx.get('sender'))}",
+                f"{prefix}Gas est:     {_display_gas_value(tx.get('gasEstimate'))}",
+                f"{prefix}Gas limit:   {_display_gas_value(tx.get('gasLimit'))}",
             ]
         )
     return lines
 
 
 def render_prepared_action_summary(data: dict[str, Any], *, heading: str = "Prepared Action") -> None:
-    action_id = data.get("actionId")
     action_type = str(data.get("actionType") or "").replace("_", "-") or None
     preview = data.get("preview")
     transactions = data.get("transactions") or []
-    lines = ["  Action details"]
-    if action_id:
-        lines.append(f"  Action ID:    {action_id}")
-    if action_type:
-        lines.append(f"  Action Type:  {action_type}")
-    lines.append(f"  Transactions: {len(transactions)}")
+    transaction_count = len(transactions) if isinstance(transactions, list) else 0
+    transaction_label = "transaction" if transaction_count == 1 else "transactions"
+    lines = [f"  {(action_type or 'action')} · {transaction_count} {transaction_label}"]
     if isinstance(preview, dict):
         lines.extend(_prepared_action_detail_lines(action_type, preview))
     if isinstance(transactions, list) and transactions:
@@ -499,7 +461,17 @@ def render_broadcast_records(records: list[BroadcastRecord]) -> None:
         return
 
     for index, record in enumerate(records, 1):
-        heading = "Transaction" if len(records) == 1 else f"Transaction {index}"
+        receipt_status = str(record.receipt_status or "").upper()
+        if receipt_status == "CONFIRMED":
+            status_title = "Confirmed"
+            border_style = "green"
+        elif receipt_status in {"FAILED", "REVERTED"}:
+            status_title = "Failed"
+            border_style = "red"
+        else:
+            status_title = "Submitted"
+            border_style = "yellow"
+        heading = status_title if len(records) == 1 else f"Transaction {index} · {status_title}"
         lines: list[str] = []
         if record.operation:
             lines.append(f"  Operation:    {record.operation}")
@@ -517,7 +489,7 @@ def render_broadcast_records(records: list[BroadcastRecord]) -> None:
             lines.append(f"  Gas used:     {_format_broadcast_value(record.gas_used)}")
         if record.gas_estimate is not None:
             lines.append(f"  Gas estimate: {_format_broadcast_value(record.gas_estimate)}")
-        render_panel(heading, lines, border_style="cyan")
+        render_panel(heading, lines, border_style=border_style)
 
 
 def kick_broadcast_records(run_rows: list[dict[str, object]], *, sender: str | None) -> list[BroadcastRecord]:

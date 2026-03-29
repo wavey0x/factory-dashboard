@@ -287,7 +287,7 @@ def test_render_broadcast_records_includes_sender_hash_and_datetime(capsys):
     )
 
     output = capsys.readouterr().out
-    assert "Transaction" in output
+    assert "Confirmed" in output
     assert "Operation:    settle" in output
     assert "Sender:       0x1111111111111111111111111111111111111111" in output
     assert "Tx hash:      0xabc" in output
@@ -338,9 +338,10 @@ def test_render_prepared_action_summary_for_deploy(capsys):
 
     output = capsys.readouterr().out
     assert "Prepared action" in output
-    assert "Deployment details" in output
+    assert "deploy · 1 transaction" in output
+    assert "Review details" in output
+    assert "Auction:" in output
     assert "Start price: 1,234" in output
-    assert "Predicted:" in output
     assert "Matches:     1" in output
     assert "Send details" in output
 
@@ -382,10 +383,11 @@ def test_render_prepared_action_summary_for_settle(capsys):
     )
 
     output = capsys.readouterr().out
-    assert "Settlement plan" in output
+    assert "settle · 1 transaction" in output
+    assert "Review details" in output
     assert "Operation:   settle" in output
     assert "Reason:      active lot is sold out" in output
-    assert "Available:   0" in output
+    assert "Auction:" in output
 
 
 def test_render_kick_run_summary_shows_transaction_block(capsys):
@@ -419,7 +421,7 @@ def test_render_kick_run_summary_shows_transaction_block(capsys):
     )
 
     output = capsys.readouterr().out
-    assert "Transaction" in output
+    assert "Confirmed" in output
     assert "Operation:    kick" in output
     assert "Sender:       0x1111111111111111111111111111111111111111" in output
     assert "Tx hash:      0xabc" in output
