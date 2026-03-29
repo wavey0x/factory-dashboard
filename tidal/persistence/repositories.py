@@ -647,6 +647,26 @@ class KickTxRepository:
         self.session.commit()
         return result.lastrowid  # type: ignore[return-value]
 
+    def find_by_run_and_identity(
+        self,
+        *,
+        run_id: str,
+        operation_type: str,
+        auction_address: str,
+        token_address: str,
+    ) -> dict[str, object] | None:
+        row = self.session.execute(
+            select(models.kick_txs).where(
+                models.kick_txs.c.run_id == run_id,
+                models.kick_txs.c.operation_type == operation_type,
+                models.kick_txs.c.auction_address == auction_address,
+                models.kick_txs.c.token_address == token_address,
+            )
+        ).mappings().first()
+        if row is None:
+            return None
+        return dict(row)
+
     def update_status(
         self,
         kick_tx_id: int,
@@ -748,6 +768,17 @@ class APIActionRepository:
             .order_by(models.api_action_transactions.c.tx_index.asc())
         )
         return [dict(row) for row in self.session.execute(stmt).mappings().all()]
+
+    def get_action_transaction(self, action_id: str, *, tx_index: int) -> dict[str, object] | None:
+        row = self.session.execute(
+            select(models.api_action_transactions).where(
+                models.api_action_transactions.c.action_id == action_id,
+                models.api_action_transactions.c.tx_index == tx_index,
+            )
+        ).mappings().first()
+        if row is None:
+            return None
+        return dict(row)
 
     def update_transaction_broadcast(
         self,

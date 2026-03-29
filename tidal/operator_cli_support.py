@@ -14,6 +14,7 @@ from eth_utils import to_checksum_address
 
 from tidal.cli_renderers import BroadcastRecord, render_broadcast_records, tx_explorer_url
 from tidal.control_plane.client import ControlPlaneClient
+from tidal.control_plane.outbox import ActionReportOutbox
 from tidal.runtime import build_web3_client
 from tidal.time import utcnow_iso
 
@@ -102,6 +103,54 @@ def render_submission_outcome(records: list[dict[str, Any]], *, chain_id: int) -
     typer.echo(f": {target}")
 
 
+def _send_action_report(
+    *,
+    outbox: ActionReportOutbox,
+    client: ControlPlaneClient,
+    action_id: str,
+    report_type: str,
+    payload: dict[str, Any],
+    warning_label: str,
+) -> None:
+    tx_index = int(payload["txIndex"])
+    queued = False
+    queue_error: Exception | None = None
+    try:
+        if report_type == "broadcast":
+            outbox.queue_broadcast(base_url=client.base_url, action_id=action_id, payload=payload)
+        else:
+            outbox.queue_receipt(base_url=client.base_url, action_id=action_id, payload=payload)
+        queued = True
+    except Exception as exc:  # noqa: BLE001
+        queue_error = exc
+
+    try:
+        if report_type == "broadcast":
+            client.report_broadcast(action_id, payload)
+        else:
+            client.report_receipt(action_id, payload)
+    except Exception as exc:  # noqa: BLE001
+        if queued:
+            typer.echo(f"Warning: {warning_label} queued for retry ({exc})", err=True)
+        else:
+            typer.echo(
+                f"Warning: {warning_label} failed and could not be queued ({exc}; queue error: {queue_error})",
+                err=True,
+            )
+        return
+
+    if queued:
+        try:
+            outbox.mark_delivered(
+                base_url=client.base_url,
+                action_id=action_id,
+                tx_index=tx_index,
+                report_type=report_type,
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
+
 async def broadcast_prepared_action(
     *,
     settings,
@@ -111,7 +160,13 @@ async def broadcast_prepared_action(
     signer,
     transactions: list[dict[str, Any]],
     receipt_timeout_seconds: int = 120,
+    outbox: ActionReportOutbox | None = None,
 ) -> list[dict[str, Any]]:  # noqa: ANN001
+    report_outbox = outbox or ActionReportOutbox()
+    try:
+        report_outbox.flush_pending(client)
+    except Exception:  # noqa: BLE001
+        pass
     web3_client = build_web3_client(settings)
     try:
         nonce = await web3_client.get_transaction_count(sender)
@@ -172,26 +227,34 @@ async def broadcast_prepared_action(
                 tx_hash = await web3_client.send_raw_transaction(signed_tx)
             except Exception as exc:  # noqa: BLE001
                 observed_at = utcnow_iso()
-                client.report_receipt(
-                    action_id,
-                    {
+                _send_action_report(
+                    outbox=report_outbox,
+                    client=client,
+                    action_id=action_id,
+                    report_type="receipt",
+                    payload={
                         "txIndex": tx_index,
                         "receiptStatus": "FAILED",
                         "observedAt": observed_at,
                         "errorMessage": str(exc),
                     },
+                    warning_label=f"control-plane failure report for transaction {tx_index + 1}",
                 )
                 raise RuntimeError(f"transaction {tx_index + 1} failed: {exc}") from exc
 
             broadcast_at = utcnow_iso()
-            client.report_broadcast(
-                action_id,
-                {
+            _send_action_report(
+                outbox=report_outbox,
+                client=client,
+                action_id=action_id,
+                report_type="broadcast",
+                payload={
                     "txIndex": tx_index,
                     "sender": sender,
                     "txHash": tx_hash,
                     "broadcastAt": broadcast_at,
                 },
+                warning_label=f"control-plane broadcast report for transaction {tx_index + 1}",
             )
             record: dict[str, Any] = {
                 "operation": tx.get("operation"),
@@ -212,9 +275,12 @@ async def broadcast_prepared_action(
             gas_price_gwei = str(round(effective_gas_price / 1e9, 4)) if effective_gas_price else None
             receipt_status = "CONFIRMED" if receipt.get("status") == 1 else "REVERTED"
             observed_at = utcnow_iso()
-            client.report_receipt(
-                action_id,
-                {
+            _send_action_report(
+                outbox=report_outbox,
+                client=client,
+                action_id=action_id,
+                report_type="receipt",
+                payload={
                     "txIndex": tx_index,
                     "receiptStatus": receipt_status,
                     "blockNumber": receipt.get("blockNumber"),
@@ -222,6 +288,7 @@ async def broadcast_prepared_action(
                     "gasPriceGwei": gas_price_gwei,
                     "observedAt": observed_at,
                 },
+                warning_label=f"control-plane receipt report for transaction {tx_index + 1}",
             )
             record.update(
                 {
@@ -247,6 +314,7 @@ def execute_prepared_action_sync(
     sender: str,
     signer,
     transactions: list[dict[str, Any]],
+    outbox: ActionReportOutbox | None = None,
 ) -> list[dict[str, Any]]:  # noqa: ANN001
     return asyncio.run(
         broadcast_prepared_action(
@@ -256,6 +324,7 @@ def execute_prepared_action_sync(
             sender=sender,
             signer=signer,
             transactions=transactions,
+            outbox=outbox,
         )
     )
 

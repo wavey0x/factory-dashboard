@@ -10,6 +10,10 @@ import httpx
 class ControlPlaneError(RuntimeError):
     """Raised when the control-plane API returns an error."""
 
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
 
 class ControlPlaneClient:
     """Small wrapper around the monorepo FastAPI control plane."""
@@ -43,26 +47,42 @@ class ControlPlaneClient:
         params: dict[str, Any] | None = None,
         json: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        response = self._client.request(method, path, params=params, json=json)
+        try:
+            response = self._client.request(method, path, params=params, json=json)
+        except httpx.HTTPError as exc:
+            raise ControlPlaneError(f"API request failed: {exc}") from exc
         try:
             payload = response.json()
         except ValueError as exc:
             if not response.is_success:
                 message = response.text.strip() or f"API returned HTTP {response.status_code}"
-                raise ControlPlaneError(f"API returned {response.status_code}: {message}") from exc
-            raise ControlPlaneError(f"API returned invalid JSON ({response.status_code})") from exc
+                raise ControlPlaneError(
+                    f"API returned {response.status_code}: {message}",
+                    status_code=response.status_code,
+                ) from exc
+            raise ControlPlaneError(
+                f"API returned invalid JSON ({response.status_code})",
+                status_code=response.status_code,
+            ) from exc
 
         if not response.is_success:
-            message = payload.get("detail") or payload.get("message") or payload.get("error") or response.text
-            raise ControlPlaneError(str(message))
+            message: object | None = None
+            if isinstance(payload, dict):
+                message = payload.get("detail") or payload.get("message") or payload.get("error")
+            if not message:
+                message = response.text.strip() or f"API returned HTTP {response.status_code}"
+            raise ControlPlaneError(
+                f"API returned {response.status_code}: {message}",
+                status_code=response.status_code,
+            )
 
         if not isinstance(payload, dict):
-            raise ControlPlaneError("API response was not an object")
+            raise ControlPlaneError("API response was not an object", status_code=response.status_code)
 
         status = payload.get("status")
         if status == "error":
             message = payload.get("detail") or payload.get("message") or payload.get("error") or "API returned an error"
-            raise ControlPlaneError(str(message))
+            raise ControlPlaneError(str(message), status_code=response.status_code)
         return payload
 
     def get_dashboard(self) -> dict[str, Any]:

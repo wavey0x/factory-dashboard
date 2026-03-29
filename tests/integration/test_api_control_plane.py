@@ -191,6 +191,126 @@ def test_actions_broadcast_and_receipt_routes_update_status(tmp_path: Path) -> N
     assert list_response.json()["data"]["items"][0]["actionId"] == action_id
 
 
+def test_actions_broadcast_and_receipt_routes_are_idempotent(tmp_path: Path) -> None:
+    settings = _make_settings(tmp_path)
+    _init_db(settings)
+    app = create_app(settings)
+    engine = create_engine(settings.database_url, future=True)
+    with Session(engine, future=True) as session:
+        action_id = create_prepared_action(
+            session,
+            operator_id="tester",
+            action_type="deploy",
+            sender="0x6000000000000000000000000000000000000006",
+            request_payload={"receiver": "0x6000000000000000000000000000000000000006"},
+            preview_payload={"receiver": "0x6000000000000000000000000000000000000006"},
+            transactions=[
+                {
+                    "operation": "deploy",
+                    "to": "0x7000000000000000000000000000000000000007",
+                    "data": "0xdeadbeef",
+                    "value": "0x0",
+                    "chainId": 1,
+                    "gasEstimate": 210000,
+                    "gasLimit": 252000,
+                }
+            ],
+            resource_address="0x6000000000000000000000000000000000000006",
+        )
+
+    client = TestClient(app)
+    headers = {"Authorization": f"Bearer {_TEST_API_KEY}"}
+    broadcast_payload = {
+        "sender": "0x6000000000000000000000000000000000000006",
+        "txHash": "0xabc",
+        "broadcastAt": "2026-03-28T00:01:00+00:00",
+        "txIndex": 0,
+    }
+    receipt_payload = {
+        "txIndex": 0,
+        "receiptStatus": "CONFIRMED",
+        "blockNumber": 123,
+        "gasUsed": 210000,
+        "gasPriceGwei": "0.1",
+        "observedAt": "2026-03-28T00:02:00+00:00",
+    }
+
+    first_broadcast = client.post(f"/api/v1/tidal/actions/{action_id}/broadcast", headers=headers, json=broadcast_payload)
+    assert first_broadcast.status_code == 200
+    first_receipt = client.post(f"/api/v1/tidal/actions/{action_id}/receipt", headers=headers, json=receipt_payload)
+    assert first_receipt.status_code == 200
+
+    replay_broadcast = client.post(
+        f"/api/v1/tidal/actions/{action_id}/broadcast",
+        headers=headers,
+        json={**broadcast_payload, "broadcastAt": "2026-03-28T00:03:00+00:00"},
+    )
+    assert replay_broadcast.status_code == 200
+    assert replay_broadcast.json()["data"]["status"] == "CONFIRMED"
+    assert replay_broadcast.json()["data"]["transactions"][0]["txHash"] == "0xabc"
+
+    replay_receipt = client.post(f"/api/v1/tidal/actions/{action_id}/receipt", headers=headers, json=receipt_payload)
+    assert replay_receipt.status_code == 200
+    assert replay_receipt.json()["data"]["status"] == "CONFIRMED"
+
+
+def test_actions_broadcast_route_rejects_conflicting_hash(tmp_path: Path) -> None:
+    settings = _make_settings(tmp_path)
+    _init_db(settings)
+    app = create_app(settings)
+    engine = create_engine(settings.database_url, future=True)
+    with Session(engine, future=True) as session:
+        action_id = create_prepared_action(
+            session,
+            operator_id="tester",
+            action_type="deploy",
+            sender="0x6000000000000000000000000000000000000006",
+            request_payload={"receiver": "0x6000000000000000000000000000000000000006"},
+            preview_payload={"receiver": "0x6000000000000000000000000000000000000006"},
+            transactions=[
+                {
+                    "operation": "deploy",
+                    "to": "0x7000000000000000000000000000000000000007",
+                    "data": "0xdeadbeef",
+                    "value": "0x0",
+                    "chainId": 1,
+                    "gasEstimate": 210000,
+                    "gasLimit": 252000,
+                }
+            ],
+            resource_address="0x6000000000000000000000000000000000000006",
+        )
+
+    client = TestClient(app)
+    headers = {"Authorization": f"Bearer {_TEST_API_KEY}"}
+    first_response = client.post(
+        f"/api/v1/tidal/actions/{action_id}/broadcast",
+        headers=headers,
+        json={
+            "sender": "0x6000000000000000000000000000000000000006",
+            "txHash": "0xabc",
+            "broadcastAt": "2026-03-28T00:01:00+00:00",
+            "txIndex": 0,
+        },
+    )
+    assert first_response.status_code == 200
+
+    conflict_response = client.post(
+        f"/api/v1/tidal/actions/{action_id}/broadcast",
+        headers=headers,
+        json={
+            "sender": "0x6000000000000000000000000000000000000006",
+            "txHash": "0xdef",
+            "broadcastAt": "2026-03-28T00:02:00+00:00",
+            "txIndex": 0,
+        },
+    )
+
+    assert conflict_response.status_code == 409
+    assert conflict_response.json()["status"] == "error"
+    assert conflict_response.json()["detail"] == "Broadcast already recorded with a different tx hash"
+
+
 def test_actions_broadcast_route_returns_json_when_database_is_locked(
     tmp_path: Path,
     monkeypatch,
@@ -247,3 +367,104 @@ def test_actions_broadcast_route_returns_json_when_database_is_locked(
     assert response.status_code == 503
     assert response.json()["status"] == "error"
     assert response.json()["detail"] == "database is locked; retry the request"
+
+
+def test_kick_action_broadcast_and_receipt_materialize_kick_logs(tmp_path: Path) -> None:
+    settings = _make_settings(tmp_path)
+    _init_db(settings)
+    _seed_dashboard_data(settings)
+    app = create_app(settings)
+    engine = create_engine(settings.database_url, future=True)
+    with Session(engine, future=True) as session:
+        action_id = create_prepared_action(
+            session,
+            operator_id="tester",
+            action_type="kick",
+            sender="0x6000000000000000000000000000000000000006",
+            request_payload={
+                "sourceType": "strategy",
+                "sourceAddress": "0x2000000000000000000000000000000000000002",
+                "auctionAddress": "0x3000000000000000000000000000000000000003",
+                "tokenAddress": "0x5000000000000000000000000000000000000005",
+                "sender": "0x6000000000000000000000000000000000000006",
+            },
+            preview_payload={
+                "preparedOperations": [
+                    {
+                        "operation": "kick",
+                        "sourceType": "strategy",
+                        "sourceAddress": "0x2000000000000000000000000000000000000002",
+                        "sourceName": "Test Strategy",
+                        "auctionAddress": "0x3000000000000000000000000000000000000003",
+                        "tokenAddress": "0x5000000000000000000000000000000000000005",
+                        "tokenSymbol": "CRV",
+                        "wantAddress": "0x4000000000000000000000000000000000000004",
+                        "wantSymbol": "USDC",
+                        "sellAmount": "1.0",
+                        "startingPrice": "2750",
+                        "minimumPrice": "2375",
+                        "quoteAmount": "2500",
+                        "usdValue": "2500",
+                        "bufferBps": 1000,
+                        "minBufferBps": 500,
+                        "stepDecayRateBps": 50,
+                        "settleToken": None,
+                    }
+                ]
+            },
+            transactions=[
+                {
+                    "operation": "kick",
+                    "to": "0x7000000000000000000000000000000000000007",
+                    "data": "0xdeadbeef",
+                    "value": "0x0",
+                    "chainId": 1,
+                    "gasEstimate": 210000,
+                    "gasLimit": 252000,
+                }
+            ],
+            resource_address="0x3000000000000000000000000000000000000003",
+            auction_address="0x3000000000000000000000000000000000000003",
+            source_address="0x2000000000000000000000000000000000000002",
+            token_address="0x5000000000000000000000000000000000000005",
+        )
+
+    client = TestClient(app)
+    headers = {"Authorization": "Bearer secret-token"}
+    tx_hash = "0xabc"
+
+    broadcast_response = client.post(
+        f"/api/v1/tidal/actions/{action_id}/broadcast",
+        headers=headers,
+        json={
+            "sender": "0x6000000000000000000000000000000000000006",
+            "txHash": tx_hash,
+            "broadcastAt": "2026-03-28T00:01:00+00:00",
+            "txIndex": 0,
+        },
+    )
+    assert broadcast_response.status_code == 200
+
+    receipt_response = client.post(
+        f"/api/v1/tidal/actions/{action_id}/receipt",
+        headers=headers,
+        json={
+            "txIndex": 0,
+            "receiptStatus": "CONFIRMED",
+            "blockNumber": 123,
+            "gasUsed": 210000,
+            "gasPriceGwei": "0.1",
+            "observedAt": "2026-03-28T00:02:00+00:00",
+        },
+    )
+    assert receipt_response.status_code == 200
+
+    logs_response = client.get("/api/v1/tidal/logs/kicks", headers=headers)
+    assert logs_response.status_code == 200
+    payload = logs_response.json()
+    assert payload["status"] == "ok"
+    assert payload["data"]["total"] == 1
+    assert payload["data"]["kicks"][0]["status"] == "CONFIRMED"
+    assert payload["data"]["kicks"][0]["txHash"] == tx_hash
+    assert payload["data"]["kicks"][0]["tokenSymbol"] == "CRV"
+    assert payload["data"]["kicks"][0]["wantSymbol"] == "USDC"
