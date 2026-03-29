@@ -2,7 +2,7 @@
 
 Precedence (highest wins): env vars > YAML config > Python defaults.
 
-Secrets (RPC_URL, keystore, Telegram tokens, etc.) live in ``.env`` and are
+Secrets (RPC_URL, keystore, API keys, etc.) live in ``.env`` and are
 promoted to real environment variables by ``load_dotenv()`` before the
 Settings model is constructed.  Operational knobs live in ``config.yaml``.
 """
@@ -97,10 +97,6 @@ class Settings(BaseSettings):
         alias="AUCTIONSCAN_API_BASE_URL",
     )
     auctionscan_recheck_seconds: int = Field(default=90, alias="AUCTIONSCAN_RECHECK_SECONDS")
-
-    telegram_alerts_enabled: bool = Field(default=False, alias="TELEGRAM_ALERTS_ENABLED")
-    telegram_bot_token: str | None = Field(default=None, alias="TELEGRAM_BOT_TOKEN")
-    telegram_chat_id: str | None = Field(default=None, alias="TELEGRAM_CHAT_ID")
 
     auction_kicker_address: str = Field(
         default="0x2a76c6ad151af2edbe16755fc3bff67176f01071",

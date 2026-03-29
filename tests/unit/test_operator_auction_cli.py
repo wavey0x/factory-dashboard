@@ -162,7 +162,10 @@ def test_operator_auction_enable_tokens_uses_styled_submission_flow(tmp_path, mo
     assert "Warnings" in result.output
     assert "Submitting transaction..." in result.output
     assert "Confirmed" in result.output
-    assert "Explorer:     https://etherscan.io/tx/0x1111111111111111111111111111111111111111111111111111111111111111" in result.output
+    assert "Explorer:" not in result.output
+    assert "Block:" not in result.output
+    assert "Gas used:" not in result.output
+    assert "Gas estimate:" not in result.output
 
 
 def test_operator_auction_enable_tokens_noop_skips_prepared_panel(tmp_path, monkeypatch) -> None:

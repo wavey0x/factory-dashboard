@@ -177,9 +177,9 @@ def test_make_execution_report_fn_renders_confirmed_panel(capsys):
     output = capsys.readouterr().out
     assert "Confirmed" in output
     assert "Operation:    kick" in output
-    assert "Explorer:     https://etherscan.io/tx/0xabc" in output
-    assert "Gas used:     224,212" in output
-    assert "Gas estimate: 227,159" in output
+    assert "Explorer:" not in output
+    assert "Gas used:" not in output
+    assert "Gas estimate:" not in output
 
 
 def test_render_kick_run_summary_for_aborted_confirm(capsys):
@@ -316,12 +316,12 @@ def test_render_broadcast_records_includes_sender_hash_and_datetime(capsys):
     assert "Operation:    settle" in output
     assert "Sender:       0x1111111111111111111111111111111111111111" in output
     assert "Tx hash:      0xabc" in output
-    assert "Explorer:     https://etherscan.io/tx/0xabc" in output
     assert "Broadcast at: 2026-03-28T15:04:05+00:00" in output
     assert "Receipt:      CONFIRMED" in output
-    assert "Block:        12,345" in output
-    assert "Gas used:     210,000" in output
-    assert "Gas estimate: 240,000" in output
+    assert "Explorer:" not in output
+    assert "Block:" not in output
+    assert "Gas used:" not in output
+    assert "Gas estimate:" not in output
 
 
 def test_render_prepared_action_summary_for_deploy(capsys):

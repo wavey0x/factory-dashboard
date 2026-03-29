@@ -137,9 +137,11 @@ async def prepare_kick_action(
             skipped_prepare.append(
                 {
                     "sourceAddress": candidate.source_address,
+                    "sourceName": candidate.source_name,
                     "auctionAddress": candidate.auction_address,
                     "tokenAddress": candidate.token_address,
                     "tokenSymbol": candidate.token_symbol,
+                    "wantSymbol": candidate.want_symbol,
                     "reason": result.error_message,
                 }
             )

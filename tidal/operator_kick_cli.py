@@ -27,9 +27,8 @@ from tidal.cli_options import (
     SourceTypeOption,
     VerboseOption,
 )
-from tidal.cli_renderers import emit_json, render_inline_status, render_kick_inspect, render_kick_submission_summary
+from tidal.cli_renderers import emit_json, render_kick_inspect, render_kick_submission_summary, render_skip_panel
 from tidal.control_plane.client import ControlPlaneError
-from tidal.normalizers import short_address
 from tidal.operator_cli_support import (
     execute_prepared_action_sync,
     render_action_preview,
@@ -81,7 +80,7 @@ def _candidate_prepare_payload(candidate: KickInspectEntry, *, sender: str | Non
     }
 
 
-def _prepare_skip_messages(data: dict[str, object]) -> list[str]:
+def _prepare_skips(data: dict[str, object]) -> list[dict[str, str | None]]:
     preview = data.get("preview")
     if not isinstance(preview, dict):
         return []
@@ -90,24 +89,38 @@ def _prepare_skip_messages(data: dict[str, object]) -> list[str]:
     if not isinstance(skipped, list):
         return []
 
-    messages: list[str] = []
+    skips: list[dict[str, str | None]] = []
     for entry in skipped:
         if not isinstance(entry, dict):
             continue
-        token_label = str(entry.get("tokenSymbol") or entry.get("tokenAddress") or "candidate")
+        reason = str(entry.get("reason") or "candidate was skipped during prepare")
+        if reason:
+            reason = reason[0].upper() + reason[1:]
+        source_address = entry.get("sourceAddress")
+        source_label = None
+        if source_address:
+            try:
+                source_label = to_checksum_address(str(source_address))
+            except Exception:
+                source_label = str(source_address)
         auction_address = entry.get("auctionAddress")
         auction_label = None
         if auction_address:
             try:
-                auction_label = short_address(to_checksum_address(str(auction_address)))
+                auction_label = to_checksum_address(str(auction_address))
             except Exception:
-                auction_label = short_address(str(auction_address))
-        reason = str(entry.get("reason") or "candidate was skipped during prepare")
-        if auction_label:
-            messages.append(f"{token_label} at {auction_label}: {reason}")
-        else:
-            messages.append(f"{token_label}: {reason}")
-    return messages
+                auction_label = str(auction_address)
+        skips.append(
+            {
+                "reason": reason,
+                "token_symbol": str(entry.get("tokenSymbol")) if entry.get("tokenSymbol") is not None else None,
+                "want_symbol": str(entry.get("wantSymbol")) if entry.get("wantSymbol") is not None else None,
+                "source_name": str(entry.get("sourceName")) if entry.get("sourceName") is not None else None,
+                "source_address": source_label,
+                "auction_address": auction_label,
+            }
+        )
+    return skips
 
 
 def _resolve_preview_fee_context(cli_ctx: CLIContext) -> dict[str, float]:
@@ -342,11 +355,18 @@ def kick_run(
 
                     if prepare_response["status"] == "noop" or not transactions:
                         if not json_output:
-                            skip_messages = _prepare_skip_messages(prepared_data)
-                            if skip_messages or warnings:
+                            skip_entries = _prepare_skips(prepared_data)
+                            if skip_entries or warnings:
                                 prepare_feedback_emitted = True
-                            for message in skip_messages:
-                                render_inline_status("Skip", message, accent_style="yellow")
+                            for skip in skip_entries:
+                                render_skip_panel(
+                                    reason=str(skip["reason"]),
+                                    token_symbol=skip["token_symbol"],
+                                    want_symbol=skip["want_symbol"],
+                                    source_name=skip["source_name"],
+                                    source_address=skip["source_address"],
+                                    auction_address=skip["auction_address"],
+                                )
                             render_warnings(warnings)
                         continue
 

@@ -196,8 +196,11 @@ class _PrepareNoopClient:
                 "preview": {
                     "skippedDuringPrepare": [
                         {
-                            "tokenSymbol": "CRV",
+                            "sourceName": "Yearn Fee Burner",
+                            "sourceAddress": "0x1111111111111111111111111111111111111111",
                             "auctionAddress": "0x2222222222222222222222222222222222222222",
+                            "tokenSymbol": "CRV",
+                            "wantSymbol": "USDC",
                             "reason": "candidate was skipped during prepare",
                         }
                     ]
@@ -294,12 +297,13 @@ def test_operator_kick_run_broadcast_prepares_candidates_one_by_one(tmp_path, mo
     assert "Min price:   2,375 USDC (-5% buffer)" in result.output
     assert "Submitting transaction..." in result.output
     assert "Confirmed" in result.output
-    assert "https://etherscan.io/tx/0x0000000000000000000000000000000000000000000000000000000000000001" in result.output
-    assert "Explorer:     https://etherscan.io/tx/0x0000000000000000000000000000000000000000000000000000000000000001" in result.output
     assert "Gas limit:   252,000" in result.output
     assert "max 2.50 gwei" in result.output
     assert result.output.index("Confirmed") < result.output.index("Kick (2 of 2)")
-    assert result.output.count("Explorer:     https://etherscan.io/tx/0x0000000000000000000000000000000000000000000000000000000000000001") == 1
+    assert "Explorer:" not in result.output
+    assert "Block:" not in result.output
+    assert "Gas used:" not in result.output
+    assert "Gas estimate:" not in result.output
 
 
 def test_operator_kick_run_prepare_noop_does_not_repeat_generic_footer(tmp_path, monkeypatch) -> None:
@@ -324,10 +328,11 @@ def test_operator_kick_run_prepare_noop_does_not_repeat_generic_footer(tmp_path,
     result = runner.invoke(operator_app, ["kick", "run", "--broadcast", "--config", str(config_path)])
 
     assert result.exit_code == 2
-    assert (
-        "Skip: CRV at 0x2222…2222: "
-        "candidate was skipped during prepare"
-    ) in result.output
+    assert "Skip" in result.output
+    assert "Candidate was skipped during prepare" in result.output
+    assert "Pair:        CRV / USDC" in result.output
+    assert "Source:      Yearn Fee Burner (0x1111…1111)" in result.output
+    assert "Auction:     0x2222222222222222222222222222222222222222" in result.output
     assert "No kick transactions were sent." not in result.output
 
 

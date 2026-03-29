@@ -80,17 +80,31 @@ def render_panel(
     )
 
 
-def render_inline_status(
-    label: str,
-    message: str,
+def render_skip_panel(
     *,
-    accent_style: str = "yellow",
-    stderr: bool = False,
+    reason: str,
+    token_symbol: str | None,
+    want_symbol: str | None,
+    source_name: str | None,
+    source_address: str | None,
+    auction_address: str | None,
 ) -> None:
-    text = Text()
-    text.append(f"{label}: ", style=f"bold {accent_style}")
-    text.append(message)
-    _console(stderr=stderr).print(text)
+    pair_left = token_symbol or "unknown"
+    pair_right = want_symbol or "unknown"
+    lines = [reason]
+    lines.append(f"  Pair:        {pair_left} / {pair_right}")
+
+    if source_name and source_address and source_name != source_address:
+        lines.append(f"  Source:      {source_name} ({short_address(source_address)})")
+    elif source_name:
+        lines.append(f"  Source:      {source_name}")
+    elif source_address:
+        lines.append(f"  Source:      {source_address}")
+
+    if auction_address:
+        lines.append(f"  Auction:     {auction_address}")
+
+    render_panel("Skip", lines, border_style="yellow")
 
 
 def _display_bool(value: Any) -> str:
@@ -450,19 +464,6 @@ def _format_broadcast_value(value: Any) -> str:
     return str(value)
 
 
-def tx_explorer_url(chain_id: int | None, tx_hash: str) -> str | None:
-    base_urls = {
-        1: "https://etherscan.io",
-        10: "https://optimistic.etherscan.io",
-        42161: "https://arbiscan.io",
-        8453: "https://basescan.org",
-    }
-    base_url = base_urls.get(chain_id)
-    if base_url is None:
-        return None
-    return f"{base_url}/tx/{tx_hash}"
-
-
 def render_broadcast_records(records: list[BroadcastRecord]) -> None:
     if not records:
         return
@@ -484,18 +485,9 @@ def render_broadcast_records(records: list[BroadcastRecord]) -> None:
             lines.append(f"  Operation:    {record.operation}")
         lines.append(f"  Sender:       {_format_broadcast_value(record.sender)}")
         lines.append(f"  Tx hash:      {record.tx_hash}")
-        explorer_url = tx_explorer_url(record.chain_id, record.tx_hash)
-        if explorer_url is not None:
-            lines.append(f"  Explorer:     {explorer_url}")
         lines.append(f"  Broadcast at: {_format_broadcast_value(record.broadcast_at)}")
         if record.receipt_status is not None:
             lines.append(f"  Receipt:      {record.receipt_status}")
-        if record.block_number is not None:
-            lines.append(f"  Block:        {_format_broadcast_value(record.block_number)}")
-        if record.gas_used is not None:
-            lines.append(f"  Gas used:     {_format_broadcast_value(record.gas_used)}")
-        if record.gas_estimate is not None:
-            lines.append(f"  Gas estimate: {_format_broadcast_value(record.gas_estimate)}")
         render_panel(heading, lines, border_style=border_style)
 
 

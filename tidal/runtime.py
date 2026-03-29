@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from tidal.alerts.base import NullAlertSink
-from tidal.alerts.telegram import TelegramAlertSink
 from tidal.chain.contracts.fee_burner import FeeBurnerReader
 from tidal.chain.contracts.erc20 import ERC20Reader
 from tidal.chain.contracts.multicall import MulticallClient
@@ -121,10 +120,7 @@ def build_scanner_service(settings: Settings, session) -> ScannerService:
         token_repository=token_repository,
     )
 
-    if settings.telegram_alerts_enabled and settings.telegram_bot_token and settings.telegram_chat_id:
-        alert_sink = TelegramAlertSink(settings.telegram_bot_token, settings.telegram_chat_id)
-    else:
-        alert_sink = NullAlertSink()
+    alert_sink = NullAlertSink()
 
     auction_settler = None
     if settings.scan_auto_settle_enabled:
