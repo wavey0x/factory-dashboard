@@ -44,6 +44,8 @@ def submission_progress(message: str) -> None:
     console = Console(file=sys.stdout, highlight=False, soft_wrap=True)
     with console.status(f"[bold cyan]{message}[/bold cyan]", spinner="dots"):
         yield
+
+
 def _send_action_report(
     *,
     outbox: ActionReportOutbox,
