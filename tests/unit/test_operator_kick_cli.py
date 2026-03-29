@@ -197,6 +197,7 @@ class _PrepareNoopClient:
                     "skippedDuringPrepare": [
                         {
                             "tokenSymbol": "CRV",
+                            "auctionAddress": "0x2222222222222222222222222222222222222222",
                             "reason": "candidate was skipped during prepare",
                         }
                     ]
@@ -321,7 +322,10 @@ def test_operator_kick_run_prepare_noop_does_not_repeat_generic_footer(tmp_path,
     result = runner.invoke(operator_app, ["kick", "run", "--broadcast", "--config", str(config_path)])
 
     assert result.exit_code == 2
-    assert "Skipped during prepare: CRV: candidate was skipped during prepare" in result.output
+    assert (
+        "Skipped during prepare: CRV @ 0x2222222222222222222222222222222222222222: "
+        "candidate was skipped during prepare"
+    ) in result.output
     assert "No kick transactions were sent." not in result.output
 
 

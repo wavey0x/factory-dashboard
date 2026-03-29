@@ -7,6 +7,7 @@ from dataclasses import asdict
 from typing import Any
 
 import typer
+from eth_utils import to_checksum_address
 
 from tidal.cli_context import CLIContext, normalize_cli_address
 from tidal.cli_options import (
@@ -93,8 +94,18 @@ def _prepare_skip_messages(data: dict[str, object]) -> list[str]:
         if not isinstance(entry, dict):
             continue
         token_label = str(entry.get("tokenSymbol") or entry.get("tokenAddress") or "candidate")
+        auction_address = entry.get("auctionAddress")
+        auction_label = None
+        if auction_address:
+            try:
+                auction_label = to_checksum_address(str(auction_address))
+            except Exception:
+                auction_label = str(auction_address)
         reason = str(entry.get("reason") or "candidate was skipped during prepare")
-        messages.append(f"{token_label}: {reason}")
+        if auction_label:
+            messages.append(f"{token_label} @ {auction_label}: {reason}")
+        else:
+            messages.append(f"{token_label}: {reason}")
     return messages
 
 
