@@ -133,6 +133,27 @@ def test_shortlist_filters_stale_price(session):
     assert len(candidates) == 0
 
 
+def test_shortlist_filters_cached_disabled_auction_tokens(session):
+    now = datetime.now(timezone.utc).isoformat()
+    _seed_data(session, auction_address="0xauction_enabled")
+    session.execute(insert(models.auction_enabled_token_scans).values(
+        auction_address="0xauction_enabled",
+        scanned_at=now,
+        block_number=123,
+        status="SUCCESS",
+        error_message=None,
+    ))
+    session.commit()
+
+    candidates = shortlist_candidates(
+        session,
+        usd_threshold=100,
+        max_data_age_seconds=600,
+    )
+
+    assert len(candidates) == 0
+
+
 def test_shortlist_includes_fee_burner_candidates(session):
     now = datetime.now(timezone.utc).isoformat()
     session.execute(insert(models.fee_burners).values(

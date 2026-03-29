@@ -46,6 +46,45 @@ def _best_candidate_per_auction(candidates: list[KickCandidate]) -> list[KickCan
     return sort_candidates(list(best_by_auction.values()))
 
 
+def _filter_by_cached_auction_enablement(
+    session: Session,
+    candidates: list[KickCandidate],
+) -> list[KickCandidate]:
+    if not candidates:
+        return candidates
+
+    auction_addresses = sorted({candidate.auction_address for candidate in candidates})
+    scan_status_by_auction = {
+        str(row["auction_address"]): str(row["status"])
+        for row in session.execute(
+            select(
+                models.auction_enabled_token_scans.c.auction_address,
+                models.auction_enabled_token_scans.c.status,
+            ).where(models.auction_enabled_token_scans.c.auction_address.in_(auction_addresses))
+        ).mappings()
+    }
+    enabled_pairs = {
+        (str(row["auction_address"]), str(row["token_address"]))
+        for row in session.execute(
+            select(
+                models.auction_enabled_tokens_latest.c.auction_address,
+                models.auction_enabled_tokens_latest.c.token_address,
+            ).where(
+                models.auction_enabled_tokens_latest.c.auction_address.in_(auction_addresses),
+                models.auction_enabled_tokens_latest.c.active == 1,
+            )
+        ).mappings()
+    }
+
+    filtered: list[KickCandidate] = []
+    for candidate in candidates:
+        if scan_status_by_auction.get(candidate.auction_address) == "SUCCESS":
+            if (candidate.auction_address, candidate.token_address) not in enabled_pairs:
+                continue
+        filtered.append(candidate)
+    return filtered
+
+
 def shortlist_candidates(
     session: Session,
     *,
@@ -218,6 +257,8 @@ def build_shortlist(
                 want_price_usd=row["want_price_usd"],
             )
         )
+
+    candidates = _filter_by_cached_auction_enablement(session, candidates)
 
     normalized_source = source_address.lower() if source_address is not None else None
     normalized_auction = auction_address.lower() if auction_address is not None else None

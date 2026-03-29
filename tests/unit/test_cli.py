@@ -2,6 +2,8 @@ import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from eth_utils import to_checksum_address
+
 from tidal.cli_renderers import BroadcastRecord, render_broadcast_records, render_kick_run_summary
 from tidal.kick_cli import _make_confirm_fn
 
@@ -48,6 +50,7 @@ def test_make_confirm_fn_displays_pricing_profile(capsys):
     assert "1 candidate ready for submission" in output
     assert "Auction details" in output
     assert "Send details" in output
+    assert f"Auction:     {to_checksum_address('0x2222222222222222222222222222222222222222')}" in output
     assert "Quote out:   2,500.00 USDC (~$2,500.00)" in output
     assert "From:        -" in output
     assert "Gas limit:   252,000" in output

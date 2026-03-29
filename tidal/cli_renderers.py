@@ -8,6 +8,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import typer
+from eth_utils import to_checksum_address
 
 from tidal.logging import OutputMode
 from tidal.normalizers import short_address
@@ -71,13 +72,30 @@ def kick_scope_label(
     return f"{scope} for {' and '.join(filters)}"
 
 
+def _display_address(address: Any) -> str:
+    if address is None:
+        return "-"
+    try:
+        return to_checksum_address(str(address))
+    except Exception:
+        return str(address)
+
+
+def _display_gas_value(value: Any, *, suffix: str | None = None) -> str:
+    if value is None:
+        return "unavailable"
+    if suffix:
+        return f"{int(value):,}{suffix}"
+    return f"{int(value):,}"
+
+
 def render_kick_submission_summary(summary: dict[str, Any]) -> None:
     kicks = summary["kicks"]
     batch_size = summary["batch_size"]
-    gas_cost_eth = summary.get("gas_cost_eth", 0)
+    gas_cost_eth = summary.get("gas_cost_eth")
     priority_fee = summary.get("priority_fee_gwei", 0)
     max_fee = summary.get("max_fee_per_gas_gwei", 0)
-    gas_estimate = summary.get("gas_estimate", 0)
+    gas_estimate = summary.get("gas_estimate")
 
     try:
         max_fee_str = f"{float(max_fee):.2f}"
@@ -140,8 +158,8 @@ def render_kick_submission_summary(summary: dict[str, Any]) -> None:
             str(summary.get("single_title") or "Kick (1 of 1)"),
             "",
             "  Auction details",
-            f"  Source:      {source_name} ({short_address(k['source'])})",
-            f"  Auction:     {k['auction']}",
+            f"  Source:      {source_name} ({short_address(_display_address(k['source']))})",
+            f"  Auction:     {_display_address(k['auction'])}",
             f"  Sell amount: {amount_str} {token_sym} (~${float(usd_value):,.2f})",
             quote_value_line,
             f"  Start quote: {k['starting_price_display']}",
@@ -155,9 +173,13 @@ def render_kick_submission_summary(summary: dict[str, Any]) -> None:
         content.extend([
             "",
             "  Send details",
-            f"  From:        {sender or '-'}",
-            f"  Gas est:     {gas_estimate:,} (~{gas_cost_eth:.6f} ETH)",
-            f"  Gas limit:   {summary.get('gas_limit', gas_estimate):,}",
+            f"  From:        {_display_address(sender)}",
+            (
+                f"  Gas est:     {_display_gas_value(gas_estimate)} (~{float(gas_cost_eth):.6f} ETH)"
+                if gas_estimate is not None and gas_cost_eth is not None
+                else "  Gas est:     unavailable"
+            ),
+            f"  Gas limit:   {_display_gas_value(summary.get('gas_limit'))}",
             f"  Base fee:    {summary.get('base_fee_gwei', 0):.2f} gwei",
             f"  Fees:        priority {priority_fee:.2f} gwei | max {max_fee_str} gwei",
         ])
@@ -176,7 +198,11 @@ def render_kick_submission_summary(summary: dict[str, Any]) -> None:
         content.extend([
             "",
             f"  Total USD:   ~${total_usd:,.2f}",
-            f"  Gas est:     {gas_estimate:,} (~{gas_cost_eth:.6f} ETH)",
+            (
+                f"  Gas est:     {_display_gas_value(gas_estimate)} (~{float(gas_cost_eth):.6f} ETH)"
+                if gas_estimate is not None and gas_cost_eth is not None
+                else "  Gas est:     unavailable"
+            ),
             f"  Fees:        priority {priority_fee:.2f} gwei | max {max_fee_str} gwei",
         ])
 

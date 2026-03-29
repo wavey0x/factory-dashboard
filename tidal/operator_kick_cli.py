@@ -160,8 +160,8 @@ def _kick_submission_summary(
     if not isinstance(transaction, dict):
         return None
 
-    gas_estimate = int(transaction.get("gasEstimate") or 0)
-    gas_limit = int(transaction.get("gasLimit") or gas_estimate)
+    gas_estimate = int(transaction["gasEstimate"]) if transaction.get("gasEstimate") is not None else None
+    gas_limit = int(transaction["gasLimit"]) if transaction.get("gasLimit") is not None else None
     base_fee_gwei = fee_context["base_fee_gwei"]
     source_address = prepared.get("sourceAddress") or candidate.source_address
     source_name = prepared.get("sourceName") or candidate.source_name
@@ -223,7 +223,7 @@ def _kick_submission_summary(
         "base_fee_gwei": base_fee_gwei,
         "priority_fee_gwei": fee_context["priority_fee_gwei"],
         "max_fee_per_gas_gwei": fee_context["max_fee_per_gas_gwei"],
-        "gas_cost_eth": gas_estimate * base_fee_gwei / 1e9,
+        "gas_cost_eth": (gas_estimate * base_fee_gwei / 1e9) if gas_estimate is not None else None,
     }
 
 

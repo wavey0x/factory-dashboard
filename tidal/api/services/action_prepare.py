@@ -37,7 +37,7 @@ from tidal.persistence.repositories import KickTxRepository
 from tidal.pricing.token_price_agg import TokenPriceAggProvider
 from tidal.runtime import build_txn_service, build_web3_client
 from tidal.transaction_service.evaluator import build_shortlist, check_pre_send, sort_candidates
-from tidal.transaction_service.kicker import _GAS_ESTIMATE_BUFFER
+from tidal.transaction_service.kicker import _GAS_ESTIMATE_BUFFER, _format_execution_error
 from tidal.transaction_service.types import KickAction, KickResult, PreparedKick, PreparedSweepAndSettle
 
 STRATEGY_DEPLOY_CONTEXT_SQL = """
@@ -683,7 +683,7 @@ async def _estimate_transaction(
             }
         )
     except Exception as exc:  # noqa: BLE001
-        return None, None, f"Gas estimate failed: {exc}"
+        return None, None, f"Gas estimate failed: {_format_execution_error(exc)}"
     gas_limit = min(int(gas_estimate * _GAS_ESTIMATE_BUFFER), gas_cap)
     return gas_estimate, gas_limit, None
 
