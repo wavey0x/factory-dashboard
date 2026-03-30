@@ -1,23 +1,17 @@
 # CLI Client Guide
 
+Use this page after [Install](install.md). It focuses on day-to-day CLI-client use, not package installation.
+
 ## Role Of The CLI Client
 
 `tidal` is the API-backed CLI client. It does not own the shared database. It reads and prepares actions through the control-plane API, then signs and broadcasts transactions locally.
-
-If Tidal is not installed on this machine yet, start with [Install](install.md).
 
 That split matters:
 
 - the server owns shared state and audit history
 - the CLI client owns private-key access
 
-## Required Environment
-
-Run `tidal init` once first. That scaffolds:
-
-- `~/.tidal/config.yaml`
-- `~/.tidal/.env`
-- `~/.tidal/auction_pricing_policy.yaml`
+## First-Time Setup
 
 At minimum, put the API auth values in `~/.tidal/.env` or export them in your shell:
 
@@ -26,6 +20,8 @@ export TIDAL_API_BASE_URL=https://api.tidal.wavey.info
 export TIDAL_API_KEY=<cli-client-api-key>
 ```
 
+If you are using `https://api.tidal.wavey.info`, API keys are provided by wavey on request.
+
 You can also pass `--api-base-url` and `--api-key` per command, but `~/.tidal/.env` is the normal path.
 
 Client-side config values that are often useful in `~/.tidal/config.yaml`:
@@ -33,6 +29,7 @@ Client-side config values that are often useful in `~/.tidal/config.yaml`:
 - `tidal_api_base_url`
 - `tidal_api_request_timeout_seconds`
 - shared RPC timeout settings if you also do local preview/broadcast work
+- `pricing.yaml` only if you want pricing overrides or `usd_kick_limit` caps
 
 ## Wallet Flags
 
@@ -195,7 +192,7 @@ For day-to-day remote execution, use the CLI client `tidal`.
 
 Use these pages when you need exact command shapes or flag guidance:
 
-- [CLI Client Overview](cli-client-reference.md)
+- [CLI Command Map](cli-reference.md)
 - [CLI Client: `tidal init`](cli-client-init.md)
 - [CLI Client: `tidal kick`](cli-client-kick.md)
 - [CLI Client: `tidal auction`](cli-client-auction.md)

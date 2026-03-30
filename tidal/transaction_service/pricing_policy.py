@@ -1,4 +1,4 @@
-"""Auction pricing policy loading and resolution."""
+"""Pricing configuration loading and resolution."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from tidal.normalizers import normalize_address
 
 
 @dataclass(frozen=True, slots=True)
-class AuctionPricingProfile:
+class PricingProfile:
     name: str
     start_price_buffer_bps: int
     min_price_buffer_bps: int
@@ -20,12 +20,12 @@ class AuctionPricingProfile:
 
 
 @dataclass(frozen=True, slots=True)
-class AuctionPricingPolicy:
+class PricingPolicy:
     default_profile_name: str
-    profiles: dict[str, AuctionPricingProfile]
+    profiles: dict[str, PricingProfile]
     auction_profile_overrides: dict[tuple[str, str], str]
 
-    def resolve(self, auction_address: str, sell_token: str) -> AuctionPricingProfile:
+    def resolve(self, auction_address: str, sell_token: str) -> PricingProfile:
         auction_key = normalize_address(auction_address)
         sell_token_key = normalize_address(sell_token)
         profile_name = self.auction_profile_overrides.get(
@@ -41,6 +41,12 @@ class TokenSizingPolicy:
 
     def resolve(self, token_address: str) -> Decimal | None:
         return self.token_overrides.get(normalize_address(token_address))
+
+
+@dataclass(frozen=True, slots=True)
+class PricingConfig:
+    pricing_policy: PricingPolicy
+    token_sizing_policy: TokenSizingPolicy
 
 
 def _coerce_bps(value: object, *, field_name: str, profile_name: str) -> int:
@@ -63,36 +69,31 @@ def _coerce_positive_decimal(value: object, *, field_name: str, scope_name: str)
     return output
 
 
-def _load_raw_policy(policy_path: Path) -> dict[str, object]:
-    with policy_path.open("r", encoding="utf-8") as handle:
+def _load_raw_pricing(pricing_path: Path) -> dict[str, object]:
+    with pricing_path.open("r", encoding="utf-8") as handle:
         raw = yaml.safe_load(handle) or {}
     if not isinstance(raw, dict):
-        raise ValueError(f"Policy file must contain a mapping object: {policy_path}")
+        raise ValueError(f"Pricing file must contain a mapping object: {pricing_path}")
     return raw
 
 
-def load_auction_pricing_policy(policy_path: Path | None = None) -> AuctionPricingPolicy:
-    if policy_path is None:
-        raise ValueError("policy_path is required")
-    resolved_path = Path(policy_path).expanduser().resolve()
-    raw = _load_raw_policy(resolved_path)
-
+def _build_pricing_policy(raw: dict[str, object]) -> PricingPolicy:
     default_profile_name = str(raw.get("default_profile") or "").strip()
     if not default_profile_name:
-        raise ValueError("auction pricing policy must define default_profile")
+        raise ValueError("pricing file must define default_profile")
 
     raw_profiles = raw.get("profiles")
     if not isinstance(raw_profiles, dict) or not raw_profiles:
-        raise ValueError("auction pricing policy must define profiles")
+        raise ValueError("pricing file must define profiles")
 
-    profiles: dict[str, AuctionPricingProfile] = {}
+    profiles: dict[str, PricingProfile] = {}
     for profile_name, profile_raw in raw_profiles.items():
         if not isinstance(profile_raw, dict):
             raise ValueError(f"profile {profile_name} must be a mapping")
         profile_key = str(profile_name).strip()
         if not profile_key:
             raise ValueError("profile names must be non-empty")
-        profiles[profile_key] = AuctionPricingProfile(
+        profiles[profile_key] = PricingProfile(
             name=profile_key,
             start_price_buffer_bps=_coerce_bps(
                 profile_raw.get("start_price_buffer_bps"),
@@ -129,19 +130,14 @@ def load_auction_pricing_policy(policy_path: Path | None = None) -> AuctionPrici
                 raise ValueError(f"profile {profile_key!r} is not defined")
             overrides[(normalized_auction, normalize_address(str(sell_token)))] = profile_key
 
-    return AuctionPricingPolicy(
+    return PricingPolicy(
         default_profile_name=default_profile_name,
         profiles=profiles,
         auction_profile_overrides=overrides,
     )
 
 
-def load_token_sizing_policy(policy_path: Path | None = None) -> TokenSizingPolicy:
-    if policy_path is None:
-        raise ValueError("policy_path is required")
-    resolved_path = Path(policy_path).expanduser().resolve()
-    raw = _load_raw_policy(resolved_path)
-
+def _build_token_sizing_policy(raw: dict[str, object]) -> TokenSizingPolicy:
     raw_limits = raw.get("usd_kick_limit") or {}
     if not isinstance(raw_limits, dict):
         raise ValueError("usd_kick_limit must be a mapping")
@@ -155,3 +151,14 @@ def load_token_sizing_policy(policy_path: Path | None = None) -> TokenSizingPoli
         )
 
     return TokenSizingPolicy(token_overrides=token_overrides)
+
+
+def load_pricing(pricing_path: Path | None = None) -> PricingConfig:
+    if pricing_path is None:
+        raise ValueError("pricing_path is required")
+    resolved_path = Path(pricing_path).expanduser().resolve()
+    raw = _load_raw_pricing(resolved_path)
+    return PricingConfig(
+        pricing_policy=_build_pricing_policy(raw),
+        token_sizing_policy=_build_token_sizing_policy(raw),
+    )

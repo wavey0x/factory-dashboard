@@ -41,7 +41,7 @@ from tidal.scanner.service import ScannerService
 from tidal.scanner.token_metadata import TokenMetadataService
 from tidal.paths import default_txn_lock_path
 from tidal.transaction_service.signer import TransactionSigner
-from tidal.transaction_service.pricing_policy import load_auction_pricing_policy, load_token_sizing_policy
+from tidal.transaction_service.pricing_policy import load_pricing
 
 
 def build_scanner_service(settings: Settings, session) -> ScannerService:
@@ -252,8 +252,7 @@ def build_txn_service(
         multicall_enabled=settings.multicall_enabled,
         multicall_auction_batch_calls=settings.multicall_auction_batch_calls,
     )
-    pricing_policy = load_auction_pricing_policy(settings.resolved_pricing_policy_path)
-    token_sizing_policy = load_token_sizing_policy(settings.resolved_pricing_policy_path)
+    pricing = load_pricing(settings.resolved_pricing_path)
     resolved_require_curve_quote = (
         settings.txn_require_curve_quote
         if require_curve_quote is None
@@ -287,8 +286,8 @@ def build_txn_service(
         require_curve_quote=resolved_require_curve_quote,
         erc20_reader=erc20_reader,
         auction_state_reader=auction_state_reader,
-        pricing_policy=pricing_policy,
-        token_sizing_policy=token_sizing_policy,
+        pricing_policy=pricing.pricing_policy,
+        token_sizing_policy=pricing.token_sizing_policy,
     )
 
     lock_path = default_txn_lock_path()

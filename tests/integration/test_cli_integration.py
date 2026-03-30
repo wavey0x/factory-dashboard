@@ -20,6 +20,16 @@ def _write_txn_config(tmp_path: Path) -> Path:
     return config_path
 
 
+def _isolate_runtime_env(tmp_path: Path, monkeypatch) -> None:
+    home_root = tmp_path / "home"
+    home_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("HOME", str(home_root))
+    monkeypatch.delenv("TIDAL_HOME", raising=False)
+    monkeypatch.delenv("TIDAL_CONFIG", raising=False)
+    monkeypatch.delenv("TIDAL_ENV_FILE", raising=False)
+    monkeypatch.delenv("TIDAL_PRICING_PATH", raising=False)
+
+
 def test_db_migrate_uses_same_tidal_home_from_different_working_directories(tmp_path, monkeypatch) -> None:
     home_root = tmp_path / "home"
     app_home = home_root / ".tidal"
@@ -35,7 +45,7 @@ def test_db_migrate_uses_same_tidal_home_from_different_working_directories(tmp_
     monkeypatch.delenv("TIDAL_HOME", raising=False)
     monkeypatch.delenv("TIDAL_CONFIG", raising=False)
     monkeypatch.delenv("TIDAL_ENV_FILE", raising=False)
-    monkeypatch.delenv("TIDAL_PRICING_POLICY_PATH", raising=False)
+    monkeypatch.delenv("TIDAL_PRICING_PATH", raising=False)
     monkeypatch.setenv("HOME", str(home_root))
     monkeypatch.delenv("TIDAL_HOME", raising=False)
     monkeypatch.setattr("tidal.server_cli.run_migrations", fake_run_migrations)
@@ -83,6 +93,7 @@ class _StopDaemon(Exception):
 
 
 def test_scan_run_requires_rpc_url(tmp_path, monkeypatch) -> None:
+    _isolate_runtime_env(tmp_path, monkeypatch)
     monkeypatch.delenv("RPC_URL", raising=False)
     config_path = tmp_path / "config.yaml"
     config_path.write_text("RPC_URL: ''\nDB_PATH: ./test.db\n", encoding="utf-8")
@@ -95,6 +106,7 @@ def test_scan_run_requires_rpc_url(tmp_path, monkeypatch) -> None:
 
 
 def test_scan_run_requires_keystore_when_auto_settle_enabled(tmp_path, monkeypatch) -> None:
+    _isolate_runtime_env(tmp_path, monkeypatch)
     monkeypatch.setenv("RPC_URL", "https://example-rpc.invalid")
     monkeypatch.delenv("TXN_KEYSTORE_PATH", raising=False)
     monkeypatch.delenv("TXN_KEYSTORE_PASSPHRASE", raising=False)
@@ -201,6 +213,7 @@ def test_kick_daemon_threads_curve_quote_override(tmp_path, monkeypatch, flag_ar
 
 
 def test_auction_enable_tokens_requires_rpc_url(tmp_path, monkeypatch) -> None:
+    _isolate_runtime_env(tmp_path, monkeypatch)
     monkeypatch.setenv("RPC_URL", "")
     config_path = tmp_path / "config.yaml"
     config_path.write_text("db_path: ./test.db\n", encoding="utf-8")
@@ -267,6 +280,7 @@ def test_auction_enable_tokens_rejects_bypass_confirmation_without_broadcast() -
 
 
 def test_auction_settle_requires_rpc_url(tmp_path, monkeypatch) -> None:
+    _isolate_runtime_env(tmp_path, monkeypatch)
     monkeypatch.setenv("RPC_URL", "")
     config_path = tmp_path / "config.yaml"
     config_path.write_text("db_path: ./test.db\n", encoding="utf-8")

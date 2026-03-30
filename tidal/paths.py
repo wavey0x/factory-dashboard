@@ -8,7 +8,7 @@ from pathlib import Path
 _APP_HOME_DIRNAME = ".tidal"
 _CONFIG_FILENAME = "config.yaml"
 _ENV_FILENAME = ".env"
-_PRICING_POLICY_FILENAME = "auction_pricing_policy.yaml"
+_PRICING_FILENAME = "pricing.yaml"
 _STATE_DIRNAME = "state"
 _OPERATOR_STATE_DIRNAME = "operator"
 _RUN_DIRNAME = "run"
@@ -37,8 +37,8 @@ def default_env_path() -> Path:
     return tidal_home() / _ENV_FILENAME
 
 
-def default_pricing_policy_path() -> Path:
-    return tidal_home() / _PRICING_POLICY_FILENAME
+def default_pricing_path() -> Path:
+    return tidal_home() / _PRICING_FILENAME
 
 
 def default_state_dir() -> Path:

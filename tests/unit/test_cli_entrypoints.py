@@ -38,12 +38,17 @@ def test_operator_init_creates_tidal_home_layout(tmp_path, monkeypatch) -> None:
     assert result.exit_code == 0
     assert (app_home / "config.yaml").is_file()
     assert (app_home / ".env").is_file()
-    assert (app_home / "auction_pricing_policy.yaml").is_file()
+    assert (app_home / "pricing.yaml").is_file()
     assert (app_home / "state").is_dir()
     assert (app_home / "state" / "operator").is_dir()
     assert (app_home / "run").is_dir()
     scaffold = (app_home / "config.yaml").read_text(encoding="utf-8")
+    env_scaffold = (app_home / ".env").read_text(encoding="utf-8")
     assert "0xb911Fcce8D5AFCEc73E072653107260bb23C1eE8" in scaffold
     assert "https://api.tidal.wavey.info" in scaffold
+    assert scaffold.index("tidal_api_base_url") < scaffold.index("db_path")
+    assert env_scaffold.index("TIDAL_API_KEY") < env_scaffold.index("RPC_URL")
     assert "Config:" in result.output
+    assert "Pricing:" in result.output
     assert str(app_home / "config.yaml") in result.output
+    assert str(app_home / "pricing.yaml") in result.output

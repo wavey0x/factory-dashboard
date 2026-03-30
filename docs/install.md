@@ -1,31 +1,62 @@
 # Install
 
-This page is the fast path for getting Tidal onto a machine with the current `uv`-based workflow.
+This is the setup source of truth for Tidal. Start here whether you are installing the CLI client, running the server, or working from a repo checkout.
+
+## Choose A Path
+
+- `CLI client`: the common case. Use `tidal` against a hosted or self-hosted API and keep signing local.
+- `Server operator`: run `tidal-server`, the scanner, the API, and the shared SQLite database.
+- `Contributor`: develop from a repo checkout with `uv run`.
 
 ## Before You Start
 
 Install [`uv`](https://docs.astral.sh/uv/) first, then choose the path that matches your role.
+
+For tool installs, prefer Python 3.12 explicitly. `uv tool install` can otherwise choose a newer
+managed interpreter than the repo is actively exercised on.
+
+## What `tidal init` Creates
+
+`tidal init` scaffolds:
+
+- `~/.tidal/config.yaml`
+- `~/.tidal/.env`
+- `~/.tidal/pricing.yaml`
+- `~/.tidal/state/`
+- `~/.tidal/state/operator/`
+- `~/.tidal/run/`
+
+The scaffold is ordered for the common CLI-client case:
+
+- API client settings first
+- local execution defaults next
+- shared runtime settings after that
+- server-only settings last
 
 ## CLI Client Install
 
 Use this when you want the `tidal` CLI client on a workstation that talks to a remote or hosted API.
 
 ```bash
-uv tool install git+ssh://git@github.com/wavey0x/tidal.git
+uv python install 3.12
+uv tool install --python 3.12 git+ssh://git@github.com/wavey0x/tidal.git
 uv tool update-shell
 tidal init
 ```
 
-Then edit:
+Then review:
 
-- `~/.tidal/.env`
-- `~/.tidal/config.yaml`
+- `~/.tidal/.env`: set `TIDAL_API_KEY`, plus keystore secrets if you will broadcast locally
+- `~/.tidal/config.yaml`: confirm `tidal_api_base_url`
+- `~/.tidal/pricing.yaml`: usually leave this alone unless you want pricing overrides or `usd_kick_limit` caps
 
 Minimum client setup:
 
 ```bash
 TIDAL_API_KEY=<cli-client-api-key>
 ```
+
+If you are using the hosted API at `https://api.tidal.wavey.info`, API keys are provided by wavey on request.
 
 The generated `config.yaml` already defaults `tidal_api_base_url` to the hosted API. If you are pointing at a different server, override that value there or pass `--api-base-url` per command.
 
@@ -41,16 +72,17 @@ tidal kick inspect
 Use this on the machine that owns the shared database, scanner, and API.
 
 ```bash
-uv tool install git+ssh://git@github.com/wavey0x/tidal.git
+uv python install 3.12
+uv tool install --python 3.12 git+ssh://git@github.com/wavey0x/tidal.git
 uv tool update-shell
 tidal init
 ```
 
-Then edit:
+Then review:
 
-- `~/.tidal/.env`
-- `~/.tidal/config.yaml`
-- `~/.tidal/auction_pricing_policy.yaml` if you need pricing overrides
+- `~/.tidal/.env`: at minimum `RPC_URL`, and usually `TOKEN_PRICE_AGG_KEY`
+- `~/.tidal/config.yaml`: scanner, API, and database settings
+- `~/.tidal/pricing.yaml`: only if you need pricing overrides or per-token caps
 
 Minimum server operator bootstrap:
 
@@ -60,7 +92,7 @@ tidal-server scan run
 tidal-server api serve
 ```
 
-At minimum, `~/.tidal/.env` needs `RPC_URL`. Most production installs will also set secrets such as `TOKEN_PRICE_AGG_KEY`.
+For a self-hosted server, create client API keys with `tidal-server auth create --label <name>`.
 
 ## Contributor Install From A Repo Checkout
 
@@ -71,6 +103,13 @@ git clone git@github.com:wavey0x/tidal.git
 cd tidal
 uv sync --extra dev
 uv run tidal init
+```
+
+If you are troubleshooting a hanging tool install on a server, rerun with verbose logs so `uv`
+prints the last package it is preparing:
+
+```bash
+uv tool install --python 3.12 -v git+ssh://git@github.com/wavey0x/tidal.git
 ```
 
 Then use `uv run` for Python-side commands from the checkout:
@@ -88,4 +127,5 @@ uv run mkdocs serve
 - CLI client usage: [CLI Client Guide](operator-guide.md)
 - Server hosting and operations: [Server Operator Guide](server-ops.md)
 - Contributor workflow: [Local Development](local-dev.md)
+- Exact command docs: [CLI Command Map](cli-reference.md)
 - Settings reference: [Configuration](config.md)

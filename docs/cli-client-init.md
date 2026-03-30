@@ -20,7 +20,7 @@ The command creates:
 
 - `~/.tidal/config.yaml`
 - `~/.tidal/.env`
-- `~/.tidal/auction_pricing_policy.yaml`
+- `~/.tidal/pricing.yaml`
 - `~/.tidal/state/`
 - `~/.tidal/state/operator/`
 - `~/.tidal/run/`
@@ -38,7 +38,9 @@ Run `tidal init` when:
 After initialization, the usual next steps for a CLI client are:
 
 1. Put `TIDAL_API_KEY` in `~/.tidal/.env`.
-2. Confirm `tidal_api_base_url` in `~/.tidal/config.yaml`.
-3. Add keystore-related values if you will broadcast locally.
+2. If you are using `https://api.tidal.wavey.info`, get that API key from wavey.
+3. Confirm `tidal_api_base_url` in `~/.tidal/config.yaml`.
+4. Leave `~/.tidal/pricing.yaml` alone unless you want pricing overrides or USD caps.
+5. Add keystore-related values if you will broadcast locally.
 
 See [Configuration](config.md) for the setting-level breakdown.

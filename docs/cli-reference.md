@@ -1,26 +1,12 @@
 # CLI Reference
 
-This reference is organized around the two executable roles in Tidal:
+This is the single command-map page for Tidal. Use it to find the exact command page quickly.
 
-- `tidal`: the API-backed CLI client
-- `tidal-server`: the server operator CLI
+Setup and workflow guidance live elsewhere:
 
-Both commands read the same home-based runtime layout by default:
-
-- `~/.tidal/config.yaml`
-- `~/.tidal/.env`
-- `~/.tidal/auction_pricing_policy.yaml`
-
-Run `tidal init` once on a machine before using either command.
-
-## How To Use This Section
-
-Start with the overview page for your role, then use the command-specific pages for exact workflows and flags.
-
-| Role | Start here | Command groups |
-|---|---|---|
-| CLI client | [CLI Client Overview](cli-client-reference.md) | [`tidal init`](cli-client-init.md), [`tidal kick`](cli-client-kick.md), [`tidal auction`](cli-client-auction.md), [`tidal logs`](cli-client-logs.md) |
-| Server operator | [Server Operator CLI Overview](cli-server-reference.md) | [`tidal-server db`](cli-server-db.md), [`tidal-server scan`](cli-server-scan.md), [`tidal-server api`](cli-server-api.md), [`tidal-server auth`](cli-server-auth.md), [`tidal-server kick`](cli-server-kick.md), [`tidal-server auction`](cli-server-auction.md), [`tidal-server logs`](cli-server-logs.md) |
+- setup: [Install](install.md)
+- CLI-client workflows: [CLI Client Guide](operator-guide.md)
+- server workflows: [Server Operator Guide](server-ops.md)
 
 ## Shared Patterns
 
@@ -60,3 +46,24 @@ Use `tidal-server` when:
 - you are operating the host that owns the shared database
 - you are running the scanner, API, or auth management
 - you intentionally want transactions to execute from the server itself
+
+## CLI Client Commands
+
+| Command | Use it when | Reference |
+|---|---|---|
+| `tidal init` | You are bootstrapping a workstation or refreshing scaffold files | [CLI Client: `tidal init`](cli-client-init.md) |
+| `tidal kick` | You want to inspect or broadcast kick candidates through the API | [CLI Client: `tidal kick`](cli-client-kick.md) |
+| `tidal auction` | You want to deploy, enable, or settle auctions through the API | [CLI Client: `tidal auction`](cli-client-auction.md) |
+| `tidal logs` | You want historical kick and scan data from the API | [CLI Client: `tidal logs`](cli-client-logs.md) |
+
+## Server Operator Commands
+
+| Command | Use it when | Reference |
+|---|---|---|
+| `tidal-server db` | You need to apply migrations | [Server Operator: `tidal-server db`](cli-server-db.md) |
+| `tidal-server scan` | You need to run one scan or the scanner daemon | [Server Operator: `tidal-server scan`](cli-server-scan.md) |
+| `tidal-server api` | You need to serve the FastAPI control plane | [Server Operator: `tidal-server api`](cli-server-api.md) |
+| `tidal-server auth` | You need to create, list, or revoke API keys | [Server Operator: `tidal-server auth`](cli-server-auth.md) |
+| `tidal-server kick` | You want to inspect or execute kicks directly from the server | [Server Operator: `tidal-server kick`](cli-server-kick.md) |
+| `tidal-server auction` | You want to manage auctions directly from the server | [Server Operator: `tidal-server auction`](cli-server-auction.md) |
+| `tidal-server logs` | You want local operational history from the shared database | [Server Operator: `tidal-server logs`](cli-server-logs.md) |

@@ -1,12 +1,20 @@
 from decimal import Decimal
 
-from tidal.transaction_service.pricing_policy import load_token_sizing_policy
+from tidal.transaction_service.pricing_policy import load_pricing
 
 
-def test_load_token_sizing_policy_reads_token_overrides(tmp_path):
-    policy_path = tmp_path / "auction_pricing_policy.yaml"
-    policy_path.write_text(
+def test_load_pricing_reads_token_overrides(tmp_path):
+    pricing_path = tmp_path / "pricing.yaml"
+    pricing_path.write_text(
         """
+default_profile: volatile
+
+profiles:
+  volatile:
+    start_price_buffer_bps: 1000
+    min_price_buffer_bps: 500
+    step_decay_rate_bps: 50
+
 usd_kick_limit:
   "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": 5000
   "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": 25000
@@ -15,21 +23,34 @@ usd_kick_limit:
         encoding="utf-8",
     )
 
-    policy = load_token_sizing_policy(policy_path)
+    pricing = load_pricing(pricing_path)
 
-    rule_a = policy.resolve("0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
-    rule_b = policy.resolve("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
-    rule_missing = policy.resolve("0xcccccccccccccccccccccccccccccccccccccccc")
+    rule_a = pricing.token_sizing_policy.resolve("0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+    rule_b = pricing.token_sizing_policy.resolve("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+    rule_missing = pricing.token_sizing_policy.resolve("0xcccccccccccccccccccccccccccccccccccccccc")
 
     assert rule_a == Decimal("5000")
     assert rule_b == Decimal("25000")
     assert rule_missing is None
+    assert pricing.pricing_policy.default_profile_name == "volatile"
 
 
-def test_load_token_sizing_policy_defaults_to_empty_when_absent(tmp_path):
-    policy_path = tmp_path / "auction_pricing_policy.yaml"
-    policy_path.write_text("profiles: {}\n", encoding="utf-8")
+def test_load_pricing_defaults_to_empty_token_overrides_when_absent(tmp_path):
+    pricing_path = tmp_path / "pricing.yaml"
+    pricing_path.write_text(
+        """
+default_profile: volatile
 
-    policy = load_token_sizing_policy(policy_path)
+profiles:
+  volatile:
+    start_price_buffer_bps: 1000
+    min_price_buffer_bps: 500
+    step_decay_rate_bps: 50
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
 
-    assert policy.token_overrides == {}
+    pricing = load_pricing(pricing_path)
+
+    assert pricing.token_sizing_policy.token_overrides == {}

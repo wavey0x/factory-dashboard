@@ -15,7 +15,7 @@ from tidal.paths import (
     default_db_path,
     default_env_path,
     default_operator_state_dir,
-    default_pricing_policy_path,
+    default_pricing_path,
     default_run_dir,
     default_state_dir,
     default_txn_lock_path,
@@ -51,20 +51,16 @@ def init_command(
 
     config_path = default_config_path()
     env_path = default_env_path()
-    pricing_policy_path = default_pricing_policy_path()
+    pricing_path = default_pricing_path()
 
     config_status = _write_template(config_path, read_template_text("config.yaml"), force=force)
     env_status = _write_template(env_path, read_template_text("env.template"), force=force)
-    policy_status = _write_template(
-        pricing_policy_path,
-        read_template_text("auction_pricing_policy.yaml"),
-        force=force,
-    )
+    pricing_status = _write_template(pricing_path, read_template_text("pricing.yaml"), force=force)
 
     typer.echo(f"Home:            {home_dir}")
     typer.echo(f"Config:          {config_path} ({config_status})")
     typer.echo(f"Env:             {env_path} ({env_status})")
-    typer.echo(f"Pricing policy:  {pricing_policy_path} ({policy_status})")
+    typer.echo(f"Pricing:         {pricing_path} ({pricing_status})")
     typer.echo(f"Database:        {default_db_path()}")
     typer.echo(f"Outbox:          {default_action_outbox_path()}")
     typer.echo(f"Lock file:       {default_txn_lock_path()}")

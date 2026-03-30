@@ -2,63 +2,24 @@
 
 Tidal is Yearn's auction operations stack. It scans strategy and fee-burner inventories, caches balances and prices in SQLite, exposes that state through a FastAPI control plane, and lets CLI clients prepare and broadcast auction transactions with local wallet signing.
 
-## Read This First
+## Start Here
 
-- Installing the CLI client or server operator: go to [Install](install.md)
-- New to the system: start with [Architecture](architecture.md)
-- Setting up a workstation: go to [Local Development](local-dev.md)
-- Operating as a CLI client against a remote API: go to [CLI Client Guide](operator-guide.md)
-- Running the server and daemons: go to [Server Operator Guide](server-ops.md)
-- Understanding config files and role-specific settings: go to [Configuration](config.md)
+- Most users: [Install](install.md) then [CLI Client Guide](operator-guide.md)
+- Running the shared server: [Install](install.md) then [Server Operator Guide](server-ops.md)
+- Developing from source: [Install](install.md) then [Local Development](local-dev.md)
 
-## System At A Glance
+## Docs Map
 
-| Component | What it does | Main code |
-|---|---|---|
-| Scanner | Discovers strategies, fee burners, balances, prices, and auction mappings | `tidal/scanner/` |
-| Transaction service | Shortlists candidates, prepares kicks, computes lot pricing, and records results | `tidal/transaction_service/` |
-| Control plane API | Serves dashboard/log data and prepares action payloads | `tidal/api/` |
-| CLI client | Calls the API, signs locally, broadcasts locally, and reports receipts | `tidal/cli.py` |
-| Dashboard UI | Displays cached state and logs, and drives CLI client actions | `ui/` |
-| Contracts | Foundry project for the on-chain `AuctionKicker` helper | `contracts/` |
-
-## Reading Paths
-
-### Backend contributor
-
-1. [Install](install.md)
-2. [Local Development](local-dev.md)
-3. [Architecture](architecture.md)
-4. [Configuration](config.md)
-5. [Pricing](pricing.md)
-6. [Kick Selection](kick-selection.md)
-
-### CLI client
-
-1. [Install](install.md)
-2. [CLI Client Guide](operator-guide.md)
-3. [CLI Client Overview](cli-client-reference.md)
-4. [CLI Client: `tidal kick`](cli-client-kick.md)
-5. [Configuration](config.md)
-6. [Pricing](pricing.md)
-
-### Server operator
-
-1. [Install](install.md)
-2. [Server Operator Guide](server-ops.md)
-3. [Server Operator CLI Overview](cli-server-reference.md)
-4. [Configuration](config.md)
-5. [API Reference](api-reference.md)
-
-## Reference
-
-- [Install](install.md)
-- [CLI Overview](cli-reference.md)
-- [CLI Client Overview](cli-client-reference.md)
-- [Server Operator CLI Overview](cli-server-reference.md)
-- [API Reference](api-reference.md)
-- [Configuration](config.md)
-- [Glossary](glossary.md)
+- Setup and first-day workflows:
+  [Install](install.md), [CLI Client Guide](operator-guide.md), [Server Operator Guide](server-ops.md)
+- Exact command docs:
+  [CLI Command Map](cli-reference.md)
+- Runtime files and settings:
+  [Configuration](config.md)
+- System behavior:
+  [Architecture](architecture.md), [Pricing](pricing.md), [Kick Selection](kick-selection.md)
+- HTTP surface:
+  [API Reference](api-reference.md)
 
 ## Source Of Truth
 

@@ -42,7 +42,7 @@ uv run tidal-server api serve
 
 Required setup:
 
-- Run `uv run tidal init` to scaffold `~/.tidal/config.yaml`, `~/.tidal/.env`, and `~/.tidal/auction_pricing_policy.yaml`.
+- Run `uv run tidal init` to scaffold `~/.tidal/config.yaml`, `~/.tidal/.env`, and `~/.tidal/pricing.yaml`.
 - Put secrets such as `RPC_URL` and API keys in `~/.tidal/.env`.
 - Put operational settings in `~/.tidal/config.yaml`.
 - If you want the UI locally, run `cd ui && npm install && npm run dev`.
@@ -57,6 +57,8 @@ tidal kick inspect
 tidal kick run
 tidal kick run --broadcast --sender <address> --account <foundry-keystore-name>
 ```
+
+For the hosted API at `https://api.tidal.wavey.info`, API keys are provided by wavey on request.
 
 Broadcasting commands use a Foundry-style wallet surface: `--sender`, `--account`, `--keystore`, and `--password-file`.
 
@@ -79,9 +81,7 @@ Broadcasting commands use a Foundry-style wallet surface: `--sender`, `--account
 - Local development: [`docs/local-dev.md`](./docs/local-dev.md)
 - CLI client guide: [`docs/operator-guide.md`](./docs/operator-guide.md)
 - Server operator guide: [`docs/server-ops.md`](./docs/server-ops.md)
-- CLI overview: [`docs/cli-reference.md`](./docs/cli-reference.md)
-- CLI client command reference: [`docs/cli-client-reference.md`](./docs/cli-client-reference.md)
-- Server operator command reference: [`docs/cli-server-reference.md`](./docs/cli-server-reference.md)
+- CLI command map: [`docs/cli-reference.md`](./docs/cli-reference.md)
 - API reference: [`docs/api-reference.md`](./docs/api-reference.md)
 - Configuration reference: [`docs/config.md`](./docs/config.md)
 

@@ -1,5 +1,7 @@
 # Server Operator Guide
 
+Use this page after [Install](install.md). It focuses on operating the shared Tidal host.
+
 ## What The Server Operator Owns
 
 `tidal-server` is the server operator CLI. It owns:
@@ -10,8 +12,6 @@
 - FastAPI serving
 - API key management
 - the canonical SQLite database
-
-If this host does not have Tidal installed yet, start with [Install](install.md).
 
 The server should run close to both the database and the Ethereum RPC it depends on.
 
@@ -31,19 +31,11 @@ Separate the CLI client wallet from this machine whenever possible.
 
 ## First-Time Bootstrap
 
-Install the tool, then scaffold the runtime home:
-
-```bash
-uv tool install /path/to/tidal
-uv tool update-shell
-tidal init
-```
-
-Then edit:
+After following [Install](install.md), review:
 
 - `~/.tidal/config.yaml`
 - `~/.tidal/.env`
-- `~/.tidal/auction_pricing_policy.yaml`
+- `~/.tidal/pricing.yaml` if you need pricing overrides or per-token caps
 
 Then run:
 
@@ -266,7 +258,7 @@ tidal-server logs show <run_id>
 
 Use these pages for the exact server operator command surfaces:
 
-- [Server Operator CLI Overview](cli-server-reference.md)
+- [CLI Command Map](cli-reference.md)
 - [Server Operator: `tidal-server db`](cli-server-db.md)
 - [Server Operator: `tidal-server scan`](cli-server-scan.md)
 - [Server Operator: `tidal-server api`](cli-server-api.md)

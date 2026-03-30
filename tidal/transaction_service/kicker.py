@@ -31,8 +31,8 @@ from tidal.pricing.token_price_agg import TokenPriceAggProvider
 from tidal.scanner.auction_state import AuctionStateReader
 from tidal.time import utcnow_iso
 from tidal.transaction_service.pricing_policy import (
-    AuctionPricingPolicy,
-    AuctionPricingProfile,
+    PricingPolicy,
+    PricingProfile,
     TokenSizingPolicy,
 )
 from tidal.transaction_service.signer import TransactionSigner
@@ -229,14 +229,14 @@ def _default_pricing_policy(
     start_price_buffer_bps: int,
     min_price_buffer_bps: int,
     step_decay_rate_bps: int,
-) -> AuctionPricingPolicy:
-    default_profile = AuctionPricingProfile(
+) -> PricingPolicy:
+    default_profile = PricingProfile(
         name="volatile",
         start_price_buffer_bps=start_price_buffer_bps,
         min_price_buffer_bps=min_price_buffer_bps,
         step_decay_rate_bps=step_decay_rate_bps,
     )
-    return AuctionPricingPolicy(
+    return PricingPolicy(
         default_profile_name=default_profile.name,
         profiles={default_profile.name: default_profile},
         auction_profile_overrides={},
@@ -279,7 +279,7 @@ class AuctionKicker:
         quote_spot_warning_threshold_pct: float = 2.0,
         erc20_reader: ERC20Reader | None = None,
         auction_state_reader: AuctionStateReader | None = None,
-        pricing_policy: AuctionPricingPolicy | None = None,
+        pricing_policy: PricingPolicy | None = None,
         token_sizing_policy: TokenSizingPolicy | None = None,
     ):
         self.web3_client = web3_client
