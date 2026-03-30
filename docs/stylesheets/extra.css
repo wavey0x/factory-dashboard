@@ -50,11 +50,13 @@ button {
 }
 
 .md-header {
+  background: var(--tidal-navy);
   box-shadow: none;
   border-bottom: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 .md-header__button {
+  color: rgba(250, 250, 250, 0.9);
   border-radius: 999px;
   transition: background-color 120ms ease, color 120ms ease;
 }
@@ -77,12 +79,27 @@ button {
 }
 
 .md-header__title {
+  color: #f4f5f7;
   font-weight: 600;
   letter-spacing: 0.01em;
 }
 
+.md-header__topic,
+.md-source,
+.md-source__repository,
+.md-source__facts {
+  color: rgba(244, 245, 247, 0.88);
+}
+
+.md-source:hover,
+.md-source:hover .md-source__repository,
+.md-source:hover .md-source__facts {
+  color: #ffffff;
+}
+
 .md-tabs {
-  background: transparent;
+  background: var(--tidal-navy);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .md-tabs__list {
@@ -173,6 +190,16 @@ button {
 
 .md-search__input::placeholder {
   color: rgba(250, 250, 250, 0.72);
+}
+
+.md-search__input,
+.md-search__icon,
+.md-search__icon svg {
+  color: rgba(250, 250, 250, 0.9);
+}
+
+.md-search-result__meta {
+  color: var(--tidal-muted-light);
 }
 
 .md-main__inner {
