@@ -8,6 +8,8 @@ from typing import Literal
 
 from eth_utils import to_checksum_address
 
+from tidal.auction_price_units import scaled_price_to_public_raw
+from tidal.chain.contracts.erc20 import ERC20Reader
 from tidal.chain.contracts.abis import AUCTION_ABI, AUCTION_KICKER_ABI
 from tidal.chain.contracts.multicall import MulticallClient
 from tidal.normalizers import normalize_address
@@ -89,12 +91,26 @@ async def inspect_auction_settlement(web3_client, settings, auction_address: str
     active_token = active_tokens[0] if len(active_tokens) == 1 else None
 
     active_available_raw = None
-    active_price_raw = None
-    minimum_price_raw = None
+    active_price_public_raw = None
+    minimum_price_scaled_1e18 = None
+    minimum_price_public_raw = None
+    want_address = None
+    want_decimals = None
 
     if active_tokens:
-        minimum_price_by_auction = await reader.read_uint_noargs_many([normalized_auction], "minimumPrice")
-        minimum_price_raw = minimum_price_by_auction.get(normalized_auction)
+        minimum_price_by_auction, want_by_auction = await asyncio.gather(
+            reader.read_uint_noargs_many([normalized_auction], "minimumPrice"),
+            reader.read_address_noargs_many([normalized_auction], "want"),
+        )
+        minimum_price_scaled_1e18 = minimum_price_by_auction.get(normalized_auction)
+        want_address = want_by_auction.get(normalized_auction)
+        if want_address is not None:
+            erc20_reader = ERC20Reader(web3_client)
+            try:
+                want_decimals = await erc20_reader.read_decimals(want_address)
+            except Exception:  # noqa: BLE001
+                want_decimals = None
+        minimum_price_public_raw = scaled_price_to_public_raw(minimum_price_scaled_1e18, want_decimals)
 
     if active_token is not None:
         available_by_pair, price_by_pair = await asyncio.gather(
@@ -102,7 +118,7 @@ async def inspect_auction_settlement(web3_client, settings, auction_address: str
             reader.read_uint_arg_many([(normalized_auction, active_token)], "price"),
         )
         active_available_raw = available_by_pair.get((normalized_auction, active_token))
-        active_price_raw = price_by_pair.get((normalized_auction, active_token))
+        active_price_public_raw = price_by_pair.get((normalized_auction, active_token))
 
     return AuctionInspection(
         auction_address=normalized_auction,
@@ -110,8 +126,11 @@ async def inspect_auction_settlement(web3_client, settings, auction_address: str
         active_tokens=active_tokens,
         active_token=active_token,
         active_available_raw=active_available_raw,
-        active_price_raw=active_price_raw,
-        minimum_price_raw=minimum_price_raw,
+        active_price_public_raw=active_price_public_raw,
+        minimum_price_scaled_1e18=minimum_price_scaled_1e18,
+        minimum_price_public_raw=minimum_price_public_raw,
+        want_address=want_address,
+        want_decimals=want_decimals,
     )
 
 
@@ -120,7 +139,11 @@ def decide_auction_settlement(
     *,
     token_address: str | None = None,
     method: SettlementMethod = "auto",
+    allow_above_floor: bool = False,
 ) -> AuctionSettlementDecision:
+    if allow_above_floor and method != "sweep_and_settle":
+        raise ValueError("allow_above_floor requires method='sweep_and_settle'")
+
     normalized_token = normalize_address(token_address) if token_address else None
     forced = method in {"settle", "sweep_and_settle"}
 
@@ -180,7 +203,7 @@ def decide_auction_settlement(
             reason="active auction available() read failed",
         )
 
-    if inspection.minimum_price_raw is None:
+    if inspection.minimum_price_scaled_1e18 is None:
         return AuctionSettlementDecision(
             status="error",
             operation_type=None,
@@ -203,7 +226,7 @@ def decide_auction_settlement(
             reason="active lot is sold out",
         )
 
-    if inspection.active_price_raw is None:
+    if inspection.active_price_public_raw is None:
         return AuctionSettlementDecision(
             status="error",
             operation_type=None,
@@ -211,7 +234,15 @@ def decide_auction_settlement(
             reason="active auction price() read failed",
         )
 
-    if inspection.active_price_raw <= inspection.minimum_price_raw:
+    if inspection.minimum_price_public_raw is None:
+        return AuctionSettlementDecision(
+            status="error",
+            operation_type=None,
+            token_address=active_token,
+            reason="auction want token metadata read failed",
+        )
+
+    if inspection.active_price_public_raw <= inspection.minimum_price_public_raw:
         if method == "settle":
             return AuctionSettlementDecision(
                 status="error",
@@ -224,6 +255,14 @@ def decide_auction_settlement(
             operation_type="sweep_and_settle",
             token_address=active_token,
             reason="active auction price is at or below minimumPrice",
+        )
+
+    if method == "sweep_and_settle" and allow_above_floor:
+        return AuctionSettlementDecision(
+            status="actionable",
+            operation_type="sweep_and_settle",
+            token_address=active_token,
+            reason="forced sweep requested while auction is still active above minimumPrice",
         )
 
     return AuctionSettlementDecision(

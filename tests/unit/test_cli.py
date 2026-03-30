@@ -27,7 +27,9 @@ def test_make_confirm_fn_displays_pricing_profile(capsys):
                 "usd_value": "2500",
                 "starting_price": "2750",
                 "starting_price_display": "2,750 USDC (+10% buffer)",
-                "minimum_price": "2375",
+                "minimum_price": "2375000000000000000",
+                "minimum_quote": "2375",
+                "minimum_quote_display": "2,375 USDC (-5% buffer)",
                 "minimum_price_display": "2,375 USDC (-5% buffer)",
                 "want_symbol": "USDC",
                 "want_price_usd": "1",
@@ -36,6 +38,7 @@ def test_make_confirm_fn_displays_pricing_profile(capsys):
                 "step_decay_rate_bps": 1,
                 "pricing_profile_name": "stable",
                 "quote_amount": "2500",
+                "floor_rate": "2.375",
             }
         ],
         "batch_size": 1,
@@ -61,6 +64,7 @@ def test_make_confirm_fn_displays_pricing_profile(capsys):
     assert "From:        -" in output
     assert "Gas limit:   252,000" in output
     assert "Rate:        2.5000 quoted | 2.7500 start | 2.3750 floor USDC/CRV" in output
+    assert "Min quote:   2,375 USDC (-5% buffer)" in output
     assert "Profile:     stable | decay 0.01%" in output
     assert "Submitting transaction..." in output
     confirm_mock.assert_called_once_with("Send this transaction?", default=False)
@@ -79,7 +83,9 @@ def test_make_confirm_fn_warns_on_sell_vs_quote_mismatch(capsys):
                 "usd_value": "10000",
                 "starting_price": "1725",
                 "starting_price_display": "1,725 crvUSD (+10% buffer)",
-                "minimum_price": "1489",
+                "minimum_price": "428685355313654305",
+                "minimum_quote": "1489",
+                "minimum_quote_display": "1,489 crvUSD (-5% buffer)",
                 "minimum_price_display": "1,489 crvUSD (-5% buffer)",
                 "want_symbol": "crvUSD",
                 "want_price_usd": "1",
@@ -88,6 +94,7 @@ def test_make_confirm_fn_warns_on_sell_vs_quote_mismatch(capsys):
                 "step_decay_rate_bps": 50,
                 "pricing_profile_name": "volatile",
                 "quote_amount": "1568",
+                "floor_rate": "0.428685355313654305",
             }
         ],
         "batch_size": 1,
@@ -127,7 +134,9 @@ def test_make_confirm_fn_respects_quote_spot_warning_threshold(capsys):
                 "usd_value": "1000",
                 "starting_price": "1090",
                 "starting_price_display": "1,090 USDC (+10% buffer)",
-                "minimum_price": "940",
+                "minimum_price": "940000000000000000",
+                "minimum_quote": "940",
+                "minimum_quote_display": "940 USDC (-5% buffer)",
                 "minimum_price_display": "940 USDC (-5% buffer)",
                 "want_symbol": "USDC",
                 "want_price_usd": "1",
@@ -136,6 +145,7 @@ def test_make_confirm_fn_respects_quote_spot_warning_threshold(capsys):
                 "step_decay_rate_bps": 50,
                 "pricing_profile_name": "volatile",
                 "quote_amount": "1010",
+                "floor_rate": "0.94",
             }
         ],
         "batch_size": 1,
@@ -383,8 +393,9 @@ def test_render_prepared_action_summary_for_settle(capsys):
                     "active_tokens": ["0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
                     "active_token": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                     "active_available_raw": 0,
-                    "active_price_raw": 125,
-                    "minimum_price_raw": 100,
+                    "active_price_public_raw": 125,
+                    "minimum_price_scaled_1e18": 100,
+                    "minimum_price_public_raw": 100,
                 },
                 "decision": {
                     "status": "actionable",

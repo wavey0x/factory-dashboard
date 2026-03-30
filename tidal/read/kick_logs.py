@@ -26,6 +26,7 @@ SELECT
     k.sell_amount,
     k.starting_price,
     k.minimum_price,
+    {kick_minimum_quote_column} AS minimum_quote,
     k.start_price_buffer_bps,
     k.min_price_buffer_bps,
     k.quote_amount,
@@ -118,6 +119,7 @@ class KickLogReadService:
                     "sellAmount": row["sell_amount"],
                     "startingPrice": row["starting_price"],
                     "minimumPrice": row["minimum_price"],
+                    "minimumQuote": row["minimum_quote"],
                     "startPriceBufferBps": row["start_price_buffer_bps"],
                     "minPriceBufferBps": row["min_price_buffer_bps"],
                     "quoteAmount": row["quote_amount"],
@@ -261,6 +263,7 @@ class KickLogReadService:
         kick_settle_token_column = "k.settle_token" if features["kick_txs.settle_token"] else "NULL"
         kick_stuck_abort_reason_column = "k.stuck_abort_reason" if features["kick_txs.stuck_abort_reason"] else "NULL"
         kick_want_symbol_column = "COALESCE(k.want_symbol, wt.symbol)" if features["kick_txs.want_symbol"] else "wt.symbol"
+        kick_minimum_quote_column = "k.minimum_quote" if features["kick_txs.minimum_quote"] else "NULL"
 
         if features["fee_burners"]:
             fee_burner_join = f"LEFT JOIN fee_burners fb ON fb.address = {source_address_expr}"
@@ -280,6 +283,7 @@ class KickLogReadService:
             kick_step_decay_rate_bps_column=kick_step_decay_rate_bps_column,
             kick_settle_token_column=kick_settle_token_column,
             kick_stuck_abort_reason_column=kick_stuck_abort_reason_column,
+            kick_minimum_quote_column=kick_minimum_quote_column,
             kick_auctionscan_round_id_column=kick_auctionscan_round_id_column,
             kick_auctionscan_last_checked_at_column=kick_auctionscan_last_checked_at_column,
             kick_auctionscan_matched_at_column=kick_auctionscan_matched_at_column,
@@ -305,6 +309,7 @@ class KickLogReadService:
             "kick_txs.source_address": self._has_column("kick_txs", "source_address"),
             "kick_txs.token_symbol": self._has_column("kick_txs", "token_symbol"),
             "kick_txs.want_symbol": self._has_column("kick_txs", "want_symbol"),
+            "kick_txs.minimum_quote": self._has_column("kick_txs", "minimum_quote"),
             "kick_txs.step_decay_rate_bps": self._has_column("kick_txs", "step_decay_rate_bps"),
             "kick_txs.settle_token": self._has_column("kick_txs", "settle_token"),
             "kick_txs.stuck_abort_reason": self._has_column("kick_txs", "stuck_abort_reason"),
@@ -340,4 +345,3 @@ class KickLogReadService:
         if not address:
             return None
         return normalize_address(str(address))
-

@@ -60,7 +60,10 @@ def test_scan_run_requires_keystore_when_auto_settle_enabled(tmp_path, monkeypat
     monkeypatch.delenv("TXN_KEYSTORE_PASSPHRASE", raising=False)
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
-        "db_path: ./test.db\nscan_auto_settle_enabled: true\n",
+        "db_path: ./test.db\n"
+        "scan_auto_settle_enabled: true\n"
+        "txn_keystore_path: ''\n"
+        "txn_keystore_passphrase: ''\n",
         encoding="utf-8",
     )
 
@@ -255,7 +258,7 @@ def test_auction_settle_rejects_invalid_token() -> None:
     assert "invalid address" in result.output
 
 
-def test_auction_settle_rejects_invalid_method() -> None:
+def test_auction_settle_rejects_legacy_method_option() -> None:
     runner = CliRunner()
     result = runner.invoke(
         app,
@@ -264,13 +267,12 @@ def test_auction_settle_rejects_invalid_method() -> None:
             "settle",
             "0x1111111111111111111111111111111111111111",
             "--method",
-            "liquidate",
+            "auto",
         ],
     )
 
     assert result.exit_code != 0
-    assert "Invalid value for --method" in result.output
-    assert "expected 'auto', 'settle', or 'sweep-and-settle'" in result.output
+    assert "No such option: --method" in result.output
 
 
 def test_auction_settle_rejects_bypass_confirmation_without_broadcast() -> None:
@@ -301,8 +303,9 @@ def test_auction_settle_json_dry_run_uses_auto_method(tmp_path, monkeypatch) -> 
             active_tokens=("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",),
             active_token="0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             active_available_raw=0,
-            active_price_raw=123,
-            minimum_price_raw=100,
+            active_price_public_raw=123,
+            minimum_price_scaled_1e18=100,
+            minimum_price_public_raw=100,
         )
 
     async def fake_preview_settlement_execution(**kwargs):  # noqa: ANN003, ANN201
@@ -344,6 +347,67 @@ def test_auction_settle_json_dry_run_uses_auto_method(tmp_path, monkeypatch) -> 
     assert payload["status"] == "ok"
     assert payload["data"]["decision"]["operation_type"] == "settle"
     assert payload["data"]["execution"]["data"] == "0xdeadbeef"
+
+
+def test_auction_settle_json_dry_run_uses_sweep_override_above_floor(tmp_path, monkeypatch) -> None:
+    config_path = _write_txn_config(tmp_path)
+
+    async def fake_inspect_auction_settlement(web3_client, settings, auction_address):  # noqa: ANN001, ANN201
+        del web3_client, settings
+        return AuctionInspection(
+            auction_address=auction_address,
+            is_active_auction=True,
+            active_tokens=("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",),
+            active_token="0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            active_available_raw=10**18,
+            active_price_public_raw=101,
+            minimum_price_scaled_1e18=100,
+            minimum_price_public_raw=100,
+        )
+
+    async def fake_preview_settlement_execution(**kwargs):  # noqa: ANN003, ANN201
+        del kwargs
+        return {
+            "operation_type": "sweep_and_settle",
+            "auction": "0x1111111111111111111111111111111111111111",
+            "token": "0xaAaAaAaaAaAaAaaAaAAAAAAAAaaaAaAaAaaAaaAa",
+            "sender": None,
+            "target": "0x9999999999999999999999999999999999999999",
+            "data": "0xfeedface",
+            "gas_estimate": None,
+            "gas_limit": None,
+            "base_fee_gwei": 0.0,
+            "priority_fee_gwei": 0.0,
+        }
+
+    monkeypatch.setattr(auction_cli_module, "configure_logging", lambda *args, **kwargs: None)
+    monkeypatch.setattr(auction_cli_module, "build_web3_client", lambda settings: object())
+    monkeypatch.setattr(auction_cli_module, "inspect_auction_settlement", fake_inspect_auction_settlement)
+    monkeypatch.setattr(auction_cli_module, "_preview_settlement_execution", fake_preview_settlement_execution)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "auction",
+            "settle",
+            "0x1111111111111111111111111111111111111111",
+            "--sweep",
+            "--json",
+            "--config",
+            str(config_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["command"] == "auction.settle"
+    assert payload["status"] == "ok"
+    assert payload["data"]["decision"]["operation_type"] == "sweep_and_settle"
+    assert payload["data"]["decision"]["reason"] == "forced sweep requested while auction is still active above minimumPrice"
+    assert payload["warnings"] == [
+        "Forced sweep requested while auction is still above floor; unsold tokens will be returned to the receiver."
+    ]
 
 
 def test_auction_legacy_sweep_and_settle_command_is_removed() -> None:

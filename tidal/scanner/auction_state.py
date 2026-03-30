@@ -49,6 +49,14 @@ class AuctionStateReader:
             decoder=lambda data: [normalize_address(item) for item in abi_decode(["address[]"], data)[0]],
         )
 
+    async def read_address_noargs_many(self, auction_addresses: list[str], method_name: str) -> dict[str, str | None]:
+        return await self._read_noarg_many(
+            auction_addresses,
+            method_name,
+            direct_transform=lambda value: normalize_address(value),
+            decoder=lambda data: normalize_address(abi_decode(["address"], data)[0]),
+        )
+
     async def read_uint_noargs_many(self, auction_addresses: list[str], method_name: str) -> dict[str, int | None]:
         return await self._read_noarg_many(
             auction_addresses,

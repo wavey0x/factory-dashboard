@@ -15,6 +15,13 @@ from eth_utils import keccak, to_checksum_address
 from hexbytes import HexBytes
 
 from tidal.auction_settlement import decide_auction_settlement
+from tidal.auction_price_units import (
+    compute_minimum_price_scaled_1e18,
+    compute_minimum_quote_unscaled,
+    compute_starting_price_unscaled,
+    scaled_price_to_public_raw,
+    scaled_price_to_rate,
+)
 from tidal.chain.contracts.abis import AUCTION_KICKER_ABI
 from tidal.chain.contracts.erc20 import ERC20Reader
 from tidal.chain.web3_client import Web3Client
@@ -374,6 +381,7 @@ class AuctionKicker:
         sell_amount: str | None = None,
         starting_price: str | None = None,
         minimum_price: str | None = None,
+        minimum_quote: str | None = None,
         usd_value: str | None = None,
         tx_hash: str | None = None,
         quote_amount: str | None = None,
@@ -410,6 +418,8 @@ class AuctionKicker:
             row["starting_price"] = starting_price
         if minimum_price is not None:
             row["minimum_price"] = minimum_price
+        if minimum_quote is not None:
+            row["minimum_quote"] = minimum_quote
         if usd_value is not None:
             row["usd_value"] = usd_value
         if tx_hash is not None:
@@ -446,6 +456,7 @@ class AuctionKicker:
         sell_amount: str | None = None,
         starting_price: str | None = None,
         minimum_price: str | None = None,
+        minimum_quote: str | None = None,
         usd_value: str | None = None,
         quote_amount: str | None = None,
         quote_response_json: str | None = None,
@@ -468,6 +479,7 @@ class AuctionKicker:
             sell_amount=sell_amount,
             starting_price=starting_price,
             minimum_price=minimum_price,
+            minimum_quote=minimum_quote,
             usd_value=usd_value,
             quote_amount=quote_amount,
             quote_response_json=quote_response_json,
@@ -497,6 +509,7 @@ class AuctionKicker:
             "sell_amount": pk.sell_amount_str,
             "starting_price": pk.starting_price_str,
             "minimum_price": pk.minimum_price_str,
+            "minimum_quote": pk.minimum_quote_str,
             "usd_value": pk.usd_value_str,
             "quote_amount": pk.quote_amount_str,
             "quote_response_json": pk.quote_response_json,
@@ -557,26 +570,50 @@ class AuctionKicker:
         available_by_pair = {}
         price_by_pair = {}
         minimum_price_by_auction = {}
+        want_by_auction = {}
         if active_pairs:
-            available_by_pair, price_by_pair, minimum_price_by_auction = await asyncio.gather(
+            available_by_pair, price_by_pair, minimum_price_by_auction, want_by_auction = await asyncio.gather(
                 reader.read_uint_arg_many(active_pairs, "available"),
                 reader.read_uint_arg_many(active_pairs, "price"),
                 reader.read_uint_noargs_many(active_auctions, "minimumPrice"),
+                reader.read_address_noargs_many(active_auctions, "want"),
             )
         elif active_auctions:
-            minimum_price_by_auction = await reader.read_uint_noargs_many(active_auctions, "minimumPrice")
+            minimum_price_by_auction, want_by_auction = await asyncio.gather(
+                reader.read_uint_noargs_many(active_auctions, "minimumPrice"),
+                reader.read_address_noargs_many(active_auctions, "want"),
+            )
+
+        want_addresses = sorted({address for address in want_by_auction.values() if address})
+        want_decimals_by_address: dict[str, int | None] = {}
+        if want_addresses:
+            erc20_reader = self._resolve_erc20_reader()
+
+            async def _read_decimals(address: str) -> tuple[str, int | None]:
+                try:
+                    return address, await erc20_reader.read_decimals(address)
+                except Exception:  # noqa: BLE001
+                    return address, None
+
+            want_decimals_by_address = dict(await asyncio.gather(*(_read_decimals(address) for address in want_addresses)))
 
         for auction_address, token_address in candidate_keys:
             active_tokens = active_tokens_by_auction.get(auction_address, ())
             active_token = active_tokens[0] if len(active_tokens) == 1 else None
+            want_address = want_by_auction.get(auction_address)
+            want_decimals = want_decimals_by_address.get(want_address) if want_address else None
+            minimum_price_scaled_1e18 = minimum_price_by_auction.get(auction_address)
             inspections[(auction_address, token_address)] = AuctionInspection(
                 auction_address=auction_address,
                 is_active_auction=active_flags.get(auction_address),
                 active_tokens=active_tokens,
                 active_token=active_token,
                 active_available_raw=available_by_pair.get((auction_address, active_token)) if active_token else None,
-                active_price_raw=price_by_pair.get((auction_address, active_token)) if active_token else None,
-                minimum_price_raw=minimum_price_by_auction.get(auction_address),
+                active_price_public_raw=price_by_pair.get((auction_address, active_token)) if active_token else None,
+                minimum_price_scaled_1e18=minimum_price_scaled_1e18,
+                minimum_price_public_raw=scaled_price_to_public_raw(minimum_price_scaled_1e18, want_decimals),
+                want_address=want_address,
+                want_decimals=want_decimals,
             )
 
         return inspections
@@ -589,9 +626,14 @@ class AuctionKicker:
         sell_token = inspection.active_token or candidate.token_address
         token_symbol = candidate.token_symbol if normalize_address(sell_token) == normalize_address(candidate.token_address) else None
         sell_amount_str = str(inspection.active_available_raw) if inspection.active_available_raw is not None else None
-        minimum_price_str = (
-            str(inspection.minimum_price_raw)
-            if inspection.minimum_price_raw is not None
+        minimum_price_scaled_1e18_str = (
+            str(inspection.minimum_price_scaled_1e18)
+            if inspection.minimum_price_scaled_1e18 is not None
+            else None
+        )
+        minimum_price_public_str = (
+            str(inspection.minimum_price_public_raw)
+            if inspection.minimum_price_public_raw is not None
             else None
         )
         normalized_balance = None
@@ -604,10 +646,12 @@ class AuctionKicker:
         return PreparedSweepAndSettle(
             candidate=candidate,
             sell_token=sell_token,
-            minimum_price_raw=inspection.minimum_price_raw,
+            minimum_price_scaled_1e18=inspection.minimum_price_scaled_1e18,
+            minimum_price_public_raw=inspection.minimum_price_public_raw,
             available_raw=inspection.active_available_raw,
             sell_amount_str=sell_amount_str,
-            minimum_price_str=minimum_price_str,
+            minimum_price_scaled_1e18_str=minimum_price_scaled_1e18_str,
+            minimum_price_public_str=minimum_price_public_str,
             usd_value_str=usd_value_str,
             normalized_balance=normalized_balance,
             stuck_abort_reason="active auction price is at or below minimumPrice",
@@ -846,25 +890,34 @@ class AuctionKicker:
         amount_out_normalized = Decimal(
             to_decimal_string(quote_result.amount_out_raw, quote_result.token_out_decimals)
         )
-        buffer = Decimal(1) + Decimal(profile.start_price_buffer_bps) / Decimal(10_000)
-        starting_price_raw = int(
-            (amount_out_normalized * buffer).to_integral_value(rounding=ROUND_CEILING)
+        starting_price_unscaled = compute_starting_price_unscaled(
+            amount_out_raw=quote_result.amount_out_raw,
+            want_decimals=quote_result.token_out_decimals,
+            buffer_bps=profile.start_price_buffer_bps,
         )
 
+        buffer = Decimal(1) + Decimal(profile.start_price_buffer_bps) / Decimal(10_000)
         exact_value = amount_out_normalized * buffer
-        if exact_value > 0 and starting_price_raw > exact_value * 2:
+        if exact_value > 0 and starting_price_unscaled > exact_value * 2:
             logger.warning(
                 "txn_starting_price_precision_loss",
                 source=candidate.source_address,
                 token=candidate.token_address,
                 exact_want_value=str(exact_value),
-                ceiled_value=starting_price_raw,
+                ceiled_value=starting_price_unscaled,
             )
 
-        min_buffer = Decimal(1) - Decimal(profile.min_price_buffer_bps) / Decimal(10_000)
-        minimum_price_raw = max(
-            0,
-            int((amount_out_normalized * min_buffer).to_integral_value(rounding=ROUND_FLOOR)),
+        minimum_price_scaled_1e18 = compute_minimum_price_scaled_1e18(
+            amount_out_raw=quote_result.amount_out_raw,
+            want_decimals=quote_result.token_out_decimals,
+            sell_amount_raw=sell_amount,
+            sell_decimals=candidate.decimals,
+            buffer_bps=profile.min_price_buffer_bps,
+        )
+        minimum_quote_unscaled = compute_minimum_quote_unscaled(
+            minimum_price_scaled_1e18=minimum_price_scaled_1e18,
+            sell_amount_raw=sell_amount,
+            sell_decimals=candidate.decimals,
         )
 
         want_price_usd_str: str | None = None
@@ -888,11 +941,13 @@ class AuctionKicker:
         return PreparedKick(
             candidate=candidate,
             sell_amount=sell_amount,
-            starting_price_raw=starting_price_raw,
-            minimum_price_raw=minimum_price_raw,
+            starting_price_unscaled=starting_price_unscaled,
+            minimum_price_scaled_1e18=minimum_price_scaled_1e18,
+            minimum_quote_unscaled=minimum_quote_unscaled,
             sell_amount_str=str(sell_amount),
-            starting_price_str=str(starting_price_raw),
-            minimum_price_str=str(minimum_price_raw),
+            starting_price_unscaled_str=str(starting_price_unscaled),
+            minimum_price_scaled_1e18_str=str(minimum_price_scaled_1e18),
+            minimum_quote_unscaled_str=str(minimum_quote_unscaled),
             usd_value_str=str(selected_sell.selected_sell_usd_value),
             live_balance_raw=live_balance_raw,
             normalized_balance=selected_sell.selected_sell_normalized,
@@ -998,6 +1053,7 @@ class AuctionKicker:
                 want_sym = pk.candidate.want_symbol or "want-token"
                 buffer_pct = pk.start_price_buffer_bps / 100
                 min_buffer_pct = pk.min_price_buffer_bps / 100
+                floor_rate = scaled_price_to_rate(pk.minimum_price_scaled_1e18)
                 kick_summaries.append(
                     {
                         "source": pk.candidate.source_address,
@@ -1012,13 +1068,19 @@ class AuctionKicker:
                         "sell_amount": pk.normalized_balance,
                         "usd_value": pk.usd_value_str,
                         "starting_price": pk.starting_price_str,
-                        "starting_price_display": f"{pk.starting_price_raw:,} {want_sym} (+{buffer_pct:.0f}% buffer)",
+                        "starting_price_display": f"{pk.starting_price_unscaled:,} {want_sym} (+{buffer_pct:.0f}% buffer)",
                         "minimum_price": pk.minimum_price_str,
-                        "minimum_price_display": f"{pk.minimum_price_raw:,} {want_sym} (-{min_buffer_pct:.0f}% buffer)",
+                        "minimum_price_scaled_1e18": pk.minimum_price_scaled_1e18_str,
+                        "minimum_quote": pk.minimum_quote_unscaled_str,
+                        "minimum_quote_display": f"{pk.minimum_quote_unscaled:,} {want_sym} (-{min_buffer_pct:.0f}% buffer)",
+                        "minimum_price_display": f"{pk.minimum_price_scaled_1e18:,} (scaled 1e18 floor)",
                         "sell_price_usd": pk.candidate.price_usd,
                         "want_address": pk.candidate.want_address,
                         "want_symbol": pk.candidate.want_symbol,
                         "want_price_usd": pk.want_price_usd_str,
+                        "quote_rate": str(Decimal(pk.quote_amount_str) / Decimal(pk.normalized_balance)),
+                        "start_rate": str(Decimal(pk.starting_price_unscaled) / Decimal(pk.normalized_balance)),
+                        "floor_rate": str(floor_rate) if floor_rate is not None else None,
                         "buffer_bps": pk.start_price_buffer_bps,
                         "min_buffer_bps": pk.min_price_buffer_bps,
                         "step_decay_rate_bps": pk.step_decay_rate_bps,
@@ -1059,6 +1121,7 @@ class AuctionKicker:
                             sell_amount=pk.sell_amount_str,
                             starting_price=pk.starting_price_str,
                             minimum_price=pk.minimum_price_str,
+                            minimum_quote=pk.minimum_quote_str,
                             live_balance_raw=pk.live_balance_raw,
                             usd_value=pk.usd_value_str,
                         )
@@ -1119,6 +1182,7 @@ class AuctionKicker:
                     sell_amount=pk.sell_amount_str,
                     starting_price=pk.starting_price_str,
                     minimum_price=pk.minimum_price_str,
+                    minimum_quote=pk.minimum_quote_str,
                     live_balance_raw=pk.live_balance_raw,
                     usd_value=pk.usd_value_str,
                     error_message=f"receipt timeout: {exc}",
@@ -1178,6 +1242,7 @@ class AuctionKicker:
                     sell_amount=pk.sell_amount_str,
                     starting_price=pk.starting_price_str,
                     minimum_price=pk.minimum_price_str,
+                    minimum_quote=pk.minimum_quote_str,
                     live_balance_raw=pk.live_balance_raw,
                     usd_value=pk.usd_value_str,
                     execution_report=TransactionExecutionReport(
@@ -1207,8 +1272,8 @@ class AuctionKicker:
             to_checksum_address(pk.candidate.token_address),
             pk.sell_amount,
             to_checksum_address(pk.candidate.want_address),
-            pk.starting_price_raw,
-            pk.minimum_price_raw,
+            pk.starting_price_unscaled,
+            pk.minimum_price_scaled_1e18,
             pk.step_decay_rate_bps,
             to_checksum_address(pk.settle_token) if pk.settle_token else "0x0000000000000000000000000000000000000000",
         )

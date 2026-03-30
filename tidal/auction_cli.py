@@ -13,7 +13,6 @@ from tidal.auction_settlement import (
     decide_auction_settlement,
     format_operation_type,
     inspect_auction_settlement,
-    normalize_settlement_method,
 )
 from tidal.cli_context import CLIContext, normalize_cli_address
 from tidal.cli_exit_codes import EXECUTION_ERROR, NOOP
@@ -226,8 +225,15 @@ def _render_settlement_summary(
         + (", ".join(to_checksum_address(token) for token in inspection.active_tokens) if inspection.active_tokens else "-")
     )
     typer.echo(f"Available:     {inspection.active_available_raw if inspection.active_available_raw is not None else 'unavailable'}")
-    typer.echo(f"Price:         {inspection.active_price_raw if inspection.active_price_raw is not None else 'unavailable'}")
-    typer.echo(f"Min price:     {inspection.minimum_price_raw if inspection.minimum_price_raw is not None else 'unavailable'}")
+    typer.echo(f"Live price:    {inspection.active_price_raw if inspection.active_price_raw is not None else 'unavailable'}")
+    typer.echo(
+        f"Floor price:   {inspection.minimum_price_public_raw if inspection.minimum_price_public_raw is not None else 'unavailable'}"
+    )
+    typer.echo(
+        f"Min price:     "
+        f"{inspection.minimum_price_scaled_1e18 if inspection.minimum_price_scaled_1e18 is not None else 'unavailable'}"
+        f"{' (scaled 1e18)' if inspection.minimum_price_scaled_1e18 is not None else ''}"
+    )
 
     if execution is not None:
         typer.echo(f"Sender:        {execution.get('sender') or '-'}")
@@ -617,7 +623,11 @@ def settle(
     broadcast: BroadcastOption = False,
     bypass_confirmation: BypassConfirmationOption = False,
     token_address: str | None = typer.Option(None, "--token", help="Expected active token address."),
-    method: str = typer.Option("auto", "--method", help="Settlement method: auto, settle, or sweep-and-settle."),
+    sweep: bool = typer.Option(
+        False,
+        "--sweep",
+        help="Force sweep-and-settle for the active lot, even if it is still above floor.",
+    ),
     sender: SenderOption = None,
     account: AccountOption = None,
     keystore: KeystoreOption = None,
@@ -639,10 +649,6 @@ def settle(
 
     normalized_auction_address = normalize_cli_address(auction_address, param_hint="AUCTION")
     normalized_token_address = normalize_cli_address(token_address, param_hint="--token")
-    try:
-        normalized_method = normalize_settlement_method(method)
-    except ValueError as exc:
-        raise typer.BadParameter(str(exc), param_hint="--method") from exc
     exec_ctx = cli_ctx.resolve_execution(
         broadcast=broadcast,
         required_for="broadcast settlement execution",
@@ -662,10 +668,22 @@ def settle(
     decision = decide_auction_settlement(
         inspection,
         token_address=normalized_token_address,
-        method=normalized_method,
+        method="sweep_and_settle" if sweep else "auto",
+        allow_above_floor=sweep,
     )
 
     warnings: list[str] = []
+    if (
+        sweep
+        and decision.operation_type == "sweep_and_settle"
+        and inspection.active_available_raw
+        and inspection.active_price_public_raw is not None
+        and inspection.minimum_price_public_raw is not None
+        and inspection.active_price_public_raw > inspection.minimum_price_public_raw
+    ):
+        warnings.append(
+            "Forced sweep requested while auction is still above floor; unsold tokens will be returned to the receiver."
+        )
     execution = None
     if decision.status == "actionable":
         execution = asyncio.run(

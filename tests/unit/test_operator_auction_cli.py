@@ -100,6 +100,9 @@ class _NoopEnableTokensClient:
 
 
 class _NoopSettleClient:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, object]]] = []
+
     def __enter__(self) -> "_NoopSettleClient":
         return self
 
@@ -107,7 +110,7 @@ class _NoopSettleClient:
         del exc_type, exc, tb
 
     def prepare_settle(self, auction_address: str, payload: dict[str, object]) -> dict[str, object]:
-        del payload
+        self.calls.append((auction_address, payload))
         return {
             "status": "noop",
             "warnings": [],
@@ -125,8 +128,9 @@ class _NoopSettleClient:
                         "active_token": "0xd533a949740bb3306d119cc777fa900ba034cd52",
                         "active_tokens": ["0xd533a949740bb3306d119cc777fa900ba034cd52"],
                         "active_available_raw": 984634876557164,
-                        "active_price_raw": 35392170414952578,
-                        "minimum_price_raw": 354,
+                        "active_price_public_raw": 35392170414952578,
+                        "minimum_price_public_raw": 354,
+                        "minimum_price_scaled_1e18": 354,
                     },
                 },
                 "transactions": [],
@@ -273,4 +277,46 @@ def test_operator_auction_settle_noop_shows_reason_and_price_state(tmp_path, mon
     assert "0xd533a949740bb3306d119cc777fa900ba034cd52" in result.output
     assert "Available:     984634876557164" in result.output
     assert "Live price:    35392170414952578" in result.output
-    assert "Min price:     354" in result.output
+    assert "Floor price:   354" in result.output
+    assert "Min price:     354 (scaled 1e18)" in result.output
+
+
+def test_operator_auction_settle_sweep_threads_payload(tmp_path, monkeypatch) -> None:
+    config_path = _write_config(tmp_path)
+    client = _NoopSettleClient()
+
+    monkeypatch.setattr(
+        operator_auction_cli_module.CLIContext,
+        "control_plane_client",
+        lambda self, auth=True: client,
+    )
+    monkeypatch.setattr(
+        operator_auction_cli_module.CLIContext,
+        "resolve_execution",
+        lambda self, **kwargs: SimpleNamespace(signer=None, sender=None),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        operator_app,
+        [
+            "auction",
+            "settle",
+            "0xeb3746f59befef1f5834239fb65a2a4d88fdb251",
+            "--sweep",
+            "--config",
+            str(config_path),
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert client.calls == [
+        (
+            "0xeb3746f59befef1f5834239fb65a2a4d88fdb251",
+            {
+                "sender": None,
+                "tokenAddress": None,
+                "sweep": True,
+            },
+        )
+    ]

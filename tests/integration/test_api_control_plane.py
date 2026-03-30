@@ -158,6 +158,32 @@ def test_kick_prepare_route_threads_curve_quote_override(tmp_path: Path, monkeyp
     assert captured["require_curve_quote"] is False
 
 
+def test_auction_settle_prepare_route_threads_sweep_override(tmp_path: Path, monkeypatch) -> None:
+    settings = _make_settings(tmp_path)
+    _init_db(settings)
+    captured: dict[str, object] = {}
+
+    async def fake_prepare_settle_action(settings, session, **kwargs):  # noqa: ANN001, ANN003
+        del settings, session
+        captured["sweep"] = kwargs.get("sweep")
+        return "noop", [], {"preview": {}, "transactions": []}
+
+    monkeypatch.setattr("tidal.api.routes.auctions.prepare_settle_action", fake_prepare_settle_action)
+
+    client = TestClient(create_app(settings))
+    response = client.post(
+        "/api/v1/tidal/auctions/0x3000000000000000000000000000000000000003/settle/prepare",
+        headers={"Authorization": f"Bearer {_TEST_API_KEY}"},
+        json={
+            "sender": "0x6000000000000000000000000000000000000006",
+            "sweep": True,
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured["sweep"] is True
+
+
 def test_actions_broadcast_and_receipt_routes_update_status(tmp_path: Path) -> None:
     settings = _make_settings(tmp_path)
     _init_db(settings)
@@ -431,7 +457,8 @@ def test_kick_action_broadcast_and_receipt_materialize_kick_logs(tmp_path: Path)
                         "wantSymbol": "USDC",
                         "sellAmount": "1.0",
                         "startingPrice": "2750",
-                        "minimumPrice": "2375",
+                        "minimumPrice": "2375000000000000000000",
+                        "minimumQuote": "2375",
                         "quoteAmount": "2500",
                         "quoteResponseJson": {
                             "requestUrl": (

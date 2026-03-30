@@ -51,13 +51,15 @@ def _noop_status_lines(*, command_name: str, data: dict[str, object]) -> list[st
 
     active_token = inspection.get("active_token")
     active_available_raw = inspection.get("active_available_raw")
-    active_price_raw = inspection.get("active_price_raw")
-    minimum_price_raw = inspection.get("minimum_price_raw")
+    active_price_public_raw = inspection.get("active_price_public_raw")
+    minimum_price_public_raw = inspection.get("minimum_price_public_raw")
+    minimum_price_scaled_1e18 = inspection.get("minimum_price_scaled_1e18")
     if (
         active_token is None
         and active_available_raw is None
-        and active_price_raw is None
-        and minimum_price_raw is None
+        and active_price_public_raw is None
+        and minimum_price_public_raw is None
+        and minimum_price_scaled_1e18 is None
     ):
         return lines
 
@@ -67,10 +69,12 @@ def _noop_status_lines(*, command_name: str, data: dict[str, object]) -> list[st
         lines.append(f"  Active token:  {normalize_cli_address(str(active_token), param_hint='token')}")
     if active_available_raw is not None:
         lines.append(f"  Available:     {active_available_raw}")
-    if active_price_raw is not None:
-        lines.append(f"  Live price:    {active_price_raw}")
-    if minimum_price_raw is not None:
-        lines.append(f"  Min price:     {minimum_price_raw}")
+    if active_price_public_raw is not None:
+        lines.append(f"  Live price:    {active_price_public_raw}")
+    if minimum_price_public_raw is not None:
+        lines.append(f"  Floor price:   {minimum_price_public_raw}")
+    if minimum_price_scaled_1e18 is not None:
+        lines.append(f"  Min price:     {minimum_price_scaled_1e18} (scaled 1e18)")
     return lines
 
 
@@ -251,7 +255,11 @@ def settle(
     broadcast: BroadcastOption = False,
     bypass_confirmation: BypassConfirmationOption = False,
     token_address: str | None = typer.Option(None, "--token", help="Expected active token address."),
-    method: str = typer.Option("auto", "--method", help="Settlement method: auto, settle, or sweep-and-settle."),
+    sweep: bool = typer.Option(
+        False,
+        "--sweep",
+        help="Force sweep-and-settle for the active lot, even if it is still above floor.",
+    ),
     sender: SenderOption = None,
     account: AccountOption = None,
     keystore: KeystoreOption = None,
@@ -272,7 +280,7 @@ def settle(
     payload = {
         "sender": exec_ctx.sender,
         "tokenAddress": normalize_cli_address(token_address, param_hint="--token") if token_address else None,
-        "method": method,
+        "sweep": sweep,
     }
     try:
         with cli_ctx.control_plane_client() as client:

@@ -179,6 +179,15 @@ def _format_decimal_amount(value: Decimal) -> str:
     return f"{float(value):,.4f}" if value < 1 else f"{float(value):,.2f}"
 
 
+def _safe_decimal(value: Any) -> Decimal | None:
+    if value is None:
+        return None
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError):
+        return None
+
+
 def render_warning_panel(warnings: list[str]) -> None:
     if not warnings:
         return
@@ -341,8 +350,8 @@ def render_kick_submission_summary(summary: dict[str, Any]) -> None:
         quote_amount = Decimal(str(k["quote_amount"]))
         usd_value = Decimal(str(k["usd_value"]))
 
-        starting_price = int(k["starting_price"])
-        minimum_price = int(k["minimum_price"])
+        starting_price = Decimal(str(k["starting_price"]))
+        minimum_price = Decimal(str(k["minimum_price"]))
         step_decay_rate_bps = k.get("step_decay_rate_bps")
         step_decay_str = f"{step_decay_rate_bps / 100:.2f}%" if step_decay_rate_bps is not None else "—"
         quote_amount_str = _format_decimal_amount(quote_amount)
@@ -376,17 +385,21 @@ def render_kick_submission_summary(summary: dict[str, Any]) -> None:
         else:
             quote_value_line = f"  Quote out:   {quote_amount_str} {want_sym}"
 
+        quote_rate = _safe_decimal(k.get("quote_rate"))
+        start_rate = _safe_decimal(k.get("start_rate"))
+        floor_rate = _safe_decimal(k.get("floor_rate"))
+
         rate_line = None
         if amount > 0:
-            quote_rate = quote_amount / amount
-            start_rate = Decimal(starting_price) / amount
-            min_rate = Decimal(minimum_price) / amount
+            quote_rate = quote_rate if quote_rate is not None else quote_amount / amount
+            start_rate = start_rate if start_rate is not None else starting_price / amount
+            floor_rate = floor_rate if floor_rate is not None else minimum_price / amount
             rate_line = (
                 f"  Rate:        {float(quote_rate):,.4f} quoted | {float(start_rate):,.4f} start | "
-                f"{float(min_rate):,.4f} floor {want_sym}/{token_sym}"
+                f"{float(floor_rate):,.4f} floor {want_sym}/{token_sym}"
             )
         precision_line = None
-        if quote_amount > 0 and Decimal(starting_price) > quote_amount * 2:
+        if quote_amount > 0 and starting_price > quote_amount * 2:
             precision_line = f"               ↳ ceiled lot based on {quote_amount:.4f} quote"
 
         content = []
@@ -401,7 +414,7 @@ def render_kick_submission_summary(summary: dict[str, Any]) -> None:
             f"  Sell amount: {amount_str} {token_sym} (~${float(usd_value):,.2f})",
             quote_value_line,
             f"  Start quote: {k['starting_price_display']}",
-            f"  Min price:   {k['minimum_price_display']}",
+            f"  Min quote:   {k.get('minimum_quote_display') or k.get('minimum_price_display') or '-'}",
             f"  Profile:     {profile_name} | decay {step_decay_str}",
         ])
         if rate_line:

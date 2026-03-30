@@ -49,11 +49,13 @@ def _make_prepared_kick(**overrides):
     defaults = {
         "candidate": candidate,
         "sell_amount": 10**21,
-        "starting_price_raw": 2750,
-        "minimum_price_raw": 2375,
+        "starting_price_unscaled": 2750,
+        "minimum_price_scaled_1e18": 2_375_000_000_000_000_000,
+        "minimum_quote_unscaled": 2375,
         "sell_amount_str": str(10**21),
-        "starting_price_str": "2750",
-        "minimum_price_str": "2375",
+        "starting_price_unscaled_str": "2750",
+        "minimum_price_scaled_1e18_str": "2375000000000000000",
+        "minimum_quote_unscaled_str": "2375",
         "usd_value_str": "2500.0",
         "live_balance_raw": 10**21,
         "normalized_balance": "1000",
@@ -103,6 +105,7 @@ def _make_kicker(session, *, web3_client=None, signer=None, price_provider=None,
         auction_state_reader = MagicMock()
         auction_state_reader.read_bool_noargs_many = AsyncMock(side_effect=lambda auctions, method: {auction: False for auction in auctions})
         auction_state_reader.read_address_array_noargs_many = AsyncMock(side_effect=lambda auctions, method: {auction: [] for auction in auctions})
+        auction_state_reader.read_address_noargs_many = AsyncMock(side_effect=lambda auctions, method: {auction: None for auction in auctions})
         auction_state_reader.read_bool_arg_many = AsyncMock(side_effect=lambda pairs, method: {pair: False for pair in pairs})
         auction_state_reader.read_uint_arg_many = AsyncMock(side_effect=lambda pairs, method: {pair: 0 for pair in pairs})
         auction_state_reader.read_uint_noargs_many = AsyncMock(side_effect=lambda auctions, method: {auction: 0 for auction in auctions})
@@ -1173,11 +1176,12 @@ async def test_minimum_price_derived_from_quote(session):
 
     assert result.status == "CONFIRMED"
     assert result.starting_price == "2750"
-    assert result.minimum_price == "2375"
+    assert result.minimum_price == "2375000000000000000"
 
     rows = session.execute(select(models.kick_txs)).mappings().all()
     assert len(rows) == 1
-    assert rows[0]["minimum_price"] == "2375"
+    assert rows[0]["minimum_price"] == "2375000000000000000"
+    assert rows[0]["minimum_quote"] == "2375"
 
 
 @pytest.mark.asyncio
@@ -1223,7 +1227,7 @@ async def test_minimum_price_clamps_to_zero(session):
         result = await kicker.kick(candidate, "run-1")
 
     assert result.status == "CONFIRMED"
-    assert result.minimum_price == "0"
+    assert result.minimum_price == "9500000000000000"
 
 
 # ---------------------------------------------------------------------------
@@ -1262,7 +1266,9 @@ async def test_prepare_kick_success(session):
     assert isinstance(result, PreparedKick)
     assert result.sell_amount == 10**21
     assert result.starting_price_str == "2750"
-    assert result.minimum_price_str == "2375"
+    assert result.minimum_price_str == "2375000000000000000"
+    assert result.minimum_price_scaled_1e18_str == "2375000000000000000"
+    assert result.minimum_quote_str == "2375"
     assert result.candidate is candidate
     assert result.step_decay_rate_bps == 50
     assert result.settle_token is None
@@ -1497,10 +1503,14 @@ async def test_prepare_kick_active_sold_out_sets_settle_token(session):
     auction_state_reader.read_uint_noargs_many = AsyncMock(return_value={
         "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": 100,
     })
+    auction_state_reader.read_address_noargs_many = AsyncMock(return_value={
+        "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": "0xdddddddddddddddddddddddddddddddddddddddd",
+    })
 
     with patch("tidal.transaction_service.kicker.ERC20Reader") as MockERC20:
         mock_erc20 = AsyncMock()
         mock_erc20.read_balance = AsyncMock(return_value=10**21)
+        mock_erc20.read_decimals = AsyncMock(return_value=18)
         MockERC20.return_value = mock_erc20
 
         kicker = _make_kicker(session, web3_client=web3_client, auction_state_reader=auction_state_reader)
@@ -1532,10 +1542,18 @@ async def test_prepare_kick_active_stuck_returns_sweep_and_settle(session):
     auction_state_reader.read_uint_noargs_many = AsyncMock(return_value={
         "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": 100,
     })
+    auction_state_reader.read_address_noargs_many = AsyncMock(return_value={
+        "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": "0xdddddddddddddddddddddddddddddddddddddddd",
+    })
 
-    kicker = _make_kicker(session, web3_client=web3_client, auction_state_reader=auction_state_reader)
-    candidate = _make_candidate()
-    result = await kicker.prepare_kick(candidate, "run-1")
+    with patch("tidal.transaction_service.kicker.ERC20Reader") as MockERC20:
+        mock_erc20 = AsyncMock()
+        mock_erc20.read_decimals = AsyncMock(return_value=18)
+        MockERC20.return_value = mock_erc20
+
+        kicker = _make_kicker(session, web3_client=web3_client, auction_state_reader=auction_state_reader)
+        candidate = _make_candidate()
+        result = await kicker.prepare_kick(candidate, "run-1")
 
     assert isinstance(result, PreparedSweepAndSettle)
     assert result.sell_token == candidate.token_address
@@ -1581,6 +1599,9 @@ async def test_prepare_kick_errors_when_active_token_resolution_fails(session):
     auction_state_reader.read_uint_arg_many = AsyncMock(return_value={})
     auction_state_reader.read_uint_noargs_many = AsyncMock(return_value={
         "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": 100,
+    })
+    auction_state_reader.read_address_noargs_many = AsyncMock(return_value={
+        "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": "0xdddddddddddddddddddddddddddddddddddddddd",
     })
 
     kicker = _make_kicker(session, web3_client=web3_client, auction_state_reader=auction_state_reader)
@@ -1809,10 +1830,12 @@ async def test_execute_sweep_and_settle_confirmed(session):
     prepared = PreparedSweepAndSettle(
         candidate=_make_candidate(),
         sell_token="0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        minimum_price_raw=100,
+        minimum_price_scaled_1e18=100,
+        minimum_price_public_raw=100,
         available_raw=10**21,
         sell_amount_str=str(10**21),
-        minimum_price_str="100",
+        minimum_price_scaled_1e18_str="100",
+        minimum_price_public_str="100",
         usd_value_str="2500.0",
         normalized_balance="1000",
         stuck_abort_reason="active auction price is at or below minimumPrice",

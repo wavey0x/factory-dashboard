@@ -68,11 +68,13 @@ class PreparedKick:
 
     candidate: KickCandidate
     sell_amount: int
-    starting_price_raw: int
-    minimum_price_raw: int
+    starting_price_unscaled: int
+    minimum_price_scaled_1e18: int
+    minimum_quote_unscaled: int
     sell_amount_str: str
-    starting_price_str: str
-    minimum_price_str: str
+    starting_price_unscaled_str: str
+    minimum_price_scaled_1e18_str: str
+    minimum_quote_unscaled_str: str
     usd_value_str: str
     live_balance_raw: int
     normalized_balance: str
@@ -84,6 +86,26 @@ class PreparedKick:
     settle_token: str | None = None
     quote_response_json: str | None = None
     want_price_usd_str: str | None = None
+
+    @property
+    def minimum_price_raw(self) -> int:
+        return self.minimum_price_scaled_1e18
+
+    @property
+    def starting_price_str(self) -> str:
+        return self.starting_price_unscaled_str
+
+    @property
+    def minimum_price_str(self) -> str:
+        return self.minimum_price_scaled_1e18_str
+
+    @property
+    def minimum_quote_raw(self) -> int:
+        return self.minimum_quote_unscaled
+
+    @property
+    def minimum_quote_str(self) -> str:
+        return self.minimum_quote_unscaled_str
 
 
 @dataclass(slots=True)
@@ -102,14 +124,24 @@ class PreparedSweepAndSettle:
 
     candidate: KickCandidate
     sell_token: str
-    minimum_price_raw: int | None
+    minimum_price_scaled_1e18: int | None
+    minimum_price_public_raw: int | None
     available_raw: int | None
     sell_amount_str: str | None
-    minimum_price_str: str | None
+    minimum_price_scaled_1e18_str: str | None
+    minimum_price_public_str: str | None
     usd_value_str: str | None
     normalized_balance: str | None
     stuck_abort_reason: str
     token_symbol: str | None = None
+
+    @property
+    def minimum_price_raw(self) -> int | None:
+        return self.minimum_price_scaled_1e18
+
+    @property
+    def minimum_price_str(self) -> str | None:
+        return self.minimum_price_scaled_1e18_str
 
 
 @dataclass(slots=True)
@@ -121,8 +153,19 @@ class AuctionInspection:
     active_tokens: tuple[str, ...]
     active_token: str | None = None
     active_available_raw: int | None = None
-    active_price_raw: int | None = None
-    minimum_price_raw: int | None = None
+    active_price_public_raw: int | None = None
+    minimum_price_scaled_1e18: int | None = None
+    minimum_price_public_raw: int | None = None
+    want_address: str | None = None
+    want_decimals: int | None = None
+
+    @property
+    def active_price_raw(self) -> int | None:
+        return self.active_price_public_raw
+
+    @property
+    def minimum_price_raw(self) -> int | None:
+        return self.minimum_price_scaled_1e18
 
 
 @dataclass(slots=True)
@@ -139,6 +182,7 @@ class KickResult:
     sell_amount: str | None = None
     starting_price: str | None = None
     minimum_price: str | None = None
+    minimum_quote: str | None = None
     live_balance_raw: int | None = None
     usd_value: str | None = None
     execution_report: TransactionExecutionReport | None = None

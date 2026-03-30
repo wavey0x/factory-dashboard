@@ -12,11 +12,11 @@ from sqlalchemy.orm import Session
 
 from tidal.api.errors import APIError
 from tidal.api.services.action_audit import create_prepared_action
+from tidal.auction_price_units import scaled_price_to_rate
 from tidal.auction_settlement import (
     build_auction_settlement_call,
     decide_auction_settlement,
     inspect_auction_settlement,
-    normalize_settlement_method,
 )
 from tidal.chain.contracts.abis import AUCTION_KICKER_ABI, TRADE_HANDLER_ABI
 from tidal.cli_support import build_sync_web3
@@ -596,7 +596,7 @@ async def prepare_settle_action(
     auction_address: str,
     sender: str | None,
     token_address: str | None,
-    method: str,
+    sweep: bool,
 ) -> tuple[str, list[str], dict[str, object]]:
     normalized_auction = normalize_address(auction_address)
     normalized_token = normalize_address(token_address) if token_address else None
@@ -605,11 +605,13 @@ async def prepare_settle_action(
     decision = decide_auction_settlement(
         inspection,
         token_address=normalized_token,
-        method=normalize_settlement_method(method),
+        method="sweep_and_settle" if sweep else "auto",
+        allow_above_floor=sweep,
     )
     preview_payload = {
         "inspection": _serialize(inspection),
         "decision": _serialize(decision),
+        "requestedSweep": sweep,
     }
     if decision.status == "noop":
         return "noop", [], {"preview": preview_payload, "transactions": []}
@@ -631,6 +633,16 @@ async def prepare_settle_action(
         gas_cap=settings.txn_max_gas_limit,
     )
     warnings = [gas_warning] if gas_warning else []
+    if (
+        sweep
+        and inspection.active_available_raw
+        and inspection.active_price_public_raw is not None
+        and inspection.minimum_price_public_raw is not None
+        and inspection.active_price_public_raw > inspection.minimum_price_public_raw
+    ):
+        warnings.append(
+            "Forced sweep requested while auction is still above floor; unsold tokens will be returned to the receiver."
+        )
     tx = {
         "operation": settlement_call.operation_type.replace("_", "-"),
         "to": normalize_address(settlement_call.target_address),
@@ -650,7 +662,7 @@ async def prepare_settle_action(
             "auctionAddress": normalized_auction,
             "sender": sender,
             "tokenAddress": normalized_token,
-            "method": method,
+            "sweep": sweep,
         },
         preview_payload=preview_payload,
         transactions=[tx],
@@ -702,7 +714,8 @@ def _prepared_sweep_preview(items: list[PreparedSweepAndSettle]) -> list[dict[st
             "tokenSymbol": item.token_symbol,
             "reason": item.stuck_abort_reason,
             "sellAmount": item.sell_amount_str,
-            "minimumPrice": item.minimum_price_str,
+            "minimumPrice": item.minimum_price_public_str,
+            "minimumPriceScaled1e18": item.minimum_price_scaled_1e18_str,
             "usdValue": item.usd_value_str,
         }
         for item in items
@@ -723,16 +736,21 @@ def _prepared_kick_preview(items: list[PreparedKick]) -> list[dict[str, object]]
             "wantSymbol": item.candidate.want_symbol,
             "wantPriceUsd": item.want_price_usd_str,
             "sellAmount": item.normalized_balance,
-            "startingPrice": item.starting_price_str,
+            "startingPrice": item.starting_price_unscaled_str,
             "startingPriceDisplay": (
-                f"{item.starting_price_raw:,} {item.candidate.want_symbol or 'want-token'} "
+                f"{item.starting_price_unscaled:,} {item.candidate.want_symbol or 'want-token'} "
                 f"(+{item.start_price_buffer_bps / 100:.0f}% buffer)"
             ),
             "minimumPrice": item.minimum_price_str,
             "minimumPriceDisplay": (
-                f"{item.minimum_price_raw:,} {item.candidate.want_symbol or 'want-token'} "
+                f"{item.minimum_price_scaled_1e18:,} (scaled 1e18 floor)"
+            ),
+            "minimumQuote": item.minimum_quote_unscaled_str,
+            "minimumQuoteDisplay": (
+                f"{item.minimum_quote_unscaled:,} {item.candidate.want_symbol or 'want-token'} "
                 f"(-{item.min_price_buffer_bps / 100:.0f}% buffer)"
             ),
+            "minimumPriceScaled1e18": item.minimum_price_scaled_1e18_str,
             "quoteAmount": item.quote_amount_str,
             "quoteResponseJson": item.quote_response_json,
             "usdValue": item.usd_value_str,
@@ -740,6 +758,13 @@ def _prepared_kick_preview(items: list[PreparedKick]) -> list[dict[str, object]]
             "minBufferBps": item.min_price_buffer_bps,
             "pricingProfileName": item.pricing_profile_name,
             "stepDecayRateBps": item.step_decay_rate_bps,
+            "quoteRate": str(Decimal(item.quote_amount_str) / Decimal(item.normalized_balance)),
+            "startRate": str(Decimal(item.starting_price_unscaled) / Decimal(item.normalized_balance)),
+            "floorRate": (
+                str(floor_rate)
+                if (floor_rate := scaled_price_to_rate(item.minimum_price_scaled_1e18)) is not None
+                else None
+            ),
             "settleToken": item.settle_token,
         }
         for item in items

@@ -1066,18 +1066,22 @@ function KickDetailContent({ kick, onOpenAuctionScan }) {
         </div>
       </div>
       <div className="kick-detail-item">
-        <div className="kick-detail-label">Start Price</div>
+        <div className="kick-detail-label">Start Quote</div>
         <div className="kick-detail-value">
           {kick.startingPrice || "—"}
           {kick.startPriceBufferBps != null ? ` (+${bpsToPercent(kick.startPriceBufferBps)} buffer)` : ""}
         </div>
       </div>
       <div className="kick-detail-item">
-        <div className="kick-detail-label">Min Price</div>
+        <div className="kick-detail-label">Min Quote</div>
         <div className="kick-detail-value">
-          {kick.minimumPrice || "—"}
+          {kick.minimumQuote || "—"}
           {kick.minPriceBufferBps != null ? ` (-${bpsToPercent(kick.minPriceBufferBps)} buffer)` : ""}
         </div>
+      </div>
+      <div className="kick-detail-item">
+        <div className="kick-detail-label">Min Price (scaled)</div>
+        <div className="kick-detail-value">{kick.minimumPrice || "—"}</div>
       </div>
       <div className="kick-detail-item">
         <div className="kick-detail-label">Quote Amount</div>

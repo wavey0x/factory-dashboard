@@ -17,8 +17,9 @@ def _make_inspection(**overrides) -> AuctionInspection:
         "active_tokens": ("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",),
         "active_token": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "active_available_raw": 10**18,
-        "active_price_raw": 110,
-        "minimum_price_raw": 100,
+        "active_price_public_raw": 110,
+        "minimum_price_scaled_1e18": 100,
+        "minimum_price_public_raw": 100,
     }
     defaults.update(overrides)
     return AuctionInspection(**defaults)
@@ -35,8 +36,9 @@ def test_decide_auction_settlement_no_active_lot_is_noop_in_auto_mode() -> None:
             active_tokens=(),
             active_token=None,
             active_available_raw=None,
-            active_price_raw=None,
-            minimum_price_raw=None,
+            active_price_public_raw=None,
+            minimum_price_scaled_1e18=None,
+            minimum_price_public_raw=None,
         )
     )
 
@@ -52,8 +54,9 @@ def test_decide_auction_settlement_no_active_lot_is_error_for_forced_method() ->
             active_tokens=(),
             active_token=None,
             active_available_raw=None,
-            active_price_raw=None,
-            minimum_price_raw=None,
+            active_price_public_raw=None,
+            minimum_price_scaled_1e18=None,
+            minimum_price_public_raw=None,
         ),
         method="settle",
     )
@@ -63,7 +66,7 @@ def test_decide_auction_settlement_no_active_lot_is_error_for_forced_method() ->
 
 
 def test_decide_auction_settlement_sold_out_selects_settle() -> None:
-    decision = decide_auction_settlement(_make_inspection(active_available_raw=0, active_price_raw=125))
+    decision = decide_auction_settlement(_make_inspection(active_available_raw=0, active_price_public_raw=125))
 
     assert decision.status == "actionable"
     assert decision.operation_type == "settle"
@@ -72,7 +75,7 @@ def test_decide_auction_settlement_sold_out_selects_settle() -> None:
 
 
 def test_decide_auction_settlement_floor_price_selects_sweep_and_settle() -> None:
-    decision = decide_auction_settlement(_make_inspection(active_available_raw=10**18, active_price_raw=100))
+    decision = decide_auction_settlement(_make_inspection(active_available_raw=10**18, active_price_public_raw=100))
 
     assert decision.status == "actionable"
     assert decision.operation_type == "sweep_and_settle"
@@ -80,7 +83,7 @@ def test_decide_auction_settlement_floor_price_selects_sweep_and_settle() -> Non
 
 
 def test_decide_auction_settlement_above_floor_is_noop_in_auto_mode() -> None:
-    decision = decide_auction_settlement(_make_inspection(active_available_raw=10**18, active_price_raw=101))
+    decision = decide_auction_settlement(_make_inspection(active_available_raw=10**18, active_price_public_raw=101))
 
     assert decision.status == "noop"
     assert decision.operation_type is None
@@ -89,12 +92,24 @@ def test_decide_auction_settlement_above_floor_is_noop_in_auto_mode() -> None:
 
 def test_decide_auction_settlement_above_floor_is_error_for_forced_method() -> None:
     decision = decide_auction_settlement(
-        _make_inspection(active_available_raw=10**18, active_price_raw=101),
+        _make_inspection(active_available_raw=10**18, active_price_public_raw=101),
         method="sweep_and_settle",
     )
 
     assert decision.status == "error"
     assert decision.reason == "requested settlement method is not applicable: auction still active above minimumPrice"
+
+
+def test_decide_auction_settlement_above_floor_force_sweep_is_actionable() -> None:
+    decision = decide_auction_settlement(
+        _make_inspection(active_available_raw=10**18, active_price_public_raw=101),
+        method="sweep_and_settle",
+        allow_above_floor=True,
+    )
+
+    assert decision.status == "actionable"
+    assert decision.operation_type == "sweep_and_settle"
+    assert decision.reason == "forced sweep requested while auction is still active above minimumPrice"
 
 
 def test_decide_auction_settlement_token_override_mismatch_errors() -> None:
@@ -106,6 +121,21 @@ def test_decide_auction_settlement_token_override_mismatch_errors() -> None:
     assert decision.status == "error"
     assert decision.token_address == "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     assert "does not match active token" in decision.reason
+
+
+def test_decide_auction_settlement_non_18_decimal_want_uses_public_floor() -> None:
+    decision = decide_auction_settlement(
+        _make_inspection(
+            active_available_raw=10**18,
+            active_price_public_raw=2375000,
+            minimum_price_scaled_1e18=2_375_000_000_000_000_000,
+            minimum_price_public_raw=2375000,
+            want_decimals=6,
+        )
+    )
+
+    assert decision.status == "actionable"
+    assert decision.operation_type == "sweep_and_settle"
 
 
 def test_build_auction_settlement_call_for_settle_targets_auction() -> None:

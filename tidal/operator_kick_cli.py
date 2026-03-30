@@ -9,6 +9,7 @@ from typing import Any
 import typer
 from eth_utils import to_checksum_address
 
+from tidal.auction_price_units import scaled_price_to_rate
 from tidal.cli_context import CLIContext, normalize_cli_address
 from tidal.cli_options import (
     AccountOption,
@@ -210,7 +211,9 @@ def _kick_submission_summary(
     auction_address = prepared.get("auctionAddress") or candidate.auction_address
     want_symbol = prepared.get("wantSymbol") or candidate.want_symbol
     starting_price = prepared.get("startingPrice")
-    minimum_price = prepared.get("minimumPrice")
+    minimum_price_scaled_1e18 = prepared.get("minimumPriceScaled1e18") or prepared.get("minimumPrice")
+    minimum_price = minimum_price_scaled_1e18
+    minimum_quote = prepared.get("minimumQuote")
     buffer_bps = int(prepared.get("bufferBps") or default_buffer_bps)
     min_buffer_bps = int(prepared.get("minBufferBps") or default_min_buffer_bps)
 
@@ -220,11 +223,19 @@ def _kick_submission_summary(
             f"{int(str(starting_price)):,} {want_symbol or '???'} (+{buffer_bps / 100:.0f}% buffer)"
         )
 
-    minimum_price_display = prepared.get("minimumPriceDisplay")
-    if minimum_price_display is None and minimum_price is not None:
-        minimum_price_display = (
-            f"{int(str(minimum_price)):,} {want_symbol or '???'} (-{min_buffer_bps / 100:.0f}% buffer)"
+    minimum_quote_display = prepared.get("minimumQuoteDisplay")
+    if minimum_quote_display is None and minimum_quote is not None:
+        minimum_quote_display = (
+            f"{int(str(minimum_quote)):,} {want_symbol or '???'} (-{min_buffer_bps / 100:.0f}% buffer)"
         )
+    minimum_price_display = prepared.get("minimumPriceDisplay")
+    if minimum_price_display is None and minimum_price_scaled_1e18 is not None:
+        minimum_price_display = f"{int(str(minimum_price_scaled_1e18)):,} (scaled 1e18 floor)"
+
+    floor_rate = prepared.get("floorRate")
+    if floor_rate is None and minimum_price_scaled_1e18 is not None:
+        scaled_floor_rate = scaled_price_to_rate(int(str(minimum_price_scaled_1e18)))
+        floor_rate = str(scaled_floor_rate) if scaled_floor_rate is not None else None
 
     return {
         "single_title": single_title,
@@ -244,6 +255,9 @@ def _kick_submission_summary(
                 "starting_price": starting_price,
                 "starting_price_display": starting_price_display,
                 "minimum_price": minimum_price,
+                "minimum_price_scaled_1e18": minimum_price_scaled_1e18,
+                "minimum_quote": minimum_quote,
+                "minimum_quote_display": minimum_quote_display,
                 "minimum_price_display": minimum_price_display,
                 "want_address": prepared.get("wantAddress"),
                 "want_symbol": want_symbol,
@@ -253,6 +267,9 @@ def _kick_submission_summary(
                 "step_decay_rate_bps": prepared.get("stepDecayRateBps"),
                 "pricing_profile_name": prepared.get("pricingProfileName"),
                 "quote_amount": prepared.get("quoteAmount"),
+                "quote_rate": prepared.get("quoteRate"),
+                "start_rate": prepared.get("startRate"),
+                "floor_rate": floor_rate,
                 "settle_token": prepared.get("settleToken"),
             }
         ],
