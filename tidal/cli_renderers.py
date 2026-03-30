@@ -184,8 +184,9 @@ def render_warning_panel(warnings: list[str]) -> None:
         return
     render_panel("Warnings", [f"- {warning}" for warning in warnings], border_style="yellow")
 
-def render_status_panel(title: str, message: str, *, border_style: str) -> None:
-    render_panel(title, [message], border_style=border_style)
+def render_status_panel(title: str, message: str | list[str], *, border_style: str) -> None:
+    lines = [message] if isinstance(message, str) else message
+    render_panel(title, lines, border_style=border_style)
 
 
 def _format_match_line(match: dict[str, Any]) -> str:

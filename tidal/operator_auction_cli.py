@@ -30,6 +30,50 @@ from tidal.operator_cli_support import (
 app = typer.Typer(help="Auction operator commands", no_args_is_help=True)
 
 
+def _noop_status_lines(*, command_name: str, data: dict[str, object]) -> list[str]:
+    lines = ["No transaction was prepared."]
+    preview = data.get("preview")
+    if not isinstance(preview, dict):
+        return lines
+
+    decision = preview.get("decision")
+    if isinstance(decision, dict):
+        reason = str(decision.get("reason") or "").strip()
+        if reason:
+            lines.append(f"Reason:        {reason}")
+
+    if command_name != "auction.settle":
+        return lines
+
+    inspection = preview.get("inspection")
+    if not isinstance(inspection, dict):
+        return lines
+
+    active_token = inspection.get("active_token")
+    active_available_raw = inspection.get("active_available_raw")
+    active_price_raw = inspection.get("active_price_raw")
+    minimum_price_raw = inspection.get("minimum_price_raw")
+    if (
+        active_token is None
+        and active_available_raw is None
+        and active_price_raw is None
+        and minimum_price_raw is None
+    ):
+        return lines
+
+    lines.append("")
+    lines.append("Settlement state")
+    if active_token is not None:
+        lines.append(f"  Active token:  {normalize_cli_address(str(active_token), param_hint='token')}")
+    if active_available_raw is not None:
+        lines.append(f"  Available:     {active_available_raw}")
+    if active_price_raw is not None:
+        lines.append(f"  Live price:    {active_price_raw}")
+    if minimum_price_raw is not None:
+        lines.append(f"  Min price:     {minimum_price_raw}")
+    return lines
+
+
 def _handle_prepared_action(
     *,
     cli_ctx: CLIContext,
@@ -79,7 +123,11 @@ def _handle_prepared_action(
         return
 
     if response["status"] == "noop":
-        render_status_panel("No Transaction Prepared", "No transaction was prepared.", border_style="yellow")
+        render_status_panel(
+            "No Transaction Prepared",
+            _noop_status_lines(command_name=command_name, data=data),
+            border_style="yellow",
+        )
     elif not broadcast:
         render_status_panel("Dry Run", "No transaction was sent.", border_style="yellow")
     else:

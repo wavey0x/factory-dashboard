@@ -99,6 +99,41 @@ class _NoopEnableTokensClient:
         }
 
 
+class _NoopSettleClient:
+    def __enter__(self) -> "_NoopSettleClient":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:  # noqa: ANN001
+        del exc_type, exc, tb
+
+    def prepare_settle(self, auction_address: str, payload: dict[str, object]) -> dict[str, object]:
+        del payload
+        return {
+            "status": "noop",
+            "warnings": [],
+            "data": {
+                "preview": {
+                    "decision": {
+                        "status": "noop",
+                        "operation_type": None,
+                        "token_address": "0xd533a949740bb3306d119cc777fa900ba034cd52",
+                        "reason": "auction still active above minimumPrice",
+                    },
+                    "inspection": {
+                        "auction_address": auction_address,
+                        "is_active_auction": True,
+                        "active_token": "0xd533a949740bb3306d119cc777fa900ba034cd52",
+                        "active_tokens": ["0xd533a949740bb3306d119cc777fa900ba034cd52"],
+                        "active_available_raw": 984634876557164,
+                        "active_price_raw": 35392170414952578,
+                        "minimum_price_raw": 354,
+                    },
+                },
+                "transactions": [],
+            },
+        }
+
+
 def test_operator_auction_enable_tokens_uses_styled_submission_flow(tmp_path, monkeypatch) -> None:
     config_path = _write_config(tmp_path)
     client = _EnableTokensClient()
@@ -200,3 +235,42 @@ def test_operator_auction_enable_tokens_noop_skips_prepared_panel(tmp_path, monk
     assert "Prepared action" not in result.output
     assert "No Transaction Prepared" in result.output
     assert "No transaction was prepared." in result.output
+
+
+def test_operator_auction_settle_noop_shows_reason_and_price_state(tmp_path, monkeypatch) -> None:
+    config_path = _write_config(tmp_path)
+    client = _NoopSettleClient()
+
+    monkeypatch.setattr(
+        operator_auction_cli_module.CLIContext,
+        "control_plane_client",
+        lambda self, auth=True: client,
+    )
+    monkeypatch.setattr(
+        operator_auction_cli_module.CLIContext,
+        "resolve_execution",
+        lambda self, **kwargs: SimpleNamespace(signer=None, sender=None),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        operator_app,
+        [
+            "auction",
+            "settle",
+            "0xeb3746f59befef1f5834239fb65a2a4d88fdb251",
+            "--config",
+            str(config_path),
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "No Transaction Prepared" in result.output
+    assert "No transaction was prepared." in result.output
+    assert "Reason:        auction still active above minimumPrice" in result.output
+    assert "Settlement state" in result.output
+    assert "Active token:" in result.output
+    assert "0xd533a949740bb3306d119cc777fa900ba034cd52" in result.output
+    assert "Available:     984634876557164" in result.output
+    assert "Live price:    35392170414952578" in result.output
+    assert "Min price:     354" in result.output
