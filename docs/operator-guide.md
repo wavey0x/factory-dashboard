@@ -29,7 +29,14 @@ Client-side config values that are often useful in `~/.tidal/config.yaml`:
 - `tidal_api_base_url`
 - `tidal_api_request_timeout_seconds`
 - shared RPC timeout settings if you also do local preview/broadcast work
-- `pricing.yaml` only if you want pricing overrides or `usd_kick_limit` caps
+
+For API-backed `tidal` workflows, prepared kick pricing comes from the server's `pricing.yaml`, not the workstation's.
+
+That means:
+
+- editing local `~/.tidal/pricing.yaml` does not change the profile/decay shown by a hosted or remote API
+- edit `pricing.yaml` on the server host if you want kick prepare behavior to change
+- local `pricing.yaml` only matters when this machine is also running the server-side execution path
 
 ## Wallet Flags
 
@@ -114,6 +121,8 @@ The CLI will:
 4. sign locally
 5. broadcast locally
 6. report broadcast and receipt data back to the API
+
+Because preparation happens through the API, the confirmation panel reflects server-side pricing config.
 
 Useful flags:
 

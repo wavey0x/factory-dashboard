@@ -48,7 +48,7 @@ Then review:
 
 - `~/.tidal/.env`: set `TIDAL_API_KEY`, plus keystore secrets if you will broadcast locally
 - `~/.tidal/config.yaml`: confirm `tidal_api_base_url`
-- `~/.tidal/pricing.yaml`: usually leave this alone unless you want pricing overrides or `usd_kick_limit` caps
+- `~/.tidal/pricing.yaml`: usually leave this alone on a workstation; API-backed kick pricing comes from the server's `pricing.yaml`
 
 Minimum client setup:
 
@@ -60,12 +60,24 @@ If you are using the hosted API at `https://api.tidal.wavey.info`, API keys are 
 
 The generated `config.yaml` already defaults `tidal_api_base_url` to the hosted API. If you are pointing at a different server, override that value there or pass `--api-base-url` per command.
 
+For normal API-backed `tidal` usage, changing the workstation's `~/.tidal/pricing.yaml` does not change prepared kick pricing. The server that prepares the action is the side that loads `pricing.yaml`.
+
 Verify the install:
 
 ```bash
 tidal --help
 tidal kick inspect
 ```
+
+## Upgrade An Existing Tool Install
+
+To pull the latest Tidal:
+
+```bash
+uv tool install --reinstall git+ssh://git@github.com/wavey0x/tidal.git
+```
+
+If it pauses, it may be waiting for your SSH key passphrase.
 
 ## Server Operator Install
 

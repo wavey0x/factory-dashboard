@@ -62,6 +62,12 @@ For the hosted API at `https://api.tidal.wavey.info`, API keys are provided by w
 
 Broadcasting commands use a Foundry-style wallet surface: `--sender`, `--account`, `--keystore`, and `--password-file`.
 
+To upgrade an existing tool install to the latest Tidal:
+
+```bash
+uv tool install --reinstall git+ssh://git@github.com/wavey0x/tidal.git
+```
+
 ## Repository Map
 
 - [`tidal/scanner/`](./tidal/scanner/) discovers strategies, fee burners, balances, and auction mappings, then refreshes cached token metadata and prices.

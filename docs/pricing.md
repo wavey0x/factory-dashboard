@@ -78,6 +78,10 @@ curve quote unavailable (status: ...)
 
 Profiles come from `~/.tidal/pricing.yaml` by default.
 
+For API-backed `tidal` workflows, that means the `pricing.yaml` on the server running action preparation, not the local workstation copy.
+
+If a confirmation panel shows an unexpected decay or profile, check the server runtime first.
+
 Each profile defines:
 
 - `start_price_buffer_bps`
@@ -156,4 +160,4 @@ This is a diagnostic warning, not an automatic rejection.
 - Do not use live quote data to rank the shortlist.
 - Do not assume the warning means the on-chain transaction is wrong.
 - Treat large warning deviations as a signal to inspect the want-token USD mark or quote path.
-- Stable-looking pairs should usually be mapped to the `stable` pricing profile in `~/.tidal/pricing.yaml`.
+- Stable-looking pairs should usually be mapped to the `stable` pricing profile in the authoritative runtime `pricing.yaml`.

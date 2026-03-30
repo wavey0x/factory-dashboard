@@ -16,7 +16,7 @@ Secrets belong in `~/.tidal/.env`. Operational knobs belong in `~/.tidal/config.
 |---|---|
 | `~/.tidal/config.yaml` | Runtime settings for scanner, API, multicall, pricing, and transaction behavior |
 | `~/.tidal/.env` | Secrets such as `RPC_URL`, API keys, and keystore secrets |
-| `~/.tidal/pricing.yaml` | Pricing profiles and token-specific USD sizing caps |
+| `~/.tidal/pricing.yaml` | Pricing profiles and token-specific USD sizing caps for the runtime executing prepare logic |
 
 ## Role Model
 
@@ -143,6 +143,12 @@ This file controls two things:
 1. auction pricing profiles
 2. token-specific USD sizing caps
 
+Runtime boundary:
+
+- for API-backed `tidal` commands, the server's `pricing.yaml` is authoritative
+- a workstation's local `~/.tidal/pricing.yaml` does not affect kick prepare results returned by a remote API
+- local `pricing.yaml` matters when this machine is running `tidal-server` or other local transaction-service execution
+
 ### Pricing profiles
 
 ```yaml
@@ -202,4 +208,5 @@ Current defaults from `tidal/config.py` include:
 - run `tidal init`
 - put secrets in `~/.tidal/.env`
 - put operational settings in `~/.tidal/config.yaml`
-- leave `~/.tidal/pricing.yaml` alone unless you need pricing overrides or USD caps
+- if you use hosted or remote API-backed `tidal`, treat server-side `pricing.yaml` as the source of truth
+- edit local `~/.tidal/pricing.yaml` only when this machine owns the execution runtime
