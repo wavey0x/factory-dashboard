@@ -769,6 +769,107 @@ def test_kick_action_broadcast_and_receipt_materialize_kick_logs(tmp_path: Path)
     assert "prices.example.com/v1/quote" in payload["data"]["kicks"][0]["quoteResponseJson"]
 
 
+def test_settle_action_broadcast_and_receipt_materialize_kick_logs(tmp_path: Path) -> None:
+    settings = _make_settings(tmp_path)
+    _init_db(settings)
+    _seed_dashboard_data(settings)
+    app = create_app(settings)
+    engine = create_engine(settings.database_url, future=True)
+    with Session(engine, future=True) as session:
+        action_id = create_prepared_action(
+            session,
+            operator_id="tester",
+            action_type="settle",
+            sender="0x6000000000000000000000000000000000000006",
+            request_payload={
+                "auctionAddress": "0x3000000000000000000000000000000000000003",
+                "sender": "0x6000000000000000000000000000000000000006",
+                "tokenAddress": "0x5000000000000000000000000000000000000005",
+                "sweep": True,
+            },
+            preview_payload={
+                "inspection": {
+                    "auction_address": "0x3000000000000000000000000000000000000003",
+                    "is_active_auction": True,
+                    "active_tokens": ["0x5000000000000000000000000000000000000005"],
+                    "active_token": "0x5000000000000000000000000000000000000005",
+                    "active_available_raw": 1000000000000000000,
+                    "active_price_public_raw": 2500,
+                    "minimum_price_scaled_1e18": 2375000000000000000000,
+                    "minimum_price_public_raw": 2375,
+                    "want_address": "0x4000000000000000000000000000000000000004",
+                    "want_decimals": 6,
+                },
+                "decision": {
+                    "status": "actionable",
+                    "operation_type": "sweep_and_settle",
+                    "token_address": "0x5000000000000000000000000000000000000005",
+                    "reason": "forced sweep requested while auction is still active above minimumPrice",
+                },
+                "requestedSweep": True,
+            },
+            transactions=[
+                {
+                    "operation": "sweep-and-settle",
+                    "to": "0x7000000000000000000000000000000000000007",
+                    "data": "0xdeadbeef",
+                    "value": "0x0",
+                    "chainId": 1,
+                    "gasEstimate": 150000,
+                    "gasLimit": 180000,
+                }
+            ],
+            resource_address="0x3000000000000000000000000000000000000003",
+            auction_address="0x3000000000000000000000000000000000000003",
+            token_address="0x5000000000000000000000000000000000000005",
+        )
+
+    client = TestClient(app)
+    headers = {"Authorization": "Bearer secret-token"}
+    tx_hash = "0xdef"
+
+    broadcast_response = client.post(
+        f"/api/v1/tidal/actions/{action_id}/broadcast",
+        headers=headers,
+        json={
+            "sender": "0x6000000000000000000000000000000000000006",
+            "txHash": tx_hash,
+            "broadcastAt": "2026-03-28T00:01:00+00:00",
+            "txIndex": 0,
+        },
+    )
+    assert broadcast_response.status_code == 200
+
+    receipt_response = client.post(
+        f"/api/v1/tidal/actions/{action_id}/receipt",
+        headers=headers,
+        json={
+            "txIndex": 0,
+            "receiptStatus": "CONFIRMED",
+            "blockNumber": 123,
+            "gasUsed": 150000,
+            "gasPriceGwei": "0.1",
+            "observedAt": "2026-03-28T00:02:00+00:00",
+        },
+    )
+    assert receipt_response.status_code == 200
+
+    logs_response = client.get("/api/v1/tidal/logs/kicks", headers=headers)
+    assert logs_response.status_code == 200
+    payload = logs_response.json()
+    assert payload["status"] == "ok"
+    assert payload["data"]["total"] == 1
+    assert payload["data"]["kicks"][0]["status"] == "CONFIRMED"
+    assert payload["data"]["kicks"][0]["txHash"] == tx_hash
+    assert payload["data"]["kicks"][0]["operationType"] == "sweep_and_settle"
+    assert payload["data"]["kicks"][0]["tokenSymbol"] == "CRV"
+    assert payload["data"]["kicks"][0]["wantSymbol"] == "USDC"
+    assert payload["data"]["kicks"][0]["sourceName"] == "Test Strategy"
+    assert payload["data"]["kicks"][0]["stuckAbortReason"] == (
+        "forced sweep requested while auction is still active above minimumPrice"
+    )
+
+
 def test_kick_logs_endpoint_supports_pagination_and_search(tmp_path: Path) -> None:
     settings = _make_settings(tmp_path)
     _init_db(settings)

@@ -763,13 +763,17 @@ def _prepared_sweep_preview(items: list[PreparedSweepAndSettle]) -> list[dict[st
             "operation": "sweep-and-settle",
             "auctionAddress": item.candidate.auction_address,
             "sourceAddress": item.candidate.source_address,
+            "sourceType": item.candidate.source_type,
             "tokenAddress": item.sell_token,
             "tokenSymbol": item.token_symbol,
+            "wantAddress": item.candidate.want_address,
+            "wantSymbol": item.candidate.want_symbol,
             "reason": item.stuck_abort_reason,
             "sellAmount": item.sell_amount_str,
             "minimumPrice": item.minimum_price_public_str,
             "minimumPriceScaled1e18": item.minimum_price_scaled_1e18_str,
             "usdValue": item.usd_value_str,
+            "normalizedBalance": item.normalized_balance,
         }
         for item in items
     ]

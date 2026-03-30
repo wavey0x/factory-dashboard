@@ -280,9 +280,8 @@ def _sync_kick_log_rows(
     gas_price_gwei: str | None = None,
     error_message: str | None = None,
 ) -> None:
-    if str(action_row.get("action_type") or "") != "kick":
-        return
-    if str(tx_row.get("operation") or "") != "kick":
+    operation_type = _normalize_operation_type(tx_row.get("operation"))
+    if operation_type not in {"kick", "settle", "sweep_and_settle"}:
         return
 
     tx_hash = tx_row.get("tx_hash")
@@ -291,17 +290,17 @@ def _sync_kick_log_rows(
 
     repo = KickTxRepository(session)
     run_id = f"api-action:{action_row['action_id']}"
-    for operation in _prepared_kick_operations(action_row):
+    for operation in _prepared_log_operations(session, action_row, operation_type=operation_type):
         existing = repo.find_by_run_and_identity(
             run_id=run_id,
-            operation_type="kick",
+            operation_type=operation_type,
             auction_address=operation["auction_address"],
             token_address=operation["token_address"],
         )
         if existing is None:
             row: dict[str, object] = {
                 "run_id": run_id,
-                "operation_type": "kick",
+                "operation_type": operation_type,
                 "source_type": operation["source_type"],
                 "source_address": operation["source_address"],
                 "strategy_address": (
@@ -326,10 +325,11 @@ def _sync_kick_log_rows(
                 "min_price_buffer_bps": operation["min_price_buffer_bps"],
                 "step_decay_rate_bps": operation["step_decay_rate_bps"],
                 "settle_token": operation["settle_token"],
+                "stuck_abort_reason": operation["stuck_abort_reason"],
                 "token_symbol": operation["token_symbol"],
                 "want_address": operation["want_address"],
                 "want_symbol": operation["want_symbol"],
-                "normalized_balance": operation["sell_amount"],
+                "normalized_balance": operation["normalized_balance"] or operation["sell_amount"],
                 "created_at": str(tx_row.get("broadcast_at") or observed_at),
             }
             repo.insert(row)
@@ -343,10 +343,29 @@ def _sync_kick_log_rows(
             gas_price_gwei=gas_price_gwei,
             block_number=block_number,
             error_message=error_message,
-        )
+            )
 
 
-def _prepared_kick_operations(action_row: dict[str, object]) -> list[dict[str, object]]:
+def _prepared_log_operations(
+    session: Session,
+    action_row: dict[str, object],
+    *,
+    operation_type: str,
+) -> list[dict[str, object]]:
+    if str(action_row.get("action_type") or "") == "kick":
+        return _prepared_kick_operations(session, action_row, operation_type=operation_type)
+    if str(action_row.get("action_type") or "") == "settle":
+        operation = _prepared_settlement_operation(session, action_row, operation_type=operation_type)
+        return [operation] if operation is not None else []
+    return []
+
+
+def _prepared_kick_operations(
+    session: Session,
+    action_row: dict[str, object],
+    *,
+    operation_type: str,
+) -> list[dict[str, object]]:
     preview = _decode_json(action_row.get("preview_json"))
     prepared = preview.get("preparedOperations")
     if not isinstance(prepared, list):
@@ -354,12 +373,13 @@ def _prepared_kick_operations(action_row: dict[str, object]) -> list[dict[str, o
 
     items: list[dict[str, object]] = []
     for item in prepared:
-        if not isinstance(item, dict) or item.get("operation") != "kick":
+        if not isinstance(item, dict) or _normalize_operation_type(item.get("operation")) != operation_type:
             continue
         auction_address = _optional_normalize_address(item.get("auctionAddress"))
         token_address = _optional_normalize_address(item.get("tokenAddress"))
         if auction_address is None or token_address is None:
             continue
+        source_context = _resolve_source_context(session, auction_address)
 
         def _str(key: str) -> str | None:
             v = item.get(key)
@@ -382,16 +402,21 @@ def _prepared_kick_operations(action_row: dict[str, object]) -> list[dict[str, o
 
         items.append(
             {
-                "source_type": _str("sourceType"),
-                "source_address": _optional_normalize_address(item.get("sourceAddress")),
+                "source_type": _str("sourceType") or source_context.get("source_type"),
+                "source_address": _optional_normalize_address(item.get("sourceAddress")) or source_context.get("source_address"),
                 "auction_address": auction_address,
                 "token_address": token_address,
                 "token_symbol": _str("tokenSymbol"),
-                "want_address": _optional_normalize_address(item.get("wantAddress")),
+                "want_address": _optional_normalize_address(item.get("wantAddress")) or source_context.get("want_address"),
                 "want_symbol": _str("wantSymbol"),
                 "sell_amount": _str("sellAmount"),
+                "normalized_balance": _str("normalizedBalance") or _str("sellAmount"),
                 "starting_price": _str("startingPrice"),
-                "minimum_price": _str("minimumPrice"),
+                "minimum_price": (
+                    _str("minimumPriceScaled1e18")
+                    if operation_type == "sweep_and_settle" and _str("minimumPriceScaled1e18") is not None
+                    else _str("minimumPrice")
+                ),
                 "minimum_quote": _str("minimumQuote"),
                 "usd_value": _str("usdValue"),
                 "quote_amount": _str("quoteAmount"),
@@ -400,9 +425,118 @@ def _prepared_kick_operations(action_row: dict[str, object]) -> list[dict[str, o
                 "min_price_buffer_bps": _int("minBufferBps"),
                 "step_decay_rate_bps": _int("stepDecayRateBps"),
                 "settle_token": _optional_normalize_address(item.get("settleToken")),
+                "stuck_abort_reason": _str("reason"),
             }
         )
     return items
+
+
+def _prepared_settlement_operation(
+    session: Session,
+    action_row: dict[str, object],
+    *,
+    operation_type: str,
+) -> dict[str, object] | None:
+    if operation_type not in {"settle", "sweep_and_settle"}:
+        return None
+
+    preview = _decode_json(action_row.get("preview_json"))
+    inspection = preview.get("inspection")
+    decision = preview.get("decision")
+    if not isinstance(inspection, dict) or not isinstance(decision, dict):
+        return None
+
+    decision_operation = _normalize_operation_type(
+        decision.get("operation_type") or decision.get("operationType")
+    )
+    if decision_operation is not None and decision_operation != operation_type:
+        return None
+
+    auction_address = (
+        _optional_normalize_address(action_row.get("auction_address"))
+        or _optional_normalize_address(inspection.get("auction_address"))
+    )
+    token_address = (
+        _optional_normalize_address(action_row.get("token_address"))
+        or _optional_normalize_address(decision.get("token_address") or decision.get("tokenAddress"))
+        or _optional_normalize_address(inspection.get("active_token") or inspection.get("activeToken"))
+    )
+    if auction_address is None or token_address is None:
+        return None
+
+    source_context = _resolve_source_context(session, auction_address)
+    return {
+        "source_type": source_context.get("source_type"),
+        "source_address": source_context.get("source_address"),
+        "auction_address": auction_address,
+        "token_address": token_address,
+        "token_symbol": None,
+        "want_address": (
+            _optional_normalize_address(inspection.get("want_address") or inspection.get("wantAddress"))
+            or source_context.get("want_address")
+        ),
+        "want_symbol": None,
+        "sell_amount": (
+            str(inspection.get("active_available_raw"))
+            if inspection.get("active_available_raw") is not None
+            else None
+        ),
+        "normalized_balance": None,
+        "starting_price": None,
+        "minimum_price": (
+            str(inspection.get("minimum_price_scaled_1e18"))
+            if inspection.get("minimum_price_scaled_1e18") is not None
+            else None
+        ),
+        "minimum_quote": (
+            str(inspection.get("minimum_price_public_raw"))
+            if inspection.get("minimum_price_public_raw") is not None
+            else None
+        ),
+        "usd_value": None,
+        "quote_amount": None,
+        "quote_response_json": None,
+        "start_price_buffer_bps": None,
+        "min_price_buffer_bps": None,
+        "step_decay_rate_bps": None,
+        "settle_token": None,
+        "stuck_abort_reason": str(decision.get("reason")) if decision.get("reason") is not None else None,
+    }
+
+
+def _resolve_source_context(session: Session, auction_address: str) -> dict[str, str]:
+    strategy_row = session.execute(
+        select(models.strategies.c.address, models.strategies.c.want_address).where(
+            models.strategies.c.auction_address == auction_address
+        )
+    ).mappings().first()
+    if strategy_row is not None:
+        return {
+            "source_type": "strategy",
+            "source_address": normalize_address(str(strategy_row["address"])),
+            "want_address": normalize_address(str(strategy_row["want_address"])) if strategy_row["want_address"] else None,
+        }
+
+    fee_burner_row = session.execute(
+        select(models.fee_burners.c.address, models.fee_burners.c.want_address).where(
+            models.fee_burners.c.auction_address == auction_address
+        )
+    ).mappings().first()
+    if fee_burner_row is not None:
+        return {
+            "source_type": "fee_burner",
+            "source_address": normalize_address(str(fee_burner_row["address"])),
+            "want_address": normalize_address(str(fee_burner_row["want_address"])) if fee_burner_row["want_address"] else None,
+        }
+
+    return {}
+
+
+def _normalize_operation_type(value: object) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip().replace("-", "_")
+    return normalized or None
 
 
 def _require_action_transaction(
