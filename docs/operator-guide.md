@@ -188,3 +188,13 @@ Use `tidal-server` only when you are operating the server itself:
 - API key management
 
 For day-to-day remote execution, use the CLI client `tidal`.
+
+## Command Reference
+
+Use these pages when you need exact command shapes or flag guidance:
+
+- [CLI Client Overview](cli-client-reference.md)
+- [CLI Client: `tidal init`](cli-client-init.md)
+- [CLI Client: `tidal kick`](cli-client-kick.md)
+- [CLI Client: `tidal auction`](cli-client-auction.md)
+- [CLI Client: `tidal logs`](cli-client-logs.md)

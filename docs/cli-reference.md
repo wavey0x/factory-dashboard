@@ -1,360 +1,62 @@
 # CLI Reference
 
-This page is derived from the live Typer command tree via `tidal --help` and `tidal-server --help`.
+This reference is organized around the two executable roles in Tidal:
 
-## CLI Client: `tidal`
+- `tidal`: the API-backed CLI client
+- `tidal-server`: the server operator CLI
 
-By default, `tidal` reads:
+Both commands read the same home-based runtime layout by default:
 
 - `~/.tidal/config.yaml`
 - `~/.tidal/.env`
 - `~/.tidal/auction_pricing_policy.yaml`
 
-Top-level commands:
+Run `tidal init` once on a machine before using either command.
 
-- `init`
-- `auction`
-- `kick`
-- `logs`
+## How To Use This Section
 
-### `tidal init`
+Start with the overview page for your role, then use the command-specific pages for exact workflows and flags.
 
-```bash
-tidal init [--force]
-```
-
-Creates the default `~/.tidal/` layout and writes scaffold files if they do not already exist.
-
-### `tidal auction`
-
-Subcommands:
-
-- `deploy`
-- `enable-tokens`
-- `settle`
-
-#### `tidal auction deploy`
-
-```bash
-tidal auction deploy \
-  --want <token> \
-  --receiver <address> \
-  --starting-price <int> \
-  [--factory <address>] \
-  [--governance <address>] \
-  [--salt <hex>] \
-  [--broadcast] \
-  [--bypass-confirmation] \
-  [--sender <address>] \
-  [--account <name> | --keystore <file>] \
-  [--password-file <file>] \
-  [--json]
-```
-
-Shared API options:
-
-- `--config`
-- `--api-base-url`
-- `--api-key`
-
-#### `tidal auction enable-tokens`
-
-```bash
-tidal auction enable-tokens <auction> \
-  [--extra-token <address>] \
-  [--broadcast] \
-  [--bypass-confirmation] \
-  [--sender <address>] \
-  [--account <name> | --keystore <file>] \
-  [--password-file <file>] \
-  [--json]
-```
-
-#### `tidal auction settle`
-
-```bash
-tidal auction settle <auction> \
-  [--token <address>] \
-  [--method auto|settle|sweep-and-settle] \
-  [--broadcast] \
-  [--bypass-confirmation] \
-  [--sender <address>] \
-  [--account <name> | --keystore <file>] \
-  [--password-file <file>] \
-  [--json]
-```
-
-### `tidal kick`
-
-Subcommands:
-
-- `inspect`
-- `run`
-
-#### `tidal kick inspect`
-
-```bash
-tidal kick inspect \
-  [--source-type strategy|fee-burner] \
-  [--source <address>] \
-  [--auction <address>] \
-  [--limit <n>] \
-  [--show-all] \
-  [--json]
-```
-
-Shared API options:
-
-- `--config`
-- `--api-base-url`
-- `--api-key`
-
-#### `tidal kick run`
-
-```bash
-tidal kick run \
-  [--source-type strategy|fee-burner] \
-  [--source <address>] \
-  [--auction <address>] \
-  [--limit <n>] \
-  [--broadcast] \
-  [--bypass-confirmation] \
-  [--sender <address>] \
-  [--account <name> | --keystore <file>] \
-  [--password-file <file>] \
-  [--verbose] \
-  [--require-curve-quote | --allow-missing-curve-quote] \
-  [--json]
-```
-
-### `tidal logs`
-
-Subcommands:
-
-- `kicks`
-- `scans`
-- `show`
-
-#### `tidal logs kicks`
-
-```bash
-tidal logs kicks \
-  [--source <address>] \
-  [--auction <address>] \
-  [--status <status>] \
-  [--limit <n>] \
-  [--json]
-```
-
-#### `tidal logs scans`
-
-```bash
-tidal logs scans \
-  [--status <status>] \
-  [--limit <n>] \
-  [--json]
-```
-
-#### `tidal logs show`
-
-```bash
-tidal logs show <run_id> [--json]
-```
-
-## Server Operator CLI: `tidal-server`
-
-`tidal-server` uses the same default config home as `tidal` unless `--config` or the `TIDAL_*` path overrides are set.
-
-Top-level commands:
-
-- `db`
-- `scan`
-- `auction`
-- `kick`
-- `logs`
-- `api`
-- `auth`
-
-### `tidal-server db`
-
-Subcommands:
-
-- `migrate`
-
-```bash
-tidal-server db migrate [--config]
-```
-
-### `tidal-server scan`
-
-Subcommands:
-
-- `run`
-- `daemon`
-
-```bash
-tidal-server scan run [--config] [--json]
-tidal-server scan daemon [--config] [--interval-seconds <n>] [--json]
-```
-
-### `tidal-server auction`
-
-Subcommands:
-
-- `deploy`
-- `enable-tokens`
-- `settle`
-
-```bash
-tidal-server auction deploy \
-  --want <token> \
-  --receiver <address> \
-  [--factory <address>] \
-  [--governance <address>] \
-  [--starting-price <int>] \
-  [--salt <hex>] \
-  [--broadcast] \
-  [--bypass-confirmation] \
-  [--sender <address>] \
-  [--account <name> | --keystore <file>] \
-  [--password-file <file>] \
-  [--json]
-```
-
-```bash
-tidal-server auction enable-tokens <auction> \
-  [--extra-token <address>] \
-  [--broadcast] \
-  [--bypass-confirmation] \
-  [--sender <address>] \
-  [--account <name> | --keystore <file>] \
-  [--password-file <file>] \
-  [--json]
-```
-
-```bash
-tidal-server auction settle <auction> \
-  [--token <address>] \
-  [--method auto|settle|sweep-and-settle] \
-  [--broadcast] \
-  [--bypass-confirmation] \
-  [--sender <address>] \
-  [--account <name> | --keystore <file>] \
-  [--password-file <file>] \
-  [--receipt-timeout <seconds>] \
-  [--json]
-```
-
-### `tidal-server kick`
-
-Subcommands:
-
-- `run`
-- `daemon`
-- `inspect`
-
-```bash
-tidal-server kick run \
-  [--source-type strategy|fee-burner] \
-  [--source <address>] \
-  [--auction <address>] \
-  [--limit <n>] \
-  [--broadcast] \
-  [--bypass-confirmation] \
-  [--sender <address>] \
-  [--account <name> | --keystore <file>] \
-  [--password-file <file>] \
-  [--verbose] \
-  [--explain] \
-  [--require-curve-quote | --allow-missing-curve-quote] \
-  [--json]
-```
-
-```bash
-tidal-server kick daemon \
-  [--source-type strategy|fee-burner] \
-  [--source <address>] \
-  [--auction <address>] \
-  [--limit <n>] \
-  [--interval-seconds <n>] \
-  [--broadcast] \
-  [--sender <address>] \
-  [--account <name> | --keystore <file>] \
-  [--password-file <file>] \
-  [--verbose] \
-  [--require-curve-quote | --allow-missing-curve-quote] \
-  [--json]
-```
-
-```bash
-tidal-server kick inspect \
-  [--source-type strategy|fee-burner] \
-  [--source <address>] \
-  [--auction <address>] \
-  [--limit <n>] \
-  [--show-all] \
-  [--json]
-```
-
-### `tidal-server logs`
-
-Subcommands:
-
-- `kicks`
-- `scans`
-- `show`
-
-```bash
-tidal-server logs kicks [--source <address>] [--auction <address>] [--status <status>] [--limit <n>] [--json]
-tidal-server logs scans [--status <status>] [--limit <n>] [--json]
-tidal-server logs show <run_id> [--json]
-```
-
-### `tidal-server api`
-
-Subcommands:
-
-- `serve`
-
-```bash
-tidal-server api serve [--config]
-```
-
-### `tidal-server auth`
-
-Subcommands:
-
-- `create`
-- `list`
-- `revoke`
-
-```bash
-tidal-server auth create --label <operator-label> [--config]
-tidal-server auth list [--config]
-tidal-server auth revoke <label> [--config]
-```
+| Role | Start here | Command groups |
+|---|---|---|
+| CLI client | [CLI Client Overview](cli-client-reference.md) | [`tidal init`](cli-client-init.md), [`tidal kick`](cli-client-kick.md), [`tidal auction`](cli-client-auction.md), [`tidal logs`](cli-client-logs.md) |
+| Server operator | [Server Operator CLI Overview](cli-server-reference.md) | [`tidal-server db`](cli-server-db.md), [`tidal-server scan`](cli-server-scan.md), [`tidal-server api`](cli-server-api.md), [`tidal-server auth`](cli-server-auth.md), [`tidal-server kick`](cli-server-kick.md), [`tidal-server auction`](cli-server-auction.md), [`tidal-server logs`](cli-server-logs.md) |
 
 ## Shared Patterns
 
-### JSON output
+### Preview first
 
-Most commands accept `--json` for machine-readable output.
+Mutating transaction commands default to preview mode. Add `--broadcast` to actually sign and send a transaction.
 
-### Wallet selection
+### Local signing
 
-Broadcasting commands accept one of:
+Broadcasting commands share the same wallet surface:
 
-- `--account <foundry-keystore-name>`
-- `--keystore <path>`
+- `--sender`
+- `--account`
+- `--keystore`
+- `--password-file`
 
-and optionally:
+The private key stays with the machine running the CLI.
 
-- `--password-file <path>`
+### Machine-readable output
 
-### Preview-first behavior
+Most read and write commands accept `--json` for scripting and automation.
 
-Mutating commands default to preview mode. Add `--broadcast` to actually send a transaction.
+### Config overrides
 
-### Confirmation bypass
+Both executables support path overrides such as `--config` and the `TIDAL_*` environment variables documented in [Configuration](config.md).
 
-Use `--bypass-confirmation` only when you intentionally want non-interactive broadcasting.
+## Choose The Right CLI
+
+Use `tidal` when:
+
+- you are a remote operator calling the hosted or self-hosted API
+- you want the server to own shared state and audit history
+- you want wallet signing to stay local to your workstation
+
+Use `tidal-server` when:
+
+- you are operating the host that owns the shared database
+- you are running the scanner, API, or auth management
+- you intentionally want transactions to execute from the server itself

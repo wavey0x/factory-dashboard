@@ -79,7 +79,9 @@ Broadcasting commands use a Foundry-style wallet surface: `--sender`, `--account
 - Local development: [`docs/local-dev.md`](./docs/local-dev.md)
 - CLI client guide: [`docs/operator-guide.md`](./docs/operator-guide.md)
 - Server operator guide: [`docs/server-ops.md`](./docs/server-ops.md)
-- CLI reference: [`docs/cli-reference.md`](./docs/cli-reference.md)
+- CLI overview: [`docs/cli-reference.md`](./docs/cli-reference.md)
+- CLI client command reference: [`docs/cli-client-reference.md`](./docs/cli-client-reference.md)
+- Server operator command reference: [`docs/cli-server-reference.md`](./docs/cli-server-reference.md)
 - API reference: [`docs/api-reference.md`](./docs/api-reference.md)
 - Configuration reference: [`docs/config.md`](./docs/config.md)
 

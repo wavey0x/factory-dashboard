@@ -20,6 +20,7 @@ const AUCTIONSCAN_BASE_URL = "https://auctionscan.info";
 const AUCTIONSCAN_ICON_SRC = "/auctionscan-favicon.svg";
 const FAILED_STATUSES = new Set(["REVERTED", "ERROR", "ESTIMATE_FAILED"]);
 const FAINT_STATUSES = new Set(["DRY_RUN", "SUBMITTED", "USER_SKIPPED", "SKIP"]);
+const KICK_LOG_PAGE_SIZE = 25;
 
 function apiUrl(path) {
   return `${API_BASE_URL}${path}`;
@@ -39,6 +40,7 @@ async function apiFetch(path, options = {}) {
 function parseLocation() {
   const path = window.location.pathname.replace(/^\/+/, "");
   const params = new URLSearchParams(window.location.search);
+  const offsetValue = Number.parseInt(params.get("offset") || "0", 10);
   let page = "strategies";
   if (path === "logs" || path === "kicklog") {
     page = "kicks";
@@ -49,12 +51,22 @@ function parseLocation() {
     page,
     runId: params.get("run_id") || null,
     kickId: params.get("kick_id") || null,
+    logsOffset: Number.isFinite(offsetValue) && offsetValue >= 0 ? offsetValue : 0,
+    logsStatus: params.get("status") || "all",
+    logsQuery: params.get("q") || "",
   };
 }
 
 function navigateTo(page, params) {
   const slug = page === "kicks" ? "logs" : page === "fee-burner" ? "fee-burner" : "strategies";
-  const qs = params ? `?${new URLSearchParams(params).toString()}` : "";
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params || {})) {
+    if (value == null || value === "") {
+      continue;
+    }
+    search.set(key, String(value));
+  }
+  const qs = search.size ? `?${search.toString()}` : "";
   window.history.pushState(null, "", `/${slug}${qs}`);
 }
 
@@ -1380,44 +1392,171 @@ function KickLogSkeletonRows() {
   ));
 }
 
-function KickLogPage({ nowMs, initialRunId, initialKickId }) {
+function KickLogPager({
+  offset,
+  pageSize,
+  total,
+  loading,
+  hasMore,
+  onPrev,
+  onNext,
+}) {
+  const rangeStart = total === 0 ? 0 : offset + 1;
+  const rangeEnd = total === 0 ? 0 : Math.min(offset + pageSize, total);
+
+  return (
+    <div className="kick-log-pagination" aria-live="polite">
+      <div className="kick-log-pagination-meta">
+        {total === 0 ? "Showing 0 results" : `Showing ${rangeStart.toLocaleString()}-${rangeEnd.toLocaleString()} of ${total.toLocaleString()}`}
+      </div>
+      <div className="kick-log-pagination-actions">
+        <button type="button" className="kick-log-page-btn" onClick={onPrev} disabled={loading || offset === 0}>
+          Newer
+        </button>
+        <button type="button" className="kick-log-page-btn" onClick={onNext} disabled={loading || !hasMore}>
+          Older
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function KickLogPage({
+  nowMs,
+  initialRunId,
+  initialKickId,
+  initialOffset = 0,
+  initialStatus = "all",
+  initialSearch = "",
+}) {
   const [kicks, setKicks] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState(initialStatus);
+  const [searchTerm, setSearchTerm] = useState(initialSearch);
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState(initialSearch);
+  const [offset, setOffset] = useState(initialOffset);
+  const [hasMore, setHasMore] = useState(false);
   const [expandedRows, setExpandedRows] = useState(() => new Set());
-  const hasFetchedRef = useRef(false);
   const highlightedRowRef = useRef(null);
   const kicksRef = useRef([]);
   const auctionScanRequestsRef = useRef(new Map());
+  const pageCacheRef = useRef(new Map());
   const isMobile = useMediaQuery("(max-width: 600px)");
+  const focusedView = Boolean(initialKickId || initialRunId);
 
   useEffect(() => {
     kicksRef.current = kicks;
   }, [kicks]);
 
   useEffect(() => {
-    if (hasFetchedRef.current) return;
-    hasFetchedRef.current = true;
+    const timerId = window.setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 250);
+    return () => window.clearTimeout(timerId);
+  }, [searchTerm]);
 
+  useEffect(() => {
+    setOffset(0);
+    setExpandedRows(new Set());
+  }, [statusFilter, debouncedSearchTerm]);
+
+  useEffect(() => {
     let isMounted = true;
     const controller = new AbortController();
 
+    const normalizedQuery = debouncedSearchTerm.trim();
+    const requestKey = JSON.stringify({
+      kickId: initialKickId || null,
+      runId: initialRunId || null,
+      offset,
+      status: statusFilter,
+      q: normalizedQuery,
+    });
+
+    function applyPayload(data) {
+      setKicks(Array.isArray(data.kicks) ? data.kicks.map(normalizeKick) : []);
+      setTotal(data.total || 0);
+      setHasMore(Boolean(data.hasMore));
+    }
+
+    async function prefetchNextPage(data) {
+      if (focusedView || !data?.hasMore) {
+        return;
+      }
+      const nextOffset = offset + KICK_LOG_PAGE_SIZE;
+      const nextKey = JSON.stringify({
+        kickId: null,
+        runId: null,
+        offset: nextOffset,
+        status: statusFilter,
+        q: normalizedQuery,
+      });
+      if (pageCacheRef.current.has(nextKey)) {
+        return;
+      }
+      const params = new URLSearchParams({
+        limit: String(KICK_LOG_PAGE_SIZE),
+        offset: String(nextOffset),
+      });
+      if (statusFilter !== "all") {
+        params.set("status", statusFilter);
+      }
+      if (normalizedQuery) {
+        params.set("q", normalizedQuery);
+      }
+      try {
+        const response = await apiFetch(`/logs/kicks?${params.toString()}`);
+        if (!response.ok) {
+          return;
+        }
+        const payload = await response.json();
+        pageCacheRef.current.set(nextKey, payload?.data || {});
+      } catch {
+        // Ignore background prefetch failures.
+      }
+    }
+
     async function loadKicks() {
+      const cached = pageCacheRef.current.get(requestKey);
+      if (cached) {
+        setError("");
+        applyPayload(cached);
+        setLoading(false);
+        prefetchNextPage(cached);
+        return;
+      }
+
       setLoading(true);
       setError("");
       try {
-        const response = await apiFetch("/logs/kicks?limit=500", {
+        const params = new URLSearchParams({
+          limit: String(KICK_LOG_PAGE_SIZE),
+          offset: String(offset),
+        });
+        if (statusFilter !== "all") {
+          params.set("status", statusFilter);
+        }
+        if (normalizedQuery) {
+          params.set("q", normalizedQuery);
+        }
+        if (initialKickId) {
+          params.set("kick_id", String(initialKickId));
+        } else if (initialRunId) {
+          params.set("run_id", initialRunId);
+        }
+
+        const response = await apiFetch(`/logs/kicks?${params.toString()}`, {
           signal: controller.signal,
         });
         if (!response.ok) throw new Error("Unable to load kicks");
         const payload = await response.json();
         const data = payload?.data || {};
         if (!isMounted) return;
-        setKicks(Array.isArray(data.kicks) ? data.kicks.map(normalizeKick) : []);
-        setTotal(data.total || 0);
+        pageCacheRef.current.set(requestKey, data);
+        applyPayload(data);
+        prefetchNextPage(data);
       } catch (err) {
         if (isMounted && err.name !== "AbortError") {
           setError(err.message || "Unable to load kicks");
@@ -1433,6 +1572,12 @@ function KickLogPage({ nowMs, initialRunId, initialKickId }) {
       controller.abort();
     };
   }, []);
+    loadKicks();
+    return () => {
+      isMounted = false;
+      controller.abort();
+    };
+  }, [debouncedSearchTerm, initialKickId, initialRunId, offset, statusFilter, focusedView]);
 
   useEffect(() => {
     if (loading || (!initialKickId && !initialRunId) || !kicks.length) return;
@@ -1448,32 +1593,6 @@ function KickLogPage({ nowMs, initialRunId, initialKickId }) {
       }
     }
   }, [loading, initialKickId, initialRunId, kicks, isMobile]);
-
-  const filteredKicks = useMemo(() => {
-    const term = searchTerm.trim().toLowerCase();
-    return kicks.filter((kick) => {
-      if (statusFilter === "confirmed" && kick.status !== "CONFIRMED") return false;
-      if (statusFilter === "failed" && !FAILED_STATUSES.has(kick.status)) return false;
-
-      if (term) {
-        const searchable = [
-          kick.operationType,
-          kick.tokenSymbol,
-          kick.wantSymbol,
-          kick.auctionAddress,
-          kick.txHash,
-          kick.sourceAddress,
-          kick.sourceName,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-        if (!searchable.includes(term)) return false;
-      }
-
-      return true;
-    });
-  }, [kicks, statusFilter, searchTerm]);
 
   function getAuctionScanUrls(kick) {
     if (!kick) {
@@ -1586,6 +1705,17 @@ function KickLogPage({ nowMs, initialRunId, initialKickId }) {
     window.open(href, "_blank", "noopener,noreferrer");
   }
 
+  function buildNavParams(overrides = {}) {
+    const params = {
+      offset: offset > 0 && !focusedView ? String(offset) : null,
+      status: statusFilter !== "all" ? statusFilter : null,
+      q: debouncedSearchTerm.trim() || null,
+      run_id: initialRunId || null,
+      ...overrides,
+    };
+    return params;
+  }
+
   function toggleRow(kick) {
     const expanding = !expandedRows.has(kick.id);
     setExpandedRows((prev) => {
@@ -1602,9 +1732,9 @@ function KickLogPage({ nowMs, initialRunId, initialKickId }) {
       return next;
     });
     if (expanding) {
-      navigateTo("kicks", { kick_id: String(kick.id) });
+      navigateTo("kicks", buildNavParams({ kick_id: String(kick.id) }));
     } else {
-      navigateTo("kicks");
+      navigateTo("kicks", buildNavParams({ kick_id: null }));
     }
     if (expanding) {
       ensureAuctionScanLink(kick.id);
@@ -1632,7 +1762,21 @@ function KickLogPage({ nowMs, initialRunId, initialKickId }) {
         </label>
       </section>
 
-      <div className="toolbar-meta">Showing {filteredKicks.length.toLocaleString()} results</div>
+      {focusedView ? (
+        <div className="toolbar-meta">
+          {initialKickId ? `Showing selected kick ${initialKickId}` : `Showing run ${initialRunId}`}
+        </div>
+      ) : (
+        <KickLogPager
+          offset={offset}
+          pageSize={KICK_LOG_PAGE_SIZE}
+          total={total}
+          loading={loading}
+          hasMore={hasMore}
+          onPrev={() => setOffset((current) => Math.max(0, current - KICK_LOG_PAGE_SIZE))}
+          onNext={() => setOffset((current) => current + KICK_LOG_PAGE_SIZE)}
+        />
+      )}
 
       {error ? <p className="error">{error}</p> : null}
 
@@ -1652,13 +1796,13 @@ function KickLogPage({ nowMs, initialRunId, initialKickId }) {
           </thead>
           <tbody>
             {loading ? <KickLogSkeletonRows /> : null}
-            {!loading && !filteredKicks.length ? (
+            {!loading && !kicks.length ? (
               <tr>
                 <td colSpan={8} className="kick-log-empty">No activity found</td>
               </tr>
             ) : null}
             {!loading
-              ? filteredKicks.map((kick) => (
+              ? kicks.map((kick) => (
                   <KickLogRow
                     key={kick.id}
                     kick={kick}
@@ -1679,6 +1823,18 @@ function KickLogPage({ nowMs, initialRunId, initialKickId }) {
           </tbody>
         </table>
       </div>
+
+      {!focusedView && !loading ? (
+        <KickLogPager
+          offset={offset}
+          pageSize={KICK_LOG_PAGE_SIZE}
+          total={total}
+          loading={loading}
+          hasMore={hasMore}
+          onPrev={() => setOffset((current) => Math.max(0, current - KICK_LOG_PAGE_SIZE))}
+          onNext={() => setOffset((current) => current + KICK_LOG_PAGE_SIZE)}
+        />
+      ) : null}
     </>
   );
 }
@@ -1864,6 +2020,9 @@ export default function App() {
   const [activePage, setActivePage] = useState(() => initialLocation.page);
   const [initialRunId] = useState(() => initialLocation.runId);
   const [initialKickId] = useState(() => initialLocation.kickId);
+  const [initialLogsOffset] = useState(() => initialLocation.logsOffset);
+  const [initialLogsStatus] = useState(() => initialLocation.logsStatus);
+  const [initialLogsQuery] = useState(() => initialLocation.logsQuery);
   const [selectedToken, setSelectedToken] = useState(getTokenFromUrl);
   const [auctionFilter, setAuctionFilter] = useState("all");
   const [isAuctionFilterMenuOpen, setIsAuctionFilterMenuOpen] = useState(false);
@@ -2460,6 +2619,9 @@ export default function App() {
           nowMs={nowMs}
           initialRunId={initialRunId}
           initialKickId={initialKickId}
+          initialOffset={initialLogsOffset}
+          initialStatus={initialLogsStatus}
+          initialSearch={initialLogsQuery}
         />
       ) : null}
 

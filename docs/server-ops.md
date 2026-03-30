@@ -260,6 +260,19 @@ tidal-server logs kicks
 tidal-server logs show <run_id>
 ```
 
+## Command Reference
+
+Use these pages for the exact server operator command surfaces:
+
+- [Server Operator CLI Overview](cli-server-reference.md)
+- [Server Operator: `tidal-server db`](cli-server-db.md)
+- [Server Operator: `tidal-server scan`](cli-server-scan.md)
+- [Server Operator: `tidal-server api`](cli-server-api.md)
+- [Server Operator: `tidal-server auth`](cli-server-auth.md)
+- [Server Operator: `tidal-server kick`](cli-server-kick.md)
+- [Server Operator: `tidal-server auction`](cli-server-auction.md)
+- [Server Operator: `tidal-server logs`](cli-server-logs.md)
+
 Useful symptoms:
 
 - no candidates: check scanner freshness, token prices, and auction mappings

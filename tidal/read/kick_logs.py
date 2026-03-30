@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session
 
 from tidal.normalizers import normalize_address
 
+FAILED_KICK_LOG_STATUSES = ("REVERTED", "ERROR", "ESTIMATE_FAILED")
+
 KICKS_DETAIL_SQL_TEMPLATE = """
 SELECT
     k.id,
@@ -69,32 +71,58 @@ class KickLogReadService:
         limit: int,
         offset: int = 0,
         status: str | None = None,
+        q: str | None = None,
         source_address: str | None = None,
         auction_address: str | None = None,
+        run_id: str | None = None,
+        kick_id: int | None = None,
     ) -> dict[str, object]:
         if not self._has_table("kick_txs"):
-            return {"kicks": [], "total": 0}
+            return {"kicks": [], "total": 0, "limit": limit, "offset": offset, "hasMore": False}
 
         features = self._get_schema_features()
         operation_type_expr, source_type_expr, resolved_source_address_expr = self._build_kick_source_expressions(features)
         clauses: list[str] = []
         params: dict[str, object] = {"limit": limit, "offset": offset}
         if status is not None:
-            clauses.append("k.status = :status")
-            params["status"] = status
+            normalized_status = str(status).strip().upper()
+            if normalized_status == "FAILED":
+                clauses.append("k.status IN ('REVERTED', 'ERROR', 'ESTIMATE_FAILED')")
+            else:
+                clauses.append("k.status = :status")
+                params["status"] = normalized_status
+        if q is not None and str(q).strip():
+            clauses.append(
+                "("
+                "LOWER(COALESCE(k.token_symbol, '')) LIKE :q OR "
+                "LOWER(COALESCE(k.want_symbol, '')) LIKE :q OR "
+                "LOWER(COALESCE(k.auction_address, '')) LIKE :q OR "
+                "LOWER(COALESCE(k.tx_hash, '')) LIKE :q OR "
+                f"LOWER(COALESCE({resolved_source_address_expr}, '')) LIKE :q OR "
+                "LOWER(COALESCE(k.run_id, '')) LIKE :q OR "
+                "LOWER(COALESCE(k.operation_type, 'kick')) LIKE :q"
+                ")"
+            )
+            params["q"] = f"%{str(q).strip().lower()}%"
         if source_address is not None:
             clauses.append(f"LOWER({resolved_source_address_expr}) = :source_address")
             params["source_address"] = normalize_address(source_address).lower()
         if auction_address is not None:
             clauses.append("LOWER(k.auction_address) = :auction_address")
             params["auction_address"] = normalize_address(auction_address).lower()
+        if run_id is not None:
+            clauses.append("k.run_id = :run_id")
+            params["run_id"] = run_id
+        if kick_id is not None:
+            clauses.append("k.id = :kick_id")
+            params["kick_id"] = int(kick_id)
         where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
 
         count_sql = f"SELECT COUNT(*) AS total FROM kick_txs k {where_clause}"
         total_row = self.session.execute(text(count_sql), params).mappings().first()
         total = int(total_row["total"]) if total_row is not None else 0
         if total == 0:
-            return {"kicks": [], "total": 0}
+            return {"kicks": [], "total": 0, "limit": limit, "offset": offset, "hasMore": False}
 
         detail_sql = self._build_kicks_detail_sql(features, where_clause=where_clause)
         kick_rows = self.session.execute(text(detail_sql), params).mappings().all()
@@ -144,7 +172,13 @@ class KickLogReadService:
                     "createdAt": row["created_at"],
                 }
             )
-        return {"kicks": kicks, "total": total}
+        return {
+            "kicks": kicks,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "hasMore": offset + len(kicks) < total,
+        }
 
     def load_kick_auctionscan_context(self, kick_id: int) -> dict[str, object]:
         features = self._get_schema_features()

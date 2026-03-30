@@ -34,19 +34,23 @@ Tidal is Yearn's auction operations stack. It scans strategy and fee-burner inve
 ### CLI client
 
 1. [CLI Client Guide](operator-guide.md)
-2. [CLI Reference](cli-reference.md)
+2. [CLI Client Overview](cli-client-reference.md)
+3. [CLI Client: `tidal kick`](cli-client-kick.md)
 3. [Configuration](config.md)
 4. [Pricing](pricing.md)
 
 ### Server operator
 
 1. [Server Operator Guide](server-ops.md)
-2. [Configuration](config.md)
-3. [API Reference](api-reference.md)
+2. [Server Operator CLI Overview](cli-server-reference.md)
+3. [Configuration](config.md)
+4. [API Reference](api-reference.md)
 
 ## Reference
 
-- [CLI Reference](cli-reference.md)
+- [CLI Overview](cli-reference.md)
+- [CLI Client Overview](cli-client-reference.md)
+- [Server Operator CLI Overview](cli-server-reference.md)
 - [API Reference](api-reference.md)
 - [Configuration](config.md)
 - [Glossary](glossary.md)

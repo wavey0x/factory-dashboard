@@ -17,16 +17,28 @@ router = APIRouter()
 
 @router.get("/logs/kicks")
 def get_kick_logs(
-    limit: int = Query(100, ge=1, le=500),
+    limit: int = Query(25, ge=1, le=100),
     offset: int = Query(0, ge=0),
     status: str | None = Query(default=None),
+    q: str | None = Query(default=None),
     source: str | None = Query(default=None),
     auction: str | None = Query(default=None),
+    run_id: str | None = Query(default=None),
+    kick_id: int | None = Query(default=None, ge=1),
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, object]:
     service = KickLogReadService(session, chain_id=settings.chain_id, auctionscan_base_url=settings.auctionscan_base_url)
-    data = service.list_kicks(limit=limit, offset=offset, status=status, source_address=source, auction_address=auction)
+    data = service.list_kicks(
+        limit=limit,
+        offset=offset,
+        status=status,
+        q=q,
+        source_address=source,
+        auction_address=auction,
+        run_id=run_id,
+        kick_id=kick_id,
+    )
     return {"status": "ok" if data["kicks"] else "noop", "warnings": [], "data": data}
 
 
