@@ -3,6 +3,7 @@
 ## Git Commits
 
 - Never add `Co-Authored-By` trailers to commit messages.
+- Git commit and push whenever a meaningful unit of work is completed.
 
 ## UI Compliance Guardrails
 
