@@ -689,12 +689,14 @@ def render_kick_inspect(result: KickInspectResult, *, show_all: bool) -> None:
     typer.echo(f"  eligible     {result.eligible_count}")
     typer.echo(f"  selected     {result.selected_count}")
     typer.echo(f"  ready        {result.ready_count}")
+    typer.echo(f"  ignored      {result.ignored_count}")
     typer.echo(f"  cooldown     {result.cooldown_count}")
     typer.echo(f"  deferred     {result.deferred_same_auction_count}")
     typer.echo(f"  limited      {result.limited_count}")
 
     sections: list[tuple[str, list[KickInspectEntry]]] = [
         ("Ready", result.ready),
+        ("Ignored", result.ignored_skips),
         ("Cooldown", result.cooldown_skips),
         ("Deferred", result.deferred_same_auction),
         ("Limited", result.limited),
@@ -702,7 +704,7 @@ def render_kick_inspect(result: KickInspectResult, *, show_all: bool) -> None:
     for heading, entries in sections:
         if not entries:
             continue
-        if not show_all and heading not in {"Ready", "Cooldown"}:
+        if not show_all and heading not in {"Ready", "Ignored", "Cooldown"}:
             continue
         typer.echo()
         typer.echo(f"{heading}:")

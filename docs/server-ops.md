@@ -35,7 +35,7 @@ After following [Install](install.md), review:
 
 - `~/.tidal/config.yaml`
 - `~/.tidal/.env`
-- `~/.tidal/pricing.yaml` if you need pricing overrides or per-token caps
+- `~/.tidal/kick.yaml` if you need pricing overrides, ignore rules, or cooldown changes
 
 Then run:
 

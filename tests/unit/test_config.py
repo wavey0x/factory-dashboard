@@ -12,7 +12,7 @@ def _clear_runtime_env(monkeypatch) -> None:
         "TIDAL_HOME",
         "TIDAL_CONFIG",
         "TIDAL_ENV_FILE",
-        "TIDAL_PRICING_PATH",
+        "TIDAL_KICK_PATH",
         "TIDAL_OPERATOR_STATE_DIR",
     ):
         monkeypatch.delenv(key, raising=False)
@@ -37,7 +37,7 @@ def test_load_settings_defaults_to_tidal_home_paths(tmp_path, monkeypatch) -> No
     assert settings.resolved_home_path == app_home
     assert settings.resolved_config_path == app_home / "config.yaml"
     assert settings.resolved_env_path == app_home / ".env"
-    assert settings.resolved_pricing_path == app_home / "pricing.yaml"
+    assert settings.resolved_kick_path == app_home / "kick.yaml"
     assert settings.resolved_db_path == app_home / "state" / "custom.db"
     assert settings.resolved_txn_keystore_path == app_home / "keys" / "ops.json"
     assert settings.rpc_url == "https://example-rpc.invalid"
@@ -74,7 +74,7 @@ def test_load_settings_uses_tidal_config_override_and_config_local_env(tmp_path,
     assert settings.rpc_url == "https://config-dir.invalid"
 
 
-def test_load_settings_uses_explicit_env_and_pricing_overrides(tmp_path, monkeypatch) -> None:
+def test_load_settings_uses_explicit_env_and_kick_overrides(tmp_path, monkeypatch) -> None:
     home_root = tmp_path / "home"
     app_home = home_root / ".tidal"
     app_home.mkdir(parents=True)
@@ -83,18 +83,18 @@ def test_load_settings_uses_explicit_env_and_pricing_overrides(tmp_path, monkeyp
 
     explicit_env_path = tmp_path / "secrets.env"
     explicit_env_path.write_text("RPC_URL=https://override.invalid\n", encoding="utf-8")
-    explicit_policy_path = tmp_path / "custom-pricing.yaml"
+    explicit_policy_path = tmp_path / "custom-kick.yaml"
     explicit_policy_path.write_text("profiles: {}\n", encoding="utf-8")
 
     _clear_runtime_env(monkeypatch)
     monkeypatch.setenv("HOME", str(home_root))
     monkeypatch.setenv("TIDAL_ENV_FILE", str(explicit_env_path))
-    monkeypatch.setenv("TIDAL_PRICING_PATH", str(explicit_policy_path))
+    monkeypatch.setenv("TIDAL_KICK_PATH", str(explicit_policy_path))
 
     settings = load_settings()
 
     assert settings.resolved_env_path == explicit_env_path
-    assert settings.resolved_pricing_path == explicit_policy_path
+    assert settings.resolved_kick_path == explicit_policy_path
     assert settings.rpc_url == "https://override.invalid"
 
 

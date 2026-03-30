@@ -17,7 +17,7 @@ from tidal.persistence.repositories import KickTxRepository
 import json
 
 from tidal.pricing.token_price_agg import QuoteResult, TokenPriceQuote
-from tidal.transaction_service.pricing_policy import TokenSizingPolicy
+from tidal.transaction_service.kick_policy import PricingPolicy, PricingProfile, TokenSizingPolicy
 from tidal.transaction_service.kicker import AuctionKicker, _DEFAULT_PRIORITY_FEE_GWEI
 from tidal.transaction_service.types import (
     KickCandidate,
@@ -1274,6 +1274,67 @@ async def test_prepare_kick_success(session):
     assert result.settle_token is None
     assert result.want_price_usd_str == "1"
     price_provider.quote_usd.assert_called_once_with(candidate.want_address, 6)
+
+
+@pytest.mark.asyncio
+async def test_prepare_kick_uses_profile_override(session):
+    web3_client = MagicMock()
+    price_provider = AsyncMock()
+    price_provider.quote = AsyncMock(
+        return_value=QuoteResult(
+            amount_out_raw=2_500_000_000,
+            token_out_decimals=6,
+            provider_statuses={"curve": "ok"},
+            provider_amounts={"curve": 2_500_000_000},
+        )
+    )
+    price_provider.quote_usd = AsyncMock(
+        return_value=TokenPriceQuote(price_usd=Decimal("1"), quote_amount_in_raw=1)
+    )
+    pricing_policy = PricingPolicy(
+        default_profile_name="volatile",
+        profiles={
+            "volatile": PricingProfile(
+                name="volatile",
+                start_price_buffer_bps=1000,
+                min_price_buffer_bps=500,
+                step_decay_rate_bps=50,
+            ),
+            "stable": PricingProfile(
+                name="stable",
+                start_price_buffer_bps=100,
+                min_price_buffer_bps=50,
+                step_decay_rate_bps=2,
+            ),
+        },
+        profile_overrides={
+            (
+                normalize_address("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+                normalize_address("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+            ): "stable"
+        },
+    )
+
+    with patch("tidal.transaction_service.kicker.ERC20Reader") as MockERC20:
+        mock_erc20 = AsyncMock()
+        mock_erc20.read_balance = AsyncMock(return_value=10**21)
+        MockERC20.return_value = mock_erc20
+
+        kicker = _make_kicker(
+            session,
+            web3_client=web3_client,
+            price_provider=price_provider,
+            pricing_policy=pricing_policy,
+        )
+        candidate = _make_candidate()
+        result = await kicker.prepare_kick(candidate, "run-1")
+
+    assert result.pricing_profile_name == "stable"
+    assert result.start_price_buffer_bps == 100
+    assert result.min_price_buffer_bps == 50
+    assert result.step_decay_rate_bps == 2
+    assert result.starting_price_str == "2525"
+    assert result.minimum_quote_str == "2487"
 
 
 @pytest.mark.asyncio

@@ -2,6 +2,7 @@ from typer.testing import CliRunner
 
 from tidal.cli import app as operator_app
 from tidal.server_cli import app as server_app
+from tidal.transaction_service.kick_policy import load_kick_config
 
 
 def test_operator_cli_does_not_expose_scan_or_db_commands() -> None:
@@ -38,17 +39,21 @@ def test_operator_init_creates_tidal_home_layout(tmp_path, monkeypatch) -> None:
     assert result.exit_code == 0
     assert (app_home / "config.yaml").is_file()
     assert (app_home / ".env").is_file()
-    assert (app_home / "pricing.yaml").is_file()
+    assert (app_home / "kick.yaml").is_file()
     assert (app_home / "state").is_dir()
     assert (app_home / "state" / "operator").is_dir()
     assert (app_home / "run").is_dir()
     scaffold = (app_home / "config.yaml").read_text(encoding="utf-8")
     env_scaffold = (app_home / ".env").read_text(encoding="utf-8")
+    kick_scaffold = (app_home / "kick.yaml").read_text(encoding="utf-8")
     assert "0xb911Fcce8D5AFCEc73E072653107260bb23C1eE8" in scaffold
     assert "https://api.tidal.wavey.info" in scaffold
     assert scaffold.index("tidal_api_base_url") < scaffold.index("db_path")
     assert env_scaffold.index("TIDAL_API_KEY") < env_scaffold.index("RPC_URL")
+    assert "Consumer: the runtime that prepares kicks." in kick_scaffold
+    assert "profile_overrides:" in kick_scaffold
+    assert load_kick_config(app_home / "kick.yaml").pricing_policy.default_profile_name == "volatile"
     assert "Config:" in result.output
-    assert "Pricing:" in result.output
+    assert "Kick:" in result.output
     assert str(app_home / "config.yaml") in result.output
-    assert str(app_home / "pricing.yaml") in result.output
+    assert str(app_home / "kick.yaml") in result.output

@@ -14,10 +14,10 @@ import structlog
 from tidal.normalizers import normalize_address
 from tidal.persistence.repositories import KickTxRepository, TxnRunRepository
 from tidal.time import utcnow_iso
-from tidal.transaction_service.evaluator import build_shortlist, check_pre_send, sort_candidates
+from tidal.transaction_service.evaluator import build_shortlist, sort_candidates
+from tidal.transaction_service.kick_policy import CooldownPolicy, IgnorePolicy
 from tidal.transaction_service.kicker import AuctionKicker
 from tidal.transaction_service.types import (
-    KickAction,
     KickCandidate,
     KickResult,
     KickStatus,
@@ -64,7 +64,8 @@ class TxnService:
         kick_tx_repository: KickTxRepository,
         usd_threshold: float,
         max_data_age_seconds: int,
-        cooldown_seconds: int,
+        cooldown_policy: CooldownPolicy,
+        ignore_policy: IgnorePolicy,
         lock_path: Path,
         max_batch_kick_size: int = 5,
         batch_kick_delay_seconds: float = 5,
@@ -76,7 +77,8 @@ class TxnService:
         self.kick_tx_repository = kick_tx_repository
         self.usd_threshold = usd_threshold
         self.max_data_age_seconds = max_data_age_seconds
-        self.cooldown_seconds = cooldown_seconds
+        self.cooldown_policy = cooldown_policy
+        self.ignore_policy = ignore_policy
         self.lock_path = lock_path
         self.max_batch_kick_size = max_batch_kick_size
         self.batch_kick_delay_seconds = batch_kick_delay_seconds
@@ -166,8 +168,11 @@ class TxnService:
             source_address=source_address,
             auction_address=auction_address,
             limit=limit,
+            ignore_policy=self.ignore_policy,
+            cooldown_policy=self.cooldown_policy,
+            kick_tx_repository=self.kick_tx_repository,
         )
-        candidates = shortlist.selected_candidates
+        candidates_to_prepare = sort_candidates(shortlist.selected_candidates)
 
         logger.info(
             "txn_run_started",
@@ -176,17 +181,12 @@ class TxnService:
             source_type=source_type,
             source_address=source_address,
             auction_address=auction_address,
-            candidates_shortlisted=len(candidates),
+            candidates_shortlisted=len(candidates_to_prepare),
             candidates_eligible=len(shortlist.eligible_candidates),
+            ignored_count=len(shortlist.ignored_skips),
+            cooldown_count=len(shortlist.cooldown_skips),
             deferred_same_auction_count=shortlist.deferred_same_auction_count,
             limited_candidates_count=len(shortlist.limited_candidates),
-        )
-
-        # 3. Pre-send checks (cooldown, circuit breaker).
-        decisions = check_pre_send(
-            candidates,
-            kick_tx_repository=self.kick_tx_repository,
-            cooldown_seconds=self.cooldown_seconds,
         )
 
         kicks_attempted = 0
@@ -197,9 +197,6 @@ class TxnService:
         prepared: list[PreparedKick] = []
         prepared_sweep_and_settle: list[PreparedSweepAndSettle] = []
         failed_messages: list[str] = []
-        candidates_to_prepare = sort_candidates(
-            [decision.candidate for decision in decisions if decision.action == KickAction.KICK]
-        )
 
         if candidates_to_prepare:
             logger.info(
@@ -211,42 +208,32 @@ class TxnService:
                 candidates=_candidate_order_log(candidates_to_prepare),
             )
 
-        for decision in decisions:
-            if decision.action == KickAction.SKIP:
-                logger.debug(
-                    "txn_candidate_skip",
-                    run_id=run_id,
-                    source=decision.candidate.source_address,
-                    token=decision.candidate.token_address,
-                    reason=decision.skip_reason,
-                )
-                continue
-
+        for candidate in candidates_to_prepare:
             if not live:
                 # Dry-run: persist DRY_RUN row.
                 row = {
                     "run_id": run_id,
-                    "source_type": decision.candidate.source_type,
-                    "source_address": decision.candidate.source_address,
-                    "token_address": decision.candidate.token_address,
-                    "auction_address": decision.candidate.auction_address,
-                    "price_usd": decision.candidate.price_usd,
-                    "usd_value": str(decision.candidate.usd_value),
+                    "source_type": candidate.source_type,
+                    "source_address": candidate.source_address,
+                    "token_address": candidate.token_address,
+                    "auction_address": candidate.auction_address,
+                    "price_usd": candidate.price_usd,
+                    "usd_value": str(candidate.usd_value),
                     "status": "DRY_RUN",
                     "created_at": utcnow_iso(),
-                    "want_address": decision.candidate.want_address,
-                    "want_symbol": decision.candidate.want_symbol,
-                    "token_symbol": decision.candidate.token_symbol,
+                    "want_address": candidate.want_address,
+                    "want_symbol": candidate.want_symbol,
+                    "token_symbol": candidate.token_symbol,
                 }
-                if decision.candidate.source_type == "strategy":
-                    row["strategy_address"] = decision.candidate.source_address
+                if candidate.source_type == "strategy":
+                    row["strategy_address"] = candidate.source_address
                 self.kick_tx_repository.insert(row)
                 logger.info(
                     "txn_kick_dry_run",
                     run_id=run_id,
-                    source=decision.candidate.source_address,
-                    token=decision.candidate.token_address,
-                    usd_value=decision.candidate.usd_value,
+                    source=candidate.source_address,
+                    token=candidate.token_address,
+                    usd_value=candidate.usd_value,
                 )
                 kicks_attempted += 1
         
@@ -326,7 +313,7 @@ class TxnService:
                         kicks_attempted -= 1
 
         # 4. Finalize txn_runs.
-        candidates_found = len([d for d in decisions if d.action == KickAction.KICK])
+        candidates_found = len(candidates_to_prepare)
         if not live:
             status = "DRY_RUN"
         elif kicks_failed > 0 and kicks_succeeded == 0:

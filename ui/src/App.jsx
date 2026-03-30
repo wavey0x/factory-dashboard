@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Big from "big.js";
+import { keccak_256 } from "js-sha3";
 
 const ALL_TOKENS = "__all__";
 const MIN_USD_VISIBLE = new Big("0.01");
@@ -21,6 +22,7 @@ const AUCTIONSCAN_ICON_SRC = "/auctionscan-favicon.svg";
 const FAILED_STATUSES = new Set(["REVERTED", "ERROR", "ESTIMATE_FAILED"]);
 const FAINT_STATUSES = new Set(["DRY_RUN", "SUBMITTED", "USER_SKIPPED", "SKIP"]);
 const KICK_LOG_PAGE_SIZE = 25;
+const ADDRESS_PATTERN = /^0x[a-fA-F0-9]{40}$/;
 
 function apiUrl(path) {
   return `${API_BASE_URL}${path}`;
@@ -75,11 +77,33 @@ function getTokenFromUrl() {
   return params.get("token") || ALL_TOKENS;
 }
 
-function shortenAddress(address) {
-  if (!address || address.length < 13) {
-    return address || "—";
+function checksumAddress(address) {
+  if (typeof address !== "string") {
+    return address || null;
   }
-  return `${address.slice(0, 6)}...${address.slice(-4)}`;
+
+  const trimmed = address.trim();
+  if (!ADDRESS_PATTERN.test(trimmed)) {
+    return trimmed;
+  }
+
+  const lower = trimmed.toLowerCase().slice(2);
+  const hash = keccak_256(lower);
+  let output = "0x";
+
+  for (let index = 0; index < lower.length; index += 1) {
+    output += Number.parseInt(hash[index], 16) >= 8 ? lower[index].toUpperCase() : lower[index];
+  }
+
+  return output;
+}
+
+function shortenAddress(address) {
+  const formatted = checksumAddress(address);
+  if (!formatted || formatted.length < 13) {
+    return formatted || "—";
+  }
+  return `${formatted.slice(0, 6)}...${formatted.slice(-4)}`;
 }
 
 function truncateMiddle(value, maxLength = 18) {
@@ -571,17 +595,19 @@ function CopyIconButton({ valueToCopy, title, ariaLabel, className = "" }) {
 }
 
 function AddressCopy({ address }) {
-  if (!address) {
+  const formattedAddress = checksumAddress(address);
+
+  if (!formattedAddress) {
     return <span className="row-secondary mono">—</span>;
   }
 
   return (
-    <span className="address-copy" title={address}>
-      <span className="mono address-value">{shortenAddress(address)}</span>
+    <span className="address-copy" title={formattedAddress}>
+      <span className="mono address-value">{shortenAddress(formattedAddress)}</span>
       <CopyIconButton
-        valueToCopy={address}
-        title={`Copy address ${address}`}
-        ariaLabel={`Copy address ${address}`}
+        valueToCopy={formattedAddress}
+        title={`Copy address ${formattedAddress}`}
+        ariaLabel={`Copy address ${formattedAddress}`}
       />
     </span>
   );
@@ -595,26 +621,28 @@ function AddressLinkCopy({
   copyAriaLabel = null,
   onClick = null,
 }) {
-  if (!address) {
+  const formattedAddress = checksumAddress(address);
+
+  if (!formattedAddress) {
     return <span className="row-secondary mono">—</span>;
   }
 
   return (
-    <span className="address-copy" title={title || address}>
+    <span className="address-copy" title={title || formattedAddress}>
       <a
         className="etherscan-link mono address-value"
-        href={`${ETHERSCAN_ADDRESS_URL}${address}`}
-        title={address}
+        href={`${ETHERSCAN_ADDRESS_URL}${formattedAddress}`}
+        title={formattedAddress}
         target="_blank"
         rel="noopener noreferrer"
         onClick={onClick}
       >
-        {label || shortenAddress(address)}
+        {label || shortenAddress(formattedAddress)}
       </a>
       <CopyIconButton
-        valueToCopy={address}
-        title={copyTitle || `Copy address ${address}`}
-        ariaLabel={copyAriaLabel || `Copy address ${address}`}
+        valueToCopy={formattedAddress}
+        title={copyTitle || `Copy address ${formattedAddress}`}
+        ariaLabel={copyAriaLabel || `Copy address ${formattedAddress}`}
       />
     </span>
   );
@@ -1015,6 +1043,8 @@ function formatProviderAmount(amountOut, decimals, status) {
 
 function KickDetailContent({ kick, onOpenAuctionScan }) {
   const [showRelativeTimestamp, setShowRelativeTimestamp] = useState(false);
+  const formattedSellTokenAddress = checksumAddress(kick.tokenAddress);
+  const formattedWantAddress = checksumAddress(kick.wantAddress);
   let quoteProviders = null;
   let quoteSummary = null;
   let tokenOutDecimals = null;
@@ -1096,12 +1126,12 @@ function KickDetailContent({ kick, onOpenAuctionScan }) {
         <div className="kick-detail-value kick-detail-tokens">
           <span>
             <span className="kick-detail-token-direction">Sell</span>
-            <span className="address-copy" title={kick.tokenAddress}>
-              <span className="mono address-value">{kick.tokenSymbol || shortenAddress(kick.tokenAddress)}</span>
+            <span className="address-copy" title={formattedSellTokenAddress}>
+              <span className="mono address-value">{kick.tokenSymbol || shortenAddress(formattedSellTokenAddress)}</span>
               <CopyIconButton
-                valueToCopy={kick.tokenAddress}
-                title={`Copy address ${kick.tokenAddress}`}
-                ariaLabel={`Copy address ${kick.tokenAddress}`}
+                valueToCopy={formattedSellTokenAddress}
+                title={`Copy address ${formattedSellTokenAddress}`}
+                ariaLabel={`Copy address ${formattedSellTokenAddress}`}
               />
             </span>
           </span>
@@ -1109,13 +1139,13 @@ function KickDetailContent({ kick, onOpenAuctionScan }) {
             <span className="kick-detail-token-direction">
               {kick.operationType === "kick" ? "Buy" : "Auction want"}
             </span>
-            {kick.wantAddress ? (
-              <span className="address-copy" title={kick.wantAddress}>
-                <span className="mono address-value">{kick.wantSymbol || shortenAddress(kick.wantAddress)}</span>
+            {formattedWantAddress ? (
+              <span className="address-copy" title={formattedWantAddress}>
+                <span className="mono address-value">{kick.wantSymbol || shortenAddress(formattedWantAddress)}</span>
                 <CopyIconButton
-                  valueToCopy={kick.wantAddress}
-                  title={`Copy address ${kick.wantAddress}`}
-                  ariaLabel={`Copy address ${kick.wantAddress}`}
+                  valueToCopy={formattedWantAddress}
+                  title={`Copy address ${formattedWantAddress}`}
+                  ariaLabel={`Copy address ${formattedWantAddress}`}
                 />
               </span>
             ) : "—"}
@@ -1374,8 +1404,8 @@ function KickLogRow({ kick, nowMs, isExpanded, onToggle, rowRef, isMobile, onOpe
             <AddressLinkCopy
               address={kick.auctionAddress}
               onClick={(e) => e.stopPropagation()}
-              copyTitle={`Copy ${kick.auctionAddress}`}
-              copyAriaLabel={`Copy auction address ${kick.auctionAddress}`}
+              copyTitle={`Copy ${checksumAddress(kick.auctionAddress)}`}
+              copyAriaLabel={`Copy auction address ${checksumAddress(kick.auctionAddress)}`}
             />
           ) : "—"}
         </td>
@@ -1384,10 +1414,10 @@ function KickLogRow({ kick, nowMs, isExpanded, onToggle, rowRef, isMobile, onOpe
             <AddressLinkCopy
               address={kick.sourceAddress}
               label={sourceLabel}
-              title={kick.sourceName || kick.sourceAddress}
+              title={kick.sourceName || checksumAddress(kick.sourceAddress)}
               onClick={(e) => e.stopPropagation()}
-              copyTitle={`Copy ${kick.sourceAddress}`}
-              copyAriaLabel={`Copy source address ${kick.sourceAddress}`}
+              copyTitle={`Copy ${checksumAddress(kick.sourceAddress)}`}
+              copyAriaLabel={`Copy source address ${checksumAddress(kick.sourceAddress)}`}
             />
           ) : "—"}
         </td>
@@ -1931,8 +1961,8 @@ function TokenBalances({
                   {balance.tokenSymbol || "UNKNOWN"}
                 </span>
                 <CopyIconButton
-                  valueToCopy={balance.tokenAddress}
-                  title={`Copy token address ${balance.tokenAddress}`}
+                  valueToCopy={checksumAddress(balance.tokenAddress)}
+                  title={`Copy token address ${checksumAddress(balance.tokenAddress)}`}
                   ariaLabel={`Copy token address for ${balance.tokenSymbol || "token"}`}
                 />
               </span>
@@ -2010,14 +2040,14 @@ function FeeBurnerPage({
                   <div className="fee-burner-label">Want</div>
                   <div className="fee-burner-value">
                     {row.wantAddress ? (
-                      <span className="address-copy" title={row.wantAddress}>
+                      <span className="address-copy" title={checksumAddress(row.wantAddress)}>
                         <span className="mono address-value">
                           {row.wantSymbol || shortenAddress(row.wantAddress)}
                         </span>
                         <CopyIconButton
-                          valueToCopy={row.wantAddress}
-                          title={`Copy address ${row.wantAddress}`}
-                          ariaLabel={`Copy address ${row.wantAddress}`}
+                          valueToCopy={checksumAddress(row.wantAddress)}
+                          title={`Copy address ${checksumAddress(row.wantAddress)}`}
+                          ariaLabel={`Copy address ${checksumAddress(row.wantAddress)}`}
                         />
                       </span>
                     ) : "—"}

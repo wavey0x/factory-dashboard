@@ -696,18 +696,12 @@ class KickTxRepository:
         )
         self.session.commit()
 
-    def last_kick_for_pair(self, source_address: str, token_address: str) -> dict[str, object] | None:
+    def last_kick_for_auction_token(self, auction_address: str, token_address: str) -> dict[str, object] | None:
         stmt = (
             select(models.kick_txs)
             .where(
                 models.kick_txs.c.operation_type == "kick",
-                or_(
-                    models.kick_txs.c.source_address == source_address,
-                    and_(
-                        models.kick_txs.c.source_address.is_(None),
-                        models.kick_txs.c.strategy_address == source_address,
-                    ),
-                ),
+                models.kick_txs.c.auction_address == auction_address,
                 models.kick_txs.c.token_address == token_address,
                 models.kick_txs.c.status.in_(("CONFIRMED", "SUBMITTED")),
             )

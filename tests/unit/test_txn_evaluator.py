@@ -8,7 +8,8 @@ from sqlalchemy.orm import Session
 
 from tidal.persistence import models
 from tidal.persistence.repositories import KickTxRepository
-from tidal.transaction_service.evaluator import build_shortlist, check_pre_send, shortlist_candidates
+from tidal.transaction_service.evaluator import build_shortlist, shortlist_candidates
+from tidal.transaction_service.kick_policy import CooldownPolicy, IgnorePolicy
 from tidal.transaction_service.types import KickCandidate
 
 
@@ -619,20 +620,46 @@ def _make_candidate(**overrides):
     return KickCandidate(**defaults)
 
 
-def test_check_pre_send_allows_kick(session):
-    repo = KickTxRepository(session)
-    candidates = [_make_candidate()]
-    decisions = check_pre_send(
-        candidates, kick_tx_repository=repo, cooldown_seconds=3600
+def test_build_shortlist_ignore_source_blocks(session):
+    _seed_data(session)
+    shortlist = build_shortlist(
+        session,
+        usd_threshold=100,
+        max_data_age_seconds=600,
+        ignore_policy=IgnorePolicy(
+            ignored_sources=frozenset({"0xstrategy1"}),
+            ignored_auctions=frozenset(),
+            ignored_auction_tokens=frozenset(),
+        ),
     )
-    assert len(decisions) == 1
-    assert decisions[0].action == "KICK"
+
+    assert shortlist.selected_candidates == []
+    assert len(shortlist.ignored_skips) == 1
+    assert shortlist.ignored_skips[0].skip_reason == "IGNORED"
 
 
-def test_check_pre_send_cooldown_blocks(session):
+def test_build_shortlist_ignore_auction_token_blocks(session):
+    _seed_data(session)
+    shortlist = build_shortlist(
+        session,
+        usd_threshold=100,
+        max_data_age_seconds=600,
+        ignore_policy=IgnorePolicy(
+            ignored_sources=frozenset(),
+            ignored_auctions=frozenset(),
+            ignored_auction_tokens=frozenset({("0xauction", "0xtoken1")}),
+        ),
+    )
+
+    assert shortlist.selected_candidates == []
+    assert len(shortlist.ignored_skips) == 1
+    assert shortlist.ignored_skips[0].detail == "ignored by auction/token rule"
+
+
+def test_build_shortlist_cooldown_blocks(session):
     models.metadata.create_all(session.get_bind())
     repo = KickTxRepository(session)
-    # Insert a recent CONFIRMED kick.
+    _seed_data(session, auction_address="0xauction1")
     repo.insert({
         "run_id": "old-run",
         "strategy_address": "0xstrategy1",
@@ -642,18 +669,23 @@ def test_check_pre_send_cooldown_blocks(session):
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
 
-    candidates = [_make_candidate()]
-    decisions = check_pre_send(
-        candidates, kick_tx_repository=repo, cooldown_seconds=3600
+    shortlist = build_shortlist(
+        session,
+        usd_threshold=100,
+        max_data_age_seconds=600,
+        kick_tx_repository=repo,
+        cooldown_policy=CooldownPolicy(default_minutes=60, auction_token_overrides_minutes={}),
     )
-    assert len(decisions) == 1
-    assert decisions[0].action == "SKIP"
-    assert decisions[0].skip_reason == "COOLDOWN"
+
+    assert shortlist.selected_candidates == []
+    assert len(shortlist.cooldown_skips) == 1
+    assert shortlist.cooldown_skips[0].skip_reason == "COOLDOWN"
 
 
-def test_check_pre_send_submitted_blocks(session):
+def test_build_shortlist_submitted_blocks(session):
     models.metadata.create_all(session.get_bind())
     repo = KickTxRepository(session)
+    _seed_data(session, auction_address="0xauction1")
     repo.insert({
         "run_id": "old-run",
         "strategy_address": "0xstrategy1",
@@ -664,17 +696,22 @@ def test_check_pre_send_submitted_blocks(session):
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
 
-    candidates = [_make_candidate()]
-    decisions = check_pre_send(
-        candidates, kick_tx_repository=repo, cooldown_seconds=3600
+    shortlist = build_shortlist(
+        session,
+        usd_threshold=100,
+        max_data_age_seconds=600,
+        kick_tx_repository=repo,
+        cooldown_policy=CooldownPolicy(default_minutes=60, auction_token_overrides_minutes={}),
     )
-    assert decisions[0].action == "SKIP"
-    assert decisions[0].skip_reason == "COOLDOWN"
+    assert shortlist.selected_candidates == []
+    assert len(shortlist.cooldown_skips) == 1
+    assert shortlist.cooldown_skips[0].skip_reason == "COOLDOWN"
 
 
-def test_check_pre_send_reverted_does_not_block(session):
+def test_build_shortlist_reverted_does_not_block(session):
     models.metadata.create_all(session.get_bind())
     repo = KickTxRepository(session)
+    _seed_data(session, auction_address="0xauction1")
     repo.insert({
         "run_id": "old-run",
         "strategy_address": "0xstrategy1",
@@ -684,16 +721,21 @@ def test_check_pre_send_reverted_does_not_block(session):
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
 
-    candidates = [_make_candidate()]
-    decisions = check_pre_send(
-        candidates, kick_tx_repository=repo, cooldown_seconds=3600
+    shortlist = build_shortlist(
+        session,
+        usd_threshold=100,
+        max_data_age_seconds=600,
+        kick_tx_repository=repo,
+        cooldown_policy=CooldownPolicy(default_minutes=60, auction_token_overrides_minutes={}),
     )
-    assert decisions[0].action == "KICK"
+    assert len(shortlist.selected_candidates) == 1
+    assert shortlist.cooldown_skips == []
 
 
-def test_check_pre_send_expired_cooldown_allows(session):
+def test_build_shortlist_expired_cooldown_allows(session):
     models.metadata.create_all(session.get_bind())
     repo = KickTxRepository(session)
+    _seed_data(session, auction_address="0xauction1")
     old_time = (datetime.now(timezone.utc) - timedelta(seconds=7200)).isoformat()
     repo.insert({
         "run_id": "old-run",
@@ -704,8 +746,119 @@ def test_check_pre_send_expired_cooldown_allows(session):
         "created_at": old_time,
     })
 
-    candidates = [_make_candidate()]
-    decisions = check_pre_send(
-        candidates, kick_tx_repository=repo, cooldown_seconds=3600
+    shortlist = build_shortlist(
+        session,
+        usd_threshold=100,
+        max_data_age_seconds=600,
+        kick_tx_repository=repo,
+        cooldown_policy=CooldownPolicy(default_minutes=60, auction_token_overrides_minutes={}),
     )
-    assert decisions[0].action == "KICK"
+    assert len(shortlist.selected_candidates) == 1
+    assert shortlist.cooldown_skips == []
+
+
+def test_build_shortlist_ignored_candidate_allows_next_same_auction_candidate(session):
+    now = datetime.now(timezone.utc).isoformat()
+    session.execute(insert(models.fee_burners).values(
+        address="0xburner1",
+        chain_id=1,
+        name="Yearn Fee Burner",
+        active=1,
+        auction_address="0xauctionfb",
+        want_address="0xwantfb",
+        first_seen_at=now,
+        last_seen_at=now,
+    ))
+    session.execute(insert(models.tokens).values(
+        address="0xtokenfb1",
+        chain_id=1,
+        symbol="YFI",
+        decimals=18,
+        is_core_reward=0,
+        price_usd="10.0",
+        price_status="SUCCESS",
+        price_fetched_at=now,
+        first_seen_at=now,
+        last_seen_at=now,
+    ))
+    session.execute(insert(models.tokens).values(
+        address="0xtokenfb2",
+        chain_id=1,
+        symbol="CRV",
+        decimals=18,
+        is_core_reward=0,
+        price_usd="2.0",
+        price_status="SUCCESS",
+        price_fetched_at=now,
+        first_seen_at=now,
+        last_seen_at=now,
+    ))
+    session.execute(insert(models.tokens).values(
+        address="0xwantfb",
+        chain_id=1,
+        symbol="crvUSD",
+        decimals=18,
+        is_core_reward=0,
+        first_seen_at=now,
+        last_seen_at=now,
+    ))
+    session.execute(insert(models.fee_burner_token_balances_latest).values(
+        fee_burner_address="0xburner1",
+        token_address="0xtokenfb1",
+        raw_balance="50000000000000000000",
+        normalized_balance="50",
+        block_number=101,
+        scanned_at=now,
+    ))
+    session.execute(insert(models.fee_burner_token_balances_latest).values(
+        fee_burner_address="0xburner1",
+        token_address="0xtokenfb2",
+        raw_balance="200000000000000000000",
+        normalized_balance="200",
+        block_number=101,
+        scanned_at=now,
+    ))
+    session.commit()
+
+    shortlist = build_shortlist(
+        session,
+        usd_threshold=100,
+        max_data_age_seconds=600,
+        ignore_policy=IgnorePolicy(
+            ignored_sources=frozenset(),
+            ignored_auctions=frozenset(),
+            ignored_auction_tokens=frozenset({("0xauctionfb", "0xtokenfb1")}),
+        ),
+    )
+
+    assert len(shortlist.ignored_skips) == 1
+    assert len(shortlist.selected_candidates) == 1
+    assert shortlist.selected_candidates[0].token_address == "0xtokenfb2"
+
+
+def test_build_shortlist_pair_cooldown_override_zero_disables_default(session):
+    models.metadata.create_all(session.get_bind())
+    repo = KickTxRepository(session)
+    _seed_data(session, auction_address="0xauction1")
+    repo.insert({
+        "run_id": "old-run",
+        "strategy_address": "0xstrategy1",
+        "token_address": "0xtoken1",
+        "auction_address": "0xauction1",
+        "status": "CONFIRMED",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+    shortlist = build_shortlist(
+        session,
+        usd_threshold=100,
+        max_data_age_seconds=600,
+        kick_tx_repository=repo,
+        cooldown_policy=CooldownPolicy(
+            default_minutes=60,
+            auction_token_overrides_minutes={("0xauction1", "0xtoken1"): 0},
+        ),
+    )
+
+    assert len(shortlist.selected_candidates) == 1
+    assert shortlist.cooldown_skips == []

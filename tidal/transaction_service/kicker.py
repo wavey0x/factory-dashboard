@@ -29,7 +29,7 @@ from tidal.persistence.repositories import KickTxRepository
 from tidal.pricing.token_price_agg import TokenPriceAggProvider
 from tidal.scanner.auction_state import AuctionStateReader
 from tidal.time import utcnow_iso
-from tidal.transaction_service.pricing_policy import (
+from tidal.transaction_service.kick_policy import (
     PricingPolicy,
     PricingProfile,
     TokenSizingPolicy,
@@ -238,7 +238,7 @@ def _default_pricing_policy(
     return PricingPolicy(
         default_profile_name=default_profile.name,
         profiles={default_profile.name: default_profile},
-        auction_profile_overrides={},
+        profile_overrides={},
     )
 
 

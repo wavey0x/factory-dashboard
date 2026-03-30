@@ -1,9 +1,9 @@
-"""Candidate shortlisting and pre-send checks."""
+"""Candidate shortlisting and selection checks."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import structlog
 from sqlalchemy import literal, null, select
@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from tidal.persistence import models
 from tidal.persistence.repositories import KickTxRepository
+from tidal.transaction_service.kick_policy import CooldownPolicy, IgnorePolicy
 from tidal.transaction_service.types import KickAction, KickCandidate, KickDecision, SkipReason, SourceType
 
 logger = structlog.get_logger(__name__)
@@ -18,11 +19,13 @@ logger = structlog.get_logger(__name__)
 
 @dataclass(slots=True)
 class ShortlistResult:
-    """Selected candidates plus visibility into same-auction deferrals."""
+    """Selected candidates plus visibility into ignore/cooldown/deferral outcomes."""
 
     eligible_candidates: list[KickCandidate]
     selected_candidates: list[KickCandidate]
     deferred_same_auction_count: int
+    ignored_skips: list[KickDecision] = field(default_factory=list)
+    cooldown_skips: list[KickDecision] = field(default_factory=list)
     deferred_same_auction_candidates: list[KickCandidate] = field(default_factory=list)
     limited_candidates: list[KickCandidate] = field(default_factory=list)
 
@@ -108,6 +111,124 @@ def shortlist_candidates(
     ).selected_candidates
 
 
+def _default_ignore_policy() -> IgnorePolicy:
+    return IgnorePolicy(
+        ignored_sources=frozenset(),
+        ignored_auctions=frozenset(),
+        ignored_auction_tokens=frozenset(),
+    )
+
+
+def _default_cooldown_policy() -> CooldownPolicy:
+    return CooldownPolicy(default_minutes=60, auction_token_overrides_minutes={})
+
+
+def _apply_ignore_policy(
+    candidates: list[KickCandidate],
+    *,
+    ignore_policy: IgnorePolicy,
+) -> tuple[list[KickCandidate], list[KickDecision]]:
+    allowed: list[KickCandidate] = []
+    ignored: list[KickDecision] = []
+
+    for candidate in candidates:
+        matched_scope = ignore_policy.match(
+            source_address=candidate.source_address,
+            auction_address=candidate.auction_address,
+            token_address=candidate.token_address,
+        )
+        if matched_scope is None:
+            allowed.append(candidate)
+            continue
+
+        ignored.append(
+            KickDecision(
+                candidate=candidate,
+                action=KickAction.SKIP,
+                skip_reason=SkipReason.IGNORED,
+                detail=f"ignored by {matched_scope} rule",
+            )
+        )
+        logger.debug(
+            "txn_candidate_skip",
+            source=candidate.source_address,
+            auction=candidate.auction_address,
+            token=candidate.token_address,
+            reason="ignored",
+            matched_scope=matched_scope,
+        )
+
+    return allowed, ignored
+
+
+def _apply_cooldown_policy(
+    candidates: list[KickCandidate],
+    *,
+    kick_tx_repository: KickTxRepository | None,
+    cooldown_policy: CooldownPolicy,
+) -> tuple[list[KickCandidate], list[KickDecision]]:
+    if kick_tx_repository is None:
+        return candidates, []
+
+    allowed: list[KickCandidate] = []
+    cooldown_skips: list[KickDecision] = []
+
+    for candidate in candidates:
+        cooldown_minutes = cooldown_policy.resolve_minutes(
+            auction_address=candidate.auction_address,
+            token_address=candidate.token_address,
+        )
+        if cooldown_minutes <= 0:
+            allowed.append(candidate)
+            continue
+
+        last_kick = kick_tx_repository.last_kick_for_auction_token(
+            candidate.auction_address,
+            candidate.token_address,
+        )
+        if last_kick is None:
+            allowed.append(candidate)
+            continue
+
+        try:
+            last_kick_at = datetime.fromisoformat(str(last_kick["created_at"]))
+        except (TypeError, ValueError):
+            allowed.append(candidate)
+            continue
+
+        expires_at = last_kick_at + timedelta(minutes=cooldown_minutes)
+        now = datetime.now(timezone.utc)
+        if expires_at <= now:
+            allowed.append(candidate)
+            continue
+
+        detail = (
+            f"cooldown {cooldown_minutes}m"
+            f" | last kick {last_kick_at.isoformat()}"
+            f" | until {expires_at.isoformat()}"
+        )
+        cooldown_skips.append(
+            KickDecision(
+                candidate=candidate,
+                action=KickAction.SKIP,
+                skip_reason=SkipReason.COOLDOWN,
+                detail=detail,
+            )
+        )
+        logger.debug(
+            "txn_candidate_skip",
+            source=candidate.source_address,
+            auction=candidate.auction_address,
+            token=candidate.token_address,
+            reason="cooldown",
+            last_kick_at=last_kick_at.isoformat(),
+            cooldown_minutes=cooldown_minutes,
+            cooldown_until=expires_at.isoformat(),
+        )
+
+    return allowed, cooldown_skips
+
+
 def build_shortlist(
     session: Session,
     *,
@@ -118,6 +239,9 @@ def build_shortlist(
     auction_address: str | None = None,
     token_address: str | None = None,
     limit: int | None = None,
+    ignore_policy: IgnorePolicy | None = None,
+    cooldown_policy: CooldownPolicy | None = None,
+    kick_tx_repository: KickTxRepository | None = None,
 ) -> ShortlistResult:
     """Query SQLite for source-token pairs above threshold with fresh data."""
 
@@ -270,7 +394,19 @@ def build_shortlist(
         ]
 
     all_eligible_candidates = sort_candidates(candidates)
-    selected_before_limit = _best_candidate_per_auction(candidates)
+    resolved_ignore_policy = ignore_policy or _default_ignore_policy()
+    resolved_cooldown_policy = cooldown_policy or _default_cooldown_policy()
+
+    candidates_after_ignore, ignored_skips = _apply_ignore_policy(
+        all_eligible_candidates,
+        ignore_policy=resolved_ignore_policy,
+    )
+    candidates_after_cooldown, cooldown_skips = _apply_cooldown_policy(
+        candidates_after_ignore,
+        kick_tx_repository=kick_tx_repository,
+        cooldown_policy=resolved_cooldown_policy,
+    )
+    selected_before_limit = _best_candidate_per_auction(candidates_after_cooldown)
     selected_candidates = selected_before_limit[:limit] if limit is not None else selected_before_limit
     selected_keys = {
         (candidate.source_address, candidate.auction_address, candidate.token_address)
@@ -278,54 +414,16 @@ def build_shortlist(
     }
     deferred_same_auction_candidates = [
         candidate
-        for candidate in all_eligible_candidates
+        for candidate in sort_candidates(candidates_after_cooldown)
         if (candidate.source_address, candidate.auction_address, candidate.token_address) not in selected_keys
     ]
     limited_candidates = selected_before_limit[len(selected_candidates):]
     return ShortlistResult(
         eligible_candidates=all_eligible_candidates,
         selected_candidates=selected_candidates,
+        ignored_skips=ignored_skips,
+        cooldown_skips=cooldown_skips,
         deferred_same_auction_candidates=deferred_same_auction_candidates,
         deferred_same_auction_count=len(deferred_same_auction_candidates),
         limited_candidates=limited_candidates,
     )
-
-
-def check_pre_send(
-    candidates: list[KickCandidate],
-    *,
-    kick_tx_repository: KickTxRepository,
-    cooldown_seconds: int,
-) -> list[KickDecision]:
-    """Apply cooldown checks to shortlisted candidates."""
-
-    now = datetime.now(timezone.utc)
-    min_cooldown_timestamp = datetime.fromtimestamp(
-        now.timestamp() - cooldown_seconds, tz=timezone.utc
-    ).isoformat()
-
-    decisions: list[KickDecision] = []
-
-    for candidate in candidates:
-        last_kick = kick_tx_repository.last_kick_for_pair(candidate.source_address, candidate.token_address)
-        if last_kick is not None and last_kick["created_at"] >= min_cooldown_timestamp:
-            decisions.append(
-                KickDecision(
-                    candidate=candidate,
-                    action=KickAction.SKIP,
-                    skip_reason=SkipReason.COOLDOWN,
-                    detail=str(last_kick["created_at"]),
-                )
-            )
-            logger.debug(
-                "txn_candidate_skip",
-                source=candidate.source_address,
-                token=candidate.token_address,
-                reason="cooldown",
-                last_kick_at=last_kick["created_at"],
-            )
-            continue
-
-        decisions.append(KickDecision(candidate=candidate, action=KickAction.KICK))
-
-    return decisions

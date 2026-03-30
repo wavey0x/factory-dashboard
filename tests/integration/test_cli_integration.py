@@ -27,7 +27,7 @@ def _isolate_runtime_env(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.delenv("TIDAL_HOME", raising=False)
     monkeypatch.delenv("TIDAL_CONFIG", raising=False)
     monkeypatch.delenv("TIDAL_ENV_FILE", raising=False)
-    monkeypatch.delenv("TIDAL_PRICING_PATH", raising=False)
+    monkeypatch.delenv("TIDAL_KICK_PATH", raising=False)
 
 
 def test_db_migrate_uses_same_tidal_home_from_different_working_directories(tmp_path, monkeypatch) -> None:
@@ -45,7 +45,7 @@ def test_db_migrate_uses_same_tidal_home_from_different_working_directories(tmp_
     monkeypatch.delenv("TIDAL_HOME", raising=False)
     monkeypatch.delenv("TIDAL_CONFIG", raising=False)
     monkeypatch.delenv("TIDAL_ENV_FILE", raising=False)
-    monkeypatch.delenv("TIDAL_PRICING_PATH", raising=False)
+    monkeypatch.delenv("TIDAL_KICK_PATH", raising=False)
     monkeypatch.setenv("HOME", str(home_root))
     monkeypatch.delenv("TIDAL_HOME", raising=False)
     monkeypatch.setattr("tidal.server_cli.run_migrations", fake_run_migrations)

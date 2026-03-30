@@ -21,7 +21,7 @@ managed interpreter than the repo is actively exercised on.
 
 - `~/.tidal/config.yaml`
 - `~/.tidal/.env`
-- `~/.tidal/pricing.yaml`
+- `~/.tidal/kick.yaml`
 - `~/.tidal/state/`
 - `~/.tidal/state/operator/`
 - `~/.tidal/run/`
@@ -48,7 +48,7 @@ Then review:
 
 - `~/.tidal/.env`: set `TIDAL_API_KEY`, plus keystore secrets if you will broadcast locally
 - `~/.tidal/config.yaml`: confirm `tidal_api_base_url`
-- `~/.tidal/pricing.yaml`: usually leave this alone on a workstation; API-backed kick pricing comes from the server's `pricing.yaml`
+- `~/.tidal/kick.yaml`: usually leave this alone on a workstation; API-backed kick pricing, ignore rules, and cooldowns come from the server's `kick.yaml`
 
 Minimum client setup:
 
@@ -60,7 +60,7 @@ If you are using the hosted API at `https://api.tidal.wavey.info`, API keys are 
 
 The generated `config.yaml` already defaults `tidal_api_base_url` to the hosted API. If you are pointing at a different server, override that value there or pass `--api-base-url` per command.
 
-For normal API-backed `tidal` usage, changing the workstation's `~/.tidal/pricing.yaml` does not change prepared kick pricing. The server that prepares the action is the side that loads `pricing.yaml`.
+For normal API-backed `tidal` usage, changing the workstation's `~/.tidal/kick.yaml` does not change prepared kick behavior. The server that prepares the action is the side that loads `kick.yaml`.
 
 Verify the install:
 
@@ -94,7 +94,7 @@ Then review:
 
 - `~/.tidal/.env`: at minimum `RPC_URL`, and usually `TOKEN_PRICE_AGG_KEY`
 - `~/.tidal/config.yaml`: scanner, API, and database settings
-- `~/.tidal/pricing.yaml`: only if you need pricing overrides or per-token caps
+- `~/.tidal/kick.yaml`: if you need pricing overrides, ignore rules, or cooldown changes
 
 Minimum server operator bootstrap:
 

@@ -76,9 +76,9 @@ curve quote unavailable (status: ...)
 
 ## Auction Pricing Profiles
 
-Profiles come from `~/.tidal/pricing.yaml` by default.
+Pricing profiles come from `~/.tidal/kick.yaml` by default.
 
-For API-backed `tidal` workflows, that means the `pricing.yaml` on the server running action preparation, not the local workstation copy.
+For API-backed `tidal` workflows, that means the `kick.yaml` on the server running action preparation, not the local workstation copy.
 
 If a confirmation panel shows an unexpected decay or profile, check the server runtime first.
 
@@ -93,10 +93,13 @@ Example intent:
 - `volatile`: wider buffers, faster decay
 - `stable`: tighter buffers, slower decay
 
-Per-auction overrides are keyed by:
+Use `profile_overrides` to pin a specific `(auction, sell token)` pair to a profile:
 
-```text
-auction address + sell token address
+```yaml
+profile_overrides:
+  - auction: "0xAuction"
+    token: "0xSellToken"
+    profile: stable
 ```
 
 ## Sell Sizing
@@ -160,4 +163,4 @@ This is a diagnostic warning, not an automatic rejection.
 - Do not use live quote data to rank the shortlist.
 - Do not assume the warning means the on-chain transaction is wrong.
 - Treat large warning deviations as a signal to inspect the want-token USD mark or quote path.
-- Stable-looking pairs should usually be mapped to the `stable` pricing profile in the authoritative runtime `pricing.yaml`.
+- Stable-looking pairs should usually be mapped to the `stable` pricing profile in the authoritative runtime `kick.yaml`.

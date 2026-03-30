@@ -10,6 +10,8 @@ The kick engine should answer:
 
 The system deliberately separates cached ranking from live transaction pricing.
 
+Manual ignore rules and cooldown rules both live in `~/.tidal/kick.yaml`.
+
 ## Shortlist Inputs
 
 The shortlist is built from cached scanner data in SQLite:
@@ -88,9 +90,25 @@ Any additional above-threshold tokens on the same auction are tracked as:
 
 This is why `kick inspect --show-all` may show more interesting tokens than `kick run` can act on immediately.
 
+## Ignore Rules
+
+Before same-auction ranking, Tidal applies any manual `ignore` rules from `kick.yaml`.
+
+An ignore rule can target:
+
+- one source
+- one auction
+- one specific `(auction, token)` combination
+
+Ignored candidates are tracked as:
+
+- ignored
+
+This is intentional. An ignored high-USD token should not block a lower-USD token from the same auction from becoming actionable.
+
 ## Cooldown Check
 
-Before an otherwise eligible candidate becomes actionable, Tidal checks the recent kick history for the same `(source, token)` pair.
+After ignore rules, Tidal checks recent kick history for the same `(auction, token)` pair.
 
 If the pair was kicked too recently, it is marked as:
 
@@ -98,7 +116,8 @@ If the pair was kicked too recently, it is marked as:
 
 Cooldown is controlled by:
 
-- `txn_cooldown_seconds`
+- `cooldown_minutes`
+- optional per-`(auction, token)` rules in `cooldown`
 
 ## Just-In-Time Preparation
 

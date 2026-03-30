@@ -41,7 +41,7 @@ from tidal.scanner.service import ScannerService
 from tidal.scanner.token_metadata import TokenMetadataService
 from tidal.paths import default_txn_lock_path
 from tidal.transaction_service.signer import TransactionSigner
-from tidal.transaction_service.pricing_policy import load_pricing
+from tidal.transaction_service.kick_policy import load_kick_config
 
 
 def build_scanner_service(settings: Settings, session) -> ScannerService:
@@ -252,7 +252,7 @@ def build_txn_service(
         multicall_enabled=settings.multicall_enabled,
         multicall_auction_batch_calls=settings.multicall_auction_batch_calls,
     )
-    pricing = load_pricing(settings.resolved_pricing_path)
+    kick_config = load_kick_config(settings.resolved_kick_path)
     resolved_require_curve_quote = (
         settings.txn_require_curve_quote
         if require_curve_quote is None
@@ -286,8 +286,8 @@ def build_txn_service(
         require_curve_quote=resolved_require_curve_quote,
         erc20_reader=erc20_reader,
         auction_state_reader=auction_state_reader,
-        pricing_policy=pricing.pricing_policy,
-        token_sizing_policy=pricing.token_sizing_policy,
+        pricing_policy=kick_config.pricing_policy,
+        token_sizing_policy=kick_config.token_sizing_policy,
     )
 
     lock_path = default_txn_lock_path()
@@ -299,7 +299,8 @@ def build_txn_service(
         kick_tx_repository=kick_tx_repository,
         usd_threshold=settings.txn_usd_threshold,
         max_data_age_seconds=settings.txn_max_data_age_seconds,
-        cooldown_seconds=settings.txn_cooldown_seconds,
+        cooldown_policy=kick_config.cooldown_policy,
+        ignore_policy=kick_config.ignore_policy,
         lock_path=lock_path,
         max_batch_kick_size=settings.max_batch_kick_size,
         batch_kick_delay_seconds=settings.batch_kick_delay_seconds,

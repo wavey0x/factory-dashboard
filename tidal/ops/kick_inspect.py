@@ -5,10 +5,11 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 
+from tidal.transaction_service.kick_policy import load_kick_config
 from tidal.persistence.repositories import KickTxRepository
 from tidal.runtime import build_txn_service
-from tidal.transaction_service.evaluator import build_shortlist, check_pre_send
-from tidal.transaction_service.types import AuctionInspection, KickAction, KickCandidate, SourceType
+from tidal.transaction_service.evaluator import build_shortlist
+from tidal.transaction_service.types import AuctionInspection, KickCandidate, SourceType
 
 
 def _candidate_key(candidate: KickCandidate) -> tuple[str, str]:
@@ -43,10 +44,12 @@ class KickInspectResult:
     eligible_count: int
     selected_count: int
     ready_count: int
+    ignored_count: int
     cooldown_count: int
     deferred_same_auction_count: int
     limited_count: int
     ready: list[KickInspectEntry]
+    ignored_skips: list[KickInspectEntry]
     cooldown_skips: list[KickInspectEntry]
     deferred_same_auction: list[KickInspectEntry]
     limited: list[KickInspectEntry]
@@ -63,6 +66,7 @@ def inspect_kick_candidates(
     limit: int | None = None,
     include_live_inspection: bool = True,
 ) -> KickInspectResult:
+    kick_config = load_kick_config(settings.resolved_kick_path)
     shortlist = build_shortlist(
         session,
         usd_threshold=settings.txn_usd_threshold,
@@ -72,13 +76,11 @@ def inspect_kick_candidates(
         auction_address=auction_address,
         token_address=token_address,
         limit=limit,
-    )
-    decisions = check_pre_send(
-        shortlist.selected_candidates,
+        ignore_policy=kick_config.ignore_policy,
+        cooldown_policy=kick_config.cooldown_policy,
         kick_tx_repository=KickTxRepository(session),
-        cooldown_seconds=settings.txn_cooldown_seconds,
     )
-    ready_candidates = [decision.candidate for decision in decisions if decision.action == KickAction.KICK]
+    ready_candidates = shortlist.selected_candidates
     ready_inspections: dict[tuple[str, str], AuctionInspection] = {}
     if include_live_inspection and settings.rpc_url and ready_candidates:
         txn_service = build_txn_service(settings, session)
@@ -110,10 +112,13 @@ def inspect_kick_candidates(
         )
 
     ready_entries = [build_entry(candidate, state="ready") for candidate in ready_candidates]
+    ignored_entries = [
+        build_entry(decision.candidate, state="ignored", detail=decision.detail)
+        for decision in shortlist.ignored_skips
+    ]
     cooldown_entries = [
         build_entry(decision.candidate, state="cooldown", detail=decision.detail)
-        for decision in decisions
-        if decision.action == KickAction.SKIP
+        for decision in shortlist.cooldown_skips
     ]
     deferred_entries = [
         build_entry(candidate, state="deferred_same_auction")
@@ -128,10 +133,12 @@ def inspect_kick_candidates(
         eligible_count=len(shortlist.eligible_candidates),
         selected_count=len(shortlist.selected_candidates) + len(shortlist.limited_candidates),
         ready_count=len(ready_entries),
+        ignored_count=len(ignored_entries),
         cooldown_count=len(cooldown_entries),
         deferred_same_auction_count=len(deferred_entries),
         limited_count=len(limited_entries),
         ready=ready_entries,
+        ignored_skips=ignored_entries,
         cooldown_skips=cooldown_entries,
         deferred_same_auction=deferred_entries,
         limited=limited_entries,

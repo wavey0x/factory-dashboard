@@ -17,7 +17,7 @@ from dotenv import dotenv_values
 from pydantic import AliasChoices, BaseModel, Field, PrivateAttr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from tidal.paths import default_config_path, default_env_path, default_pricing_path, resolve_path, tidal_home
+from tidal.paths import default_config_path, default_env_path, default_kick_path, resolve_path, tidal_home
 
 
 class MonitoredFeeBurner(BaseModel):
@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     _resolved_home_path: Path = PrivateAttr(default_factory=tidal_home)
     _resolved_config_path: Path = PrivateAttr(default_factory=default_config_path)
     _resolved_env_path: Path = PrivateAttr(default_factory=default_env_path)
-    _resolved_pricing_path: Path = PrivateAttr(default_factory=default_pricing_path)
+    _resolved_kick_path: Path = PrivateAttr(default_factory=default_kick_path)
 
     rpc_url: str | None = Field(default=None, alias="RPC_URL")
     db_path: Path | None = Field(default=None, alias="DB_PATH")
@@ -123,7 +123,6 @@ class Settings(BaseSettings):
     txn_keystore_path: str | None = Field(default=None, alias="TXN_KEYSTORE_PATH")
     txn_keystore_passphrase: str | None = Field(default=None, alias="TXN_KEYSTORE_PASSPHRASE")
 
-    txn_cooldown_seconds: int = Field(default=3600, alias="TXN_COOLDOWN_SECONDS")
     txn_require_curve_quote: bool = Field(default=True, alias="TXN_REQUIRE_CURVE_QUOTE")
 
     max_batch_kick_size: int = Field(default=5, alias="MAX_BATCH_KICK_SIZE")
@@ -179,8 +178,8 @@ class Settings(BaseSettings):
         return self._resolved_env_path
 
     @property
-    def resolved_pricing_path(self) -> Path:
-        return self._resolved_pricing_path
+    def resolved_kick_path(self) -> Path:
+        return self._resolved_kick_path
 
     @property
     def resolved_db_path(self) -> Path:
@@ -204,12 +203,12 @@ class Settings(BaseSettings):
         home_path: Path,
         config_path: Path,
         env_path: Path,
-        pricing_path: Path,
+        kick_path: Path,
     ) -> None:
         self._resolved_home_path = home_path
         self._resolved_config_path = config_path
         self._resolved_env_path = env_path
-        self._resolved_pricing_path = pricing_path
+        self._resolved_kick_path = kick_path
 
     def _resolve_config_relative_path(self, value: str | Path) -> Path:
         path = Path(value).expanduser()
@@ -256,23 +255,23 @@ def _resolve_env_path(config_path: Path) -> Path:
     return default_env_path()
 
 
-def _resolve_pricing_path(config_path: Path) -> Path:
-    env_override = os.getenv("TIDAL_PRICING_PATH")
+def _resolve_kick_path(config_path: Path) -> Path:
+    env_override = os.getenv("TIDAL_KICK_PATH")
     if env_override:
         return resolve_path(env_override)
 
-    config_dir_pricing_path = (config_path.parent / "pricing.yaml").resolve()
-    if config_dir_pricing_path.is_file():
-        return config_dir_pricing_path
+    config_dir_kick_path = (config_path.parent / "kick.yaml").resolve()
+    if config_dir_kick_path.is_file():
+        return config_dir_kick_path
 
-    return default_pricing_path()
+    return default_kick_path()
 
 
 def load_settings(config_path: Path | None = None) -> Settings:
     """Load settings from resolved config and env paths."""
     resolved_config_path = _resolve_config_path(config_path)
     resolved_env_path = _resolve_env_path(resolved_config_path)
-    resolved_pricing_path = _resolve_pricing_path(resolved_config_path)
+    resolved_kick_path = _resolve_kick_path(resolved_config_path)
 
     config_data: dict[str, Any] = {}
     if resolved_config_path.is_file():
@@ -291,6 +290,6 @@ def load_settings(config_path: Path | None = None) -> Settings:
         home_path=tidal_home(),
         config_path=resolved_config_path,
         env_path=resolved_env_path,
-        pricing_path=resolved_pricing_path,
+        kick_path=resolved_kick_path,
     )
     return settings

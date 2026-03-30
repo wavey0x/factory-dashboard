@@ -20,8 +20,8 @@ class KickAction(str, Enum):
 
 
 class SkipReason(str, Enum):
+    IGNORED = "IGNORED"
     COOLDOWN = "COOLDOWN"
-    CIRCUIT_BREAKER = "CIRCUIT_BREAKER"
 
 
 class KickStatus(str, Enum):

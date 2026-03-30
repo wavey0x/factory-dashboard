@@ -16,7 +16,7 @@ Secrets belong in `~/.tidal/.env`. Operational knobs belong in `~/.tidal/config.
 |---|---|
 | `~/.tidal/config.yaml` | Runtime settings for scanner, API, multicall, pricing, and transaction behavior |
 | `~/.tidal/.env` | Secrets such as `RPC_URL`, API keys, and keystore secrets |
-| `~/.tidal/pricing.yaml` | Pricing profiles and token-specific USD sizing caps for the runtime executing prepare logic |
+| `~/.tidal/kick.yaml` | Kick pricing, token caps, ignore rules, and cooldown policy for the runtime executing prepare logic |
 
 ## Role Model
 
@@ -73,7 +73,6 @@ These affect local execution and server-side transaction logic:
 - `txn_min_price_buffer_bps`
 - `txn_quote_spot_warning_threshold_pct`
 - `txn_max_data_age_seconds`
-- `txn_cooldown_seconds`
 - `txn_require_curve_quote`
 - `max_batch_kick_size`
 - `batch_kick_delay_seconds`
@@ -136,18 +135,20 @@ These entries are used by the scanner to:
 - resolve source names
 - map fee burners to auctions using `(receiver, want)`
 
-## `~/.tidal/pricing.yaml`
+## `~/.tidal/kick.yaml`
 
-This file controls two things:
+This file controls four things:
 
 1. auction pricing profiles
 2. token-specific USD sizing caps
+3. manual ignore rules
+4. cooldown policy
 
 Runtime boundary:
 
-- for API-backed `tidal` commands, the server's `pricing.yaml` is authoritative
-- a workstation's local `~/.tidal/pricing.yaml` does not affect kick prepare results returned by a remote API
-- local `pricing.yaml` matters when this machine is running `tidal-server` or other local transaction-service execution
+- for API-backed `tidal` commands, the server's `kick.yaml` is authoritative
+- a workstation's local `~/.tidal/kick.yaml` does not affect kick prepare results returned by a remote API
+- local `kick.yaml` matters when this machine is running `tidal-server` or other local transaction-service execution
 
 ### Pricing profiles
 
@@ -166,14 +167,13 @@ profiles:
     step_decay_rate_bps: 2
 ```
 
-### Auction overrides
-
-Map `auction -> sell token -> profile`:
+### Profile overrides
 
 ```yaml
-auctions:
-  "0xAuction":
-    "0xSellToken": stable
+profile_overrides:
+  - auction: "0xAuction"
+    token: "0xSellToken"
+    profile: stable
 ```
 
 Anything not listed falls back to `default_profile`.
@@ -189,6 +189,35 @@ usd_kick_limit:
 
 This cap is applied after the live source balance is read and before the live quote is requested.
 
+### Ignore rules
+
+Use `ignore` to skip specific sources, auctions, or auction/token combinations:
+
+```yaml
+ignore:
+  - source: "0xSource"
+  - auction: "0xAuction"
+  - auction: "0xAuction"
+    token: "0xSellToken"
+```
+
+Ignored candidates are removed before same-auction ranking.
+
+### Cooldown policy
+
+Use `cooldown_minutes` for the global default, and `cooldown` for per-auction/token overrides:
+
+```yaml
+cooldown_minutes: 60
+
+cooldown:
+  - auction: "0xAuction"
+    token: "0xSellToken"
+    minutes: 180
+```
+
+Cooldown applies to the `(auction, token)` pair, not to the whole auction or whole source.
+
 ## Important Defaults
 
 Current defaults from `tidal/config.py` include:
@@ -200,7 +229,7 @@ Current defaults from `tidal/config.py` include:
 - `txn_max_base_fee_gwei = 0.5`
 - `txn_max_priority_fee_gwei = 2`
 - `txn_quote_spot_warning_threshold_pct = 2`
-- `txn_cooldown_seconds = 3600`
+- `cooldown_minutes = 60` in `kick.yaml`
 - `tidal_api_request_timeout_seconds = 30`
 
 ## Rule Of Thumb
@@ -208,5 +237,5 @@ Current defaults from `tidal/config.py` include:
 - run `tidal init`
 - put secrets in `~/.tidal/.env`
 - put operational settings in `~/.tidal/config.yaml`
-- if you use hosted or remote API-backed `tidal`, treat server-side `pricing.yaml` as the source of truth
-- edit local `~/.tidal/pricing.yaml` only when this machine owns the execution runtime
+- if you use hosted or remote API-backed `tidal`, treat server-side `kick.yaml` as the source of truth
+- edit local `~/.tidal/kick.yaml` only when this machine owns the execution runtime

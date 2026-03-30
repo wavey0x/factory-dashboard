@@ -42,7 +42,7 @@ uv run tidal-server api serve
 
 Required setup:
 
-- Run `uv run tidal init` to scaffold `~/.tidal/config.yaml`, `~/.tidal/.env`, and `~/.tidal/pricing.yaml`.
+- Run `uv run tidal init` to scaffold `~/.tidal/config.yaml`, `~/.tidal/.env`, and `~/.tidal/kick.yaml`.
 - Put secrets such as `RPC_URL` and API keys in `~/.tidal/.env`.
 - Put operational settings in `~/.tidal/config.yaml`.
 - If you want the UI locally, run `cd ui && npm install && npm run dev`.

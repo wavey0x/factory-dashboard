@@ -35,9 +35,10 @@ from tidal.ops.kick_inspect import inspect_kick_candidates
 from tidal.persistence.repositories import KickTxRepository
 from tidal.pricing.token_price_agg import TokenPriceAggProvider
 from tidal.runtime import build_txn_service, build_web3_client
-from tidal.transaction_service.evaluator import build_shortlist, check_pre_send, sort_candidates
+from tidal.transaction_service.evaluator import build_shortlist, sort_candidates
+from tidal.transaction_service.kick_policy import load_kick_config
 from tidal.transaction_service.kicker import _GAS_ESTIMATE_BUFFER, _format_execution_error
-from tidal.transaction_service.types import KickAction, KickResult, PreparedKick, PreparedSweepAndSettle
+from tidal.transaction_service.types import KickResult, PreparedKick, PreparedSweepAndSettle
 
 STRATEGY_DEPLOY_CONTEXT_SQL = """
 SELECT
@@ -75,6 +76,7 @@ async def prepare_kick_action(
     sender: str | None,
     require_curve_quote: bool | None = None,
 ) -> tuple[str, list[str], dict[str, object]]:
+    kick_config = load_kick_config(settings.resolved_kick_path)
     shortlist = build_shortlist(
         session,
         usd_threshold=settings.txn_usd_threshold,
@@ -84,13 +86,21 @@ async def prepare_kick_action(
         auction_address=auction_address,
         token_address=token_address,
         limit=limit,
-    )
-    decisions = check_pre_send(
-        shortlist.selected_candidates,
+        ignore_policy=kick_config.ignore_policy,
+        cooldown_policy=kick_config.cooldown_policy,
         kick_tx_repository=KickTxRepository(session),
-        cooldown_seconds=settings.txn_cooldown_seconds,
     )
-    candidates_to_prepare = sort_candidates([decision.candidate for decision in decisions if decision.action == KickAction.KICK])
+    candidates_to_prepare = sort_candidates(shortlist.selected_candidates)
+    ignored_entries = [
+        {
+            "sourceAddress": decision.candidate.source_address,
+            "auctionAddress": decision.candidate.auction_address,
+            "tokenAddress": decision.candidate.token_address,
+            "tokenSymbol": decision.candidate.token_symbol,
+            "detail": decision.detail,
+        }
+        for decision in shortlist.ignored_skips
+    ]
     cooldown_entries = [
         {
             "sourceAddress": decision.candidate.source_address,
@@ -99,8 +109,7 @@ async def prepare_kick_action(
             "tokenSymbol": decision.candidate.token_symbol,
             "detail": decision.detail,
         }
-        for decision in decisions
-        if decision.action == KickAction.SKIP
+        for decision in shortlist.cooldown_skips
     ]
 
     preview: dict[str, object] = {
@@ -110,7 +119,10 @@ async def prepare_kick_action(
         "tokenAddress": token_address,
         "limit": limit,
         "eligibleCount": len(shortlist.eligible_candidates),
-        "selectedCount": len(shortlist.selected_candidates),
+        "selectedCount": len(shortlist.selected_candidates) + len(shortlist.limited_candidates),
+        "readyCount": len(shortlist.selected_candidates),
+        "ignoredCount": len(ignored_entries),
+        "ignoredSkips": ignored_entries,
         "deferredSameAuctionCount": shortlist.deferred_same_auction_count,
         "limitedCount": len(shortlist.limited_candidates),
         "cooldownCount": len(cooldown_entries),

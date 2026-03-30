@@ -9,7 +9,7 @@ from tidal.api.services.action_prepare import (
     prepare_deploy_browser_action,
     prepare_kick_action,
 )
-from tidal.transaction_service.types import KickAction, KickCandidate, PreparedKick
+from tidal.transaction_service.types import KickCandidate, PreparedKick
 
 
 class _FailingWeb3Client:
@@ -82,13 +82,15 @@ async def test_prepare_kick_action_threads_curve_quote_override(monkeypatch) -> 
     shortlist = SimpleNamespace(
         selected_candidates=[candidate],
         eligible_candidates=[candidate],
+        ignored_skips=[],
+        cooldown_skips=[],
         deferred_same_auction_count=0,
         limited_candidates=[],
     )
     monkeypatch.setattr("tidal.api.services.action_prepare.build_shortlist", lambda *args, **kwargs: shortlist)
     monkeypatch.setattr(
-        "tidal.api.services.action_prepare.check_pre_send",
-        lambda candidates, **kwargs: [SimpleNamespace(action=KickAction.KICK, candidate=item) for item in candidates],
+        "tidal.api.services.action_prepare.load_kick_config",
+        lambda path: SimpleNamespace(ignore_policy=object(), cooldown_policy=object()),
     )
     monkeypatch.setattr("tidal.api.services.action_prepare.sort_candidates", lambda candidates: candidates)
 
@@ -128,7 +130,7 @@ async def test_prepare_kick_action_threads_curve_quote_override(monkeypatch) -> 
         settings=SimpleNamespace(
             txn_usd_threshold=100.0,
             txn_max_data_age_seconds=600,
-            txn_cooldown_seconds=3600,
+            resolved_kick_path="unused",
             txn_max_gas_limit=500000,
             auction_kicker_address="0x5555555555555555555555555555555555555555",
             chain_id=1,

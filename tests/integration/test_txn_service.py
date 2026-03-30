@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from tidal.persistence import models
 from tidal.persistence.repositories import KickTxRepository, TxnRunRepository
+from tidal.transaction_service.kick_policy import CooldownPolicy, IgnorePolicy
 from tidal.transaction_service.service import TxnService
 from tidal.transaction_service.types import (
     KickCandidate,
@@ -174,7 +175,12 @@ def _build_txn_service(session, *, kicker=None, lock_path=None):
         kick_tx_repository=kick_tx_repo,
         usd_threshold=100.0,
         max_data_age_seconds=600,
-        cooldown_seconds=3600,
+        cooldown_policy=CooldownPolicy(default_minutes=60, auction_token_overrides_minutes={}),
+        ignore_policy=IgnorePolicy(
+            ignored_sources=frozenset(),
+            ignored_auctions=frozenset(),
+            ignored_auction_tokens=frozenset(),
+        ),
         lock_path=lock_path,
     )
 

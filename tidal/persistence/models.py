@@ -292,6 +292,7 @@ Index("ix_scan_item_errors_identity", scan_item_errors.c.strategy_address, scan_
 Index("ix_kick_txs_created", kick_txs.c.created_at.desc())
 Index("ix_kick_txs_status_created", kick_txs.c.status, kick_txs.c.created_at.desc())
 Index("ix_kick_txs_auction_created", kick_txs.c.auction_address, kick_txs.c.created_at.desc())
+Index("ix_kick_txs_auction_token_created", kick_txs.c.auction_address, kick_txs.c.token_address, kick_txs.c.created_at.desc())
 Index("ix_kick_txs_run_created", kick_txs.c.run_id, kick_txs.c.created_at.desc())
 Index("ix_kick_txs_source_token_created", kick_txs.c.source_address, kick_txs.c.token_address, kick_txs.c.created_at.desc())
 Index("ix_kick_txs_strategy_token_created", kick_txs.c.strategy_address, kick_txs.c.token_address, kick_txs.c.created_at.desc())
