@@ -23,15 +23,15 @@ theme:
 
 nav:
   - Home: index.md
-  - Architecture: architecture.md
-  - Getting Started:
-    - Local Development: local-dev.md
-    - Operator Guide: operator-guide.md
-    - Server Operations: server-ops.md
   - Reference:
     - CLI: cli-reference.md
     - API: api-reference.md
     - Configuration: config.md
+  - Architecture: architecture.md
+  - Getting Started:
+    - Local Development: local-dev.md
+    - CLI Client Guide: operator-guide.md
+    - Server Operator Guide: server-ops.md
   - Concepts:
     - Pricing: pricing.md
     - Kick Selection: kick-selection.md
