@@ -35,8 +35,8 @@ Settle an auction:
 
 ```bash
 tidal auction settle 0xAuction
-tidal auction settle 0xAuction --method settle
-tidal auction settle 0xAuction --method sweep-and-settle
+tidal auction settle 0xAuction --token 0xActiveToken
+tidal auction settle 0xAuction --sweep
 ```
 
 Broadcast one of those actions:
@@ -61,7 +61,7 @@ Subcommand-specific flags:
 
 - `deploy`: `--want`, `--receiver`, `--starting-price`, optional factory and governance overrides
 - `enable-tokens`: `--extra-token`
-- `settle`: `--token`, `--method`
+- `settle`: `--token`, `--sweep`
 
 ## Behavior Notes
 

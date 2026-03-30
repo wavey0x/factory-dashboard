@@ -148,8 +148,8 @@ tidal auction enable-tokens 0xAuction --extra-token 0xToken
 
 ```bash
 tidal auction settle 0xAuction
-tidal auction settle 0xAuction --method settle
-tidal auction settle 0xAuction --method sweep-and-settle
+tidal auction settle 0xAuction --token 0xActiveToken
+tidal auction settle 0xAuction --sweep
 ```
 
 ## Confirmations And Warnings

@@ -50,7 +50,7 @@ Subcommand-specific flags:
 
 - `deploy`: `--want`, `--receiver`, `--starting-price`, optional factory and governance overrides
 - `enable-tokens`: `--extra-token`
-- `settle`: `--token`, `--method`, `--receipt-timeout`
+- `settle`: `--token`, `--sweep`, `--receipt-timeout`
 
 ## Notes
 
