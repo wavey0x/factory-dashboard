@@ -113,6 +113,7 @@ def test_default_db_path_uses_tidal_home_when_config_omits_db_path(tmp_path, mon
     settings = load_settings(config_path)
 
     assert settings.resolved_db_path == app_home / "state" / "tidal.db"
+    assert settings.tidal_api_base_url == "https://api.tidal.wavey.info"
 
 
 def test_default_outbox_and_lock_paths_live_under_tidal_home(tmp_path, monkeypatch) -> None:

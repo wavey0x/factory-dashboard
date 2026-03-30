@@ -42,5 +42,8 @@ def test_operator_init_creates_tidal_home_layout(tmp_path, monkeypatch) -> None:
     assert (app_home / "state").is_dir()
     assert (app_home / "state" / "operator").is_dir()
     assert (app_home / "run").is_dir()
+    scaffold = (app_home / "config.yaml").read_text(encoding="utf-8")
+    assert "0xb911Fcce8D5AFCEc73E072653107260bb23C1eE8" in scaffold
+    assert "https://api.tidal.wavey.info" in scaffold
     assert "Config:" in result.output
     assert str(app_home / "config.yaml") in result.output

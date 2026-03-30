@@ -132,7 +132,7 @@ class Settings(BaseSettings):
         default_factory=list,
         alias="MONITORED_FEE_BURNERS",
     )
-    tidal_api_base_url: str | None = Field(default=None, alias="TIDAL_API_BASE_URL")
+    tidal_api_base_url: str | None = Field(default="https://api.tidal.wavey.info", alias="TIDAL_API_BASE_URL")
     tidal_api_key: str | None = Field(default=None, alias="TIDAL_API_KEY")
     tidal_api_host: str = Field(default="0.0.0.0", alias="TIDAL_API_HOST")
     tidal_api_port: int = Field(default=8787, alias="TIDAL_API_PORT")
