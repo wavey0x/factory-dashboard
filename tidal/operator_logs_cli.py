@@ -10,6 +10,7 @@ from tidal.cli_context import CLIContext, normalize_cli_address
 from tidal.cli_options import ApiBaseUrlOption, ApiKeyOption, AuctionAddressOption, ConfigOption, JsonOption, LimitOption, SourceAddressOption
 from tidal.cli_renderers import emit_json, render_kick_logs, render_run_detail, render_scan_runs
 from tidal.control_plane.client import ControlPlaneError
+from tidal.errors import ConfigurationError
 from tidal.ops.logs import KickLogRecord, ScanItemErrorRecord, ScanRunDetail, ScanRunRecord, TxnRunDetail
 
 app = typer.Typer(help="Historical log inspection commands", no_args_is_help=True)
@@ -94,7 +95,7 @@ def logs_kicks(
                 source=normalized_source,
                 auction=normalized_auction,
             )
-    except ControlPlaneError as exc:
+    except (ConfigurationError, ControlPlaneError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
 
@@ -119,7 +120,7 @@ def logs_scans(
     try:
         with cli_ctx.control_plane_client(auth=False) as client:
             response = client.get_scan_logs(limit=limit or 20, offset=0, status=status)
-    except ControlPlaneError as exc:
+    except (ConfigurationError, ControlPlaneError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
 
@@ -143,7 +144,7 @@ def logs_show(
     try:
         with cli_ctx.control_plane_client(auth=False) as client:
             response = client.get_run_detail(run_id)
-    except ControlPlaneError as exc:
+    except (ConfigurationError, ControlPlaneError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
 
@@ -152,4 +153,3 @@ def logs_show(
         emit_json("logs.show", status=response["status"], data=detail, warnings=response.get("warnings"))
     else:
         render_run_detail(_run_detail_from_api(detail))
-

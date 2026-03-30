@@ -30,6 +30,7 @@ from tidal.cli_options import (
 )
 from tidal.cli_renderers import emit_json, render_kick_inspect, render_kick_submission_summary, render_skip_panel
 from tidal.control_plane.client import ControlPlaneError
+from tidal.errors import ConfigurationError
 from tidal.operator_cli_support import (
     execute_prepared_action_sync,
     render_action_preview,
@@ -307,7 +308,7 @@ def kick_inspect(
     try:
         with cli_ctx.control_plane_client(auth=False) as client:
             response = client.inspect_kicks(payload)
-    except ControlPlaneError as exc:
+    except (ConfigurationError, ControlPlaneError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
 
@@ -346,6 +347,12 @@ def kick_run(
     if bypass_confirmation and not broadcast:
         raise typer.BadParameter("--bypass-confirmation requires --broadcast", param_hint="--bypass-confirmation")
     cli_ctx = CLIContext(config, api_base_url=api_base_url, api_key=api_key)
+    try:
+        if broadcast:
+            cli_ctx.verify_authenticated_api_access()
+    except (ConfigurationError, ControlPlaneError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
     normalized_source_type = _normalize_source_type_filter(source_type)
     normalized_source_address = normalize_cli_address(source_address, param_hint="--source")
     normalized_auction_address = normalize_cli_address(auction_address, param_hint="--auction")
@@ -454,7 +461,7 @@ def kick_run(
                         render_broadcast_result(action_records)
                         broadcast_feedback_emitted = True
                     broadcast_records.extend(action_records)
-    except ControlPlaneError as exc:
+    except (ConfigurationError, ControlPlaneError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
     except RuntimeError as exc:

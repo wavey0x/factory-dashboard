@@ -24,7 +24,10 @@ def test_request_reports_non_json_error_body() -> None:
             },
         )
     except ControlPlaneError as exc:
-        assert str(exc) == "API returned 500: Internal Server Error"
+        assert (
+            str(exc)
+            == "Unexpected response from Tidal API at https://api.example.com/api/v1/tidal/actions/demo/broadcast; check TIDAL_API_BASE_URL"
+        )
     else:
         raise AssertionError("expected ControlPlaneError")
 
@@ -41,7 +44,53 @@ def test_request_wraps_transport_errors() -> None:
     try:
         client.get_action("demo")
     except ControlPlaneError as exc:
-        assert str(exc) == "API request failed: connection refused"
+        assert str(exc) == "Could not reach Tidal API at https://api.example.com: connection refused"
         assert exc.status_code is None
+    else:
+        raise AssertionError("expected ControlPlaneError")
+
+
+def test_request_maps_invalid_bearer_token_error() -> None:
+    client = ControlPlaneClient(base_url="https://api.example.com", token="secret")
+
+    def fake_request(method: str, path: str, *, params=None, json=None) -> httpx.Response:  # noqa: ANN001
+        del method, params, json
+        request = httpx.Request("GET", f"https://api.example.com{path}")
+        return httpx.Response(
+            401,
+            json={"status": "error", "warnings": [], "data": None, "detail": "Invalid bearer token"},
+            request=request,
+        )
+
+    client._client.request = fake_request  # type: ignore[method-assign]  # noqa: SLF001
+
+    try:
+        client.verify_authenticated_access()
+    except ControlPlaneError as exc:
+        assert str(exc) == "TIDAL_API_KEY is invalid for Tidal API at https://api.example.com"
+        assert exc.status_code == 401
+    else:
+        raise AssertionError("expected ControlPlaneError")
+
+
+def test_request_maps_missing_server_keys_error() -> None:
+    client = ControlPlaneClient(base_url="https://api.example.com", token="secret")
+
+    def fake_request(method: str, path: str, *, params=None, json=None) -> httpx.Response:  # noqa: ANN001
+        del method, params, json
+        request = httpx.Request("GET", f"https://api.example.com{path}")
+        return httpx.Response(
+            503,
+            json={"status": "error", "warnings": [], "data": None, "detail": "No API keys configured"},
+            request=request,
+        )
+
+    client._client.request = fake_request  # type: ignore[method-assign]  # noqa: SLF001
+
+    try:
+        client.verify_authenticated_access()
+    except ControlPlaneError as exc:
+        assert str(exc) == "Tidal API at https://api.example.com has no API keys configured"
+        assert exc.status_code == 503
     else:
         raise AssertionError("expected ControlPlaneError")

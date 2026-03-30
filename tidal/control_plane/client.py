@@ -6,6 +6,12 @@ from typing import Any
 
 import httpx
 
+_EXPECTED_RESPONSE_KEYS = frozenset({"status", "warnings", "data"})
+
+
+def _looks_like_tidal_response(payload: object) -> bool:
+    return isinstance(payload, dict) and _EXPECTED_RESPONSE_KEYS.issubset(payload)
+
 
 class ControlPlaneError(RuntimeError):
     """Raised when the control-plane API returns an error."""
@@ -39,6 +45,32 @@ class ControlPlaneClient:
         del exc_type, exc, tb
         self.close()
 
+    def _target_url(self, path: str) -> str:
+        return f"{self.base_url}{path}"
+
+    def _transport_error_message(self, exc: httpx.HTTPError) -> str:
+        if isinstance(exc, (httpx.InvalidURL, httpx.UnsupportedProtocol)):
+            return f"Invalid TIDAL_API_BASE_URL '{self.base_url}': {exc}"
+        return f"Could not reach Tidal API at {self.base_url}: {exc}"
+
+    def _unexpected_response_error(self, *, path: str, status_code: int | None = None) -> ControlPlaneError:
+        return ControlPlaneError(
+            f"Unexpected response from Tidal API at {self._target_url(path)}; check TIDAL_API_BASE_URL",
+            status_code=status_code,
+        )
+
+    def _api_error_message(self, *, status_code: int, detail: object | None) -> str:
+        detail_text = str(detail).strip() if detail is not None else ""
+        if status_code == 401 and detail_text == "Bearer token required":
+            return "TIDAL_API_KEY is required for this command"
+        if status_code == 401 and detail_text == "Invalid bearer token":
+            return f"TIDAL_API_KEY is invalid for Tidal API at {self.base_url}"
+        if status_code == 503 and detail_text == "No API keys configured":
+            return f"Tidal API at {self.base_url} has no API keys configured"
+        if detail_text:
+            return f"API returned {status_code}: {detail_text}"
+        return f"API returned HTTP {status_code}"
+
     def request(
         self,
         method: str,
@@ -50,39 +82,29 @@ class ControlPlaneClient:
         try:
             response = self._client.request(method, path, params=params, json=json)
         except httpx.HTTPError as exc:
-            raise ControlPlaneError(f"API request failed: {exc}") from exc
+            raise ControlPlaneError(self._transport_error_message(exc)) from exc
         try:
             payload = response.json()
         except ValueError as exc:
-            if not response.is_success:
-                message = response.text.strip() or f"API returned HTTP {response.status_code}"
-                raise ControlPlaneError(
-                    f"API returned {response.status_code}: {message}",
-                    status_code=response.status_code,
-                ) from exc
-            raise ControlPlaneError(
-                f"API returned invalid JSON ({response.status_code})",
-                status_code=response.status_code,
-            ) from exc
+            raise self._unexpected_response_error(path=path, status_code=response.status_code) from exc
+
+        if not _looks_like_tidal_response(payload):
+            raise self._unexpected_response_error(path=path, status_code=response.status_code)
 
         if not response.is_success:
-            message: object | None = None
-            if isinstance(payload, dict):
-                message = payload.get("detail") or payload.get("message") or payload.get("error")
-            if not message:
-                message = response.text.strip() or f"API returned HTTP {response.status_code}"
+            message = payload.get("detail") or payload.get("message") or payload.get("error")
             raise ControlPlaneError(
-                f"API returned {response.status_code}: {message}",
+                self._api_error_message(status_code=response.status_code, detail=message),
                 status_code=response.status_code,
             )
-
-        if not isinstance(payload, dict):
-            raise ControlPlaneError("API response was not an object", status_code=response.status_code)
 
         status = payload.get("status")
         if status == "error":
             message = payload.get("detail") or payload.get("message") or payload.get("error") or "API returned an error"
-            raise ControlPlaneError(str(message), status_code=response.status_code)
+            raise ControlPlaneError(
+                self._api_error_message(status_code=response.status_code, detail=message),
+                status_code=response.status_code,
+            )
         return payload
 
     def get_dashboard(self) -> dict[str, Any]:
@@ -145,6 +167,9 @@ class ControlPlaneClient:
         if action_type is not None:
             params["action_type"] = action_type
         return self.request("GET", "/api/v1/tidal/actions", params=params)
+
+    def verify_authenticated_access(self) -> None:
+        self.list_actions(limit=1)
 
     def get_action(self, action_id: str) -> dict[str, Any]:
         return self.request("GET", f"/api/v1/tidal/actions/{action_id}")

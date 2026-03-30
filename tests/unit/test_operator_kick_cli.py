@@ -6,6 +6,7 @@ from eth_utils import to_checksum_address
 from typer.testing import CliRunner
 
 from tidal.cli import app as operator_app
+from tidal.control_plane.client import ControlPlaneError
 import tidal.operator_kick_cli as operator_kick_cli_module
 
 
@@ -250,6 +251,11 @@ def test_operator_kick_run_threads_curve_quote_override(tmp_path, monkeypatch, f
 
     monkeypatch.setattr(
         operator_kick_cli_module.CLIContext,
+        "verify_authenticated_api_access",
+        lambda self: None,
+    )
+    monkeypatch.setattr(
+        operator_kick_cli_module.CLIContext,
         "control_plane_client",
         lambda self, auth=True: client,
     )
@@ -279,6 +285,11 @@ def test_operator_kick_run_broadcast_prepares_candidates_one_by_one(tmp_path, mo
     client = _BroadcastClient()
     prepared_actions: list[tuple[str, list[dict[str, object]]]] = []
 
+    monkeypatch.setattr(
+        operator_kick_cli_module.CLIContext,
+        "verify_authenticated_api_access",
+        lambda self: None,
+    )
     monkeypatch.setattr(
         operator_kick_cli_module.CLIContext,
         "control_plane_client",
@@ -352,6 +363,11 @@ def test_operator_kick_run_prepare_noop_does_not_repeat_generic_footer(tmp_path,
 
     monkeypatch.setattr(
         operator_kick_cli_module.CLIContext,
+        "verify_authenticated_api_access",
+        lambda self: None,
+    )
+    monkeypatch.setattr(
+        operator_kick_cli_module.CLIContext,
         "control_plane_client",
         lambda self, auth=True: client,
     )
@@ -382,6 +398,11 @@ def test_operator_kick_run_declined_confirmations_reports_skipped_summary(tmp_pa
 
     monkeypatch.setattr(
         operator_kick_cli_module.CLIContext,
+        "verify_authenticated_api_access",
+        lambda self: None,
+    )
+    monkeypatch.setattr(
+        operator_kick_cli_module.CLIContext,
         "control_plane_client",
         lambda self, auth=True: client,
     )
@@ -401,3 +422,33 @@ def test_operator_kick_run_declined_confirmations_reports_skipped_summary(tmp_pa
     assert result.exit_code == 2
     assert "All prepared kick transactions were skipped." in result.output
     assert "No kick transactions were sent." not in result.output
+
+
+def test_operator_kick_run_checks_api_auth_before_resolving_execution(tmp_path, monkeypatch) -> None:
+    config_path = _write_config(tmp_path)
+    call_order: list[str] = []
+
+    def fake_verify(self) -> None:  # noqa: ANN001
+        call_order.append("verify")
+        raise ControlPlaneError("TIDAL_API_KEY is invalid for Tidal API at https://api.example.com", status_code=401)
+
+    def fail_resolve(self, **kwargs):  # noqa: ANN001, ARG001
+        raise AssertionError("resolve_execution should not run when API auth validation fails")
+
+    monkeypatch.setattr(
+        operator_kick_cli_module.CLIContext,
+        "verify_authenticated_api_access",
+        fake_verify,
+    )
+    monkeypatch.setattr(
+        operator_kick_cli_module.CLIContext,
+        "resolve_execution",
+        fail_resolve,
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(operator_app, ["kick", "run", "--broadcast", "--config", str(config_path)])
+
+    assert result.exit_code == 1
+    assert "TIDAL_API_KEY is invalid" in result.output
+    assert call_order == ["verify"]

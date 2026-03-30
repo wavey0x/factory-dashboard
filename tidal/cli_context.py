@@ -17,7 +17,6 @@ from tidal.cli_support import (
 )
 from tidal.config import Settings, load_settings
 from tidal.control_plane.client import ControlPlaneClient
-from tidal.control_plane.outbox import ActionReportOutbox
 from tidal.errors import AddressNormalizationError, ConfigurationError
 from tidal.normalizers import normalize_address
 from tidal.persistence.db import Database
@@ -90,17 +89,15 @@ class CLIContext:
 
     def control_plane_client(self, *, auth: bool = True) -> ControlPlaneClient:
         self.require_api(auth=auth)
-        client = ControlPlaneClient(
+        return ControlPlaneClient(
             base_url=str(self.api_base_url),
             token=str(self.api_key) if self.api_key else "",
             timeout_seconds=self.settings.tidal_api_request_timeout_seconds,
         )
-        if auth:
-            try:
-                ActionReportOutbox().flush_pending(client)
-            except Exception:  # noqa: BLE001
-                pass
-        return client
+
+    def verify_authenticated_api_access(self) -> None:
+        with self.control_plane_client(auth=True) as client:
+            client.verify_authenticated_access()
 
     def resolve_execution(
         self,

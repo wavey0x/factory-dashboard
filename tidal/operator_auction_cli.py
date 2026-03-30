@@ -19,6 +19,7 @@ from tidal.cli_options import (
 )
 from tidal.cli_renderers import emit_json, render_status_panel
 from tidal.control_plane.client import ControlPlaneError
+from tidal.errors import ConfigurationError
 from tidal.operator_cli_support import (
     execute_prepared_action_sync,
     render_action_preview,
@@ -163,6 +164,11 @@ def deploy(
     if bypass_confirmation and not broadcast:
         raise typer.BadParameter("--bypass-confirmation requires --broadcast", param_hint="--bypass-confirmation")
     cli_ctx = CLIContext(config, api_base_url=api_base_url, api_key=api_key)
+    try:
+        cli_ctx.verify_authenticated_api_access()
+    except (ConfigurationError, ControlPlaneError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
     exec_ctx = cli_ctx.resolve_execution(
         broadcast=broadcast,
         required_for="broadcast auction deployment",
@@ -183,7 +189,7 @@ def deploy(
     try:
         with cli_ctx.control_plane_client() as client:
             response = client.prepare_deploy(payload)
-    except ControlPlaneError as exc:
+    except (ConfigurationError, ControlPlaneError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
     _handle_prepared_action(
@@ -216,6 +222,11 @@ def enable_tokens(
     if bypass_confirmation and not broadcast:
         raise typer.BadParameter("--bypass-confirmation requires --broadcast", param_hint="--bypass-confirmation")
     cli_ctx = CLIContext(config, api_base_url=api_base_url, api_key=api_key)
+    try:
+        cli_ctx.verify_authenticated_api_access()
+    except (ConfigurationError, ControlPlaneError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
     exec_ctx = cli_ctx.resolve_execution(
         broadcast=broadcast,
         required_for="broadcast enable-tokens execution",
@@ -231,7 +242,7 @@ def enable_tokens(
     try:
         with cli_ctx.control_plane_client() as client:
             response = client.prepare_enable_tokens(normalize_cli_address(auction_address, param_hint="AUCTION"), payload)
-    except ControlPlaneError as exc:
+    except (ConfigurationError, ControlPlaneError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
     _handle_prepared_action(
@@ -269,6 +280,11 @@ def settle(
     if bypass_confirmation and not broadcast:
         raise typer.BadParameter("--bypass-confirmation requires --broadcast", param_hint="--bypass-confirmation")
     cli_ctx = CLIContext(config, api_base_url=api_base_url, api_key=api_key)
+    try:
+        cli_ctx.verify_authenticated_api_access()
+    except (ConfigurationError, ControlPlaneError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
     exec_ctx = cli_ctx.resolve_execution(
         broadcast=broadcast,
         required_for="broadcast settlement execution",
@@ -285,7 +301,7 @@ def settle(
     try:
         with cli_ctx.control_plane_client() as client:
             response = client.prepare_settle(normalize_cli_address(auction_address, param_hint="AUCTION"), payload)
-    except ControlPlaneError as exc:
+    except (ConfigurationError, ControlPlaneError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
     _handle_prepared_action(

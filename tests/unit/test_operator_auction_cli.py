@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from typer.testing import CliRunner
 
 from tidal.cli import app as operator_app
+from tidal.control_plane.client import ControlPlaneError
 import tidal.operator_auction_cli as operator_auction_cli_module
 
 
@@ -144,6 +145,11 @@ def test_operator_auction_enable_tokens_uses_styled_submission_flow(tmp_path, mo
 
     monkeypatch.setattr(
         operator_auction_cli_module.CLIContext,
+        "verify_authenticated_api_access",
+        lambda self: None,
+    )
+    monkeypatch.setattr(
+        operator_auction_cli_module.CLIContext,
         "control_plane_client",
         lambda self, auth=True: client,
     )
@@ -213,6 +219,11 @@ def test_operator_auction_enable_tokens_noop_skips_prepared_panel(tmp_path, monk
 
     monkeypatch.setattr(
         operator_auction_cli_module.CLIContext,
+        "verify_authenticated_api_access",
+        lambda self: None,
+    )
+    monkeypatch.setattr(
+        operator_auction_cli_module.CLIContext,
         "control_plane_client",
         lambda self, auth=True: client,
     )
@@ -245,6 +256,11 @@ def test_operator_auction_settle_noop_shows_reason_and_price_state(tmp_path, mon
     config_path = _write_config(tmp_path)
     client = _NoopSettleClient()
 
+    monkeypatch.setattr(
+        operator_auction_cli_module.CLIContext,
+        "verify_authenticated_api_access",
+        lambda self: None,
+    )
     monkeypatch.setattr(
         operator_auction_cli_module.CLIContext,
         "control_plane_client",
@@ -287,6 +303,11 @@ def test_operator_auction_settle_sweep_threads_payload(tmp_path, monkeypatch) ->
 
     monkeypatch.setattr(
         operator_auction_cli_module.CLIContext,
+        "verify_authenticated_api_access",
+        lambda self: None,
+    )
+    monkeypatch.setattr(
+        operator_auction_cli_module.CLIContext,
         "control_plane_client",
         lambda self, auth=True: client,
     )
@@ -320,3 +341,47 @@ def test_operator_auction_settle_sweep_threads_payload(tmp_path, monkeypatch) ->
             },
         )
     ]
+
+
+def test_operator_auction_deploy_checks_api_auth_before_resolving_execution(tmp_path, monkeypatch) -> None:
+    config_path = _write_config(tmp_path)
+    call_order: list[str] = []
+
+    def fake_verify(self) -> None:  # noqa: ANN001
+        call_order.append("verify")
+        raise ControlPlaneError("TIDAL_API_KEY is invalid for Tidal API at https://api.example.com", status_code=401)
+
+    def fail_resolve(self, **kwargs):  # noqa: ANN001, ARG001
+        raise AssertionError("resolve_execution should not be reached when auth validation fails")
+
+    monkeypatch.setattr(
+        operator_auction_cli_module.CLIContext,
+        "verify_authenticated_api_access",
+        fake_verify,
+    )
+    monkeypatch.setattr(
+        operator_auction_cli_module.CLIContext,
+        "resolve_execution",
+        fail_resolve,
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        operator_app,
+        [
+            "auction",
+            "deploy",
+            "--want",
+            "0x1111111111111111111111111111111111111111",
+            "--receiver",
+            "0x2222222222222222222222222222222222222222",
+            "--starting-price",
+            "1234",
+            "--config",
+            str(config_path),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "TIDAL_API_KEY is invalid" in result.output
+    assert call_order == ["verify"]
