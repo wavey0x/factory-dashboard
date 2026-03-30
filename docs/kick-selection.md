@@ -111,11 +111,11 @@ Once a candidate is selected for preparation, Tidal does the expensive work only
 5. derive start price and minimum price from the live quote
 6. estimate gas and show confirmation
 
-This keeps operator latency proportional to the candidate being acted on, not to the whole shortlist.
+This keeps CLI client latency proportional to the candidate being acted on, not to the whole shortlist.
 
-## Operator Flow Versus Daemon Flow
+## CLI Client Flow Versus Daemon Flow
 
-The operator API-backed flow is intentionally one-by-one:
+The CLI client API-backed flow is intentionally one-by-one:
 
 - inspect using cached ordering
 - prepare one candidate

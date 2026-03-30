@@ -453,18 +453,19 @@ def enable_tokens(
     if bypass_confirmation and not broadcast:
         raise typer.BadParameter("--bypass-confirmation requires --broadcast", param_hint="--bypass-confirmation")
     cli_ctx = CLIContext(config)
+    normalized_auction_address = normalize_cli_address(auction_address, param_hint="AUCTION")
+    normalized_extra_tokens = _normalize_address_list(extra_token, param_hint="--extra-token")
+    normalized_sender = normalize_cli_address(sender, param_hint="--sender")
     try:
         w3 = cli_ctx.sync_web3()
     except ConfigurationError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
 
-    normalized_auction_address = normalize_cli_address(auction_address, param_hint="AUCTION")
-    normalized_extra_tokens = _normalize_address_list(extra_token, param_hint="--extra-token")
     exec_ctx = cli_ctx.resolve_execution(
         broadcast=broadcast,
         required_for="broadcast enable-tokens execution",
-        sender=normalize_cli_address(sender, param_hint="--sender"),
+        sender=normalized_sender,
         account_name=account,
         keystore_path=keystore,
         password_file=password_file,
@@ -641,18 +642,19 @@ def settle(
     if bypass_confirmation and not broadcast:
         raise typer.BadParameter("--bypass-confirmation requires --broadcast", param_hint="--bypass-confirmation")
     cli_ctx = CLIContext(config)
+    normalized_auction_address = normalize_cli_address(auction_address, param_hint="AUCTION")
+    normalized_token_address = normalize_cli_address(token_address, param_hint="--token")
+    normalized_sender = normalize_cli_address(sender, param_hint="--sender")
     try:
         cli_ctx.require_rpc()
     except ConfigurationError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
 
-    normalized_auction_address = normalize_cli_address(auction_address, param_hint="AUCTION")
-    normalized_token_address = normalize_cli_address(token_address, param_hint="--token")
     exec_ctx = cli_ctx.resolve_execution(
         broadcast=broadcast,
         required_for="broadcast settlement execution",
-        sender=normalize_cli_address(sender, param_hint="--sender"),
+        sender=normalized_sender,
         account_name=account,
         keystore_path=keystore,
         password_file=password_file,

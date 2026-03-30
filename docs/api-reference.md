@@ -210,5 +210,5 @@ database is locked; retry the request
 
 - Dashboard and logs are intentionally public.
 - Mutating routes are authenticated.
-- The server prepares actions, but the operator CLI signs locally.
+- The server prepares actions, but the CLI client signs locally.
 - The API process may run a background receipt reconciler when `RPC_URL` is configured.

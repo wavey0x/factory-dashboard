@@ -31,8 +31,8 @@ def foundry_keystore_dir() -> Path:
 
 
 def discover_local_keystore_path(settings: Any) -> Path | None:
-    if settings.txn_keystore_path:
-        configured = Path(settings.txn_keystore_path).expanduser()
+    configured = getattr(settings, "resolved_txn_keystore_path", None)
+    if configured is not None:
         if configured.is_file():
             return configured
 
@@ -74,7 +74,7 @@ def resolve_keystore_path(
             return resolved
         raise SystemExit(f"Keystore file not found for {required_for}: {resolved}")
 
-    configured = settings.txn_keystore_path
+    configured = getattr(settings, "resolved_txn_keystore_path", None)
     if configured:
         resolved = Path(configured).expanduser()
         if resolved.is_file():

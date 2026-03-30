@@ -2,13 +2,28 @@
 
 This page is derived from the live Typer command tree via `tidal --help` and `tidal-server --help`.
 
-## Operator CLI: `tidal`
+## CLI Client: `tidal`
+
+By default, `tidal` reads:
+
+- `~/.tidal/config.yaml`
+- `~/.tidal/.env`
+- `~/.tidal/auction_pricing_policy.yaml`
 
 Top-level commands:
 
+- `init`
 - `auction`
 - `kick`
 - `logs`
+
+### `tidal init`
+
+```bash
+tidal init [--force]
+```
+
+Creates the default `~/.tidal/` layout and writes scaffold files if they do not already exist.
 
 ### `tidal auction`
 
@@ -146,7 +161,9 @@ tidal logs scans \
 tidal logs show <run_id> [--json]
 ```
 
-## Server/Admin CLI: `tidal-server`
+## Server Operator CLI: `tidal-server`
+
+`tidal-server` uses the same default config home as `tidal` unless `--config` or the `TIDAL_*` path overrides are set.
 
 Top-level commands:
 

@@ -2,20 +2,22 @@
 
 Precedence (highest wins): env vars > YAML config > Python defaults.
 
-Secrets (RPC_URL, keystore, API keys, etc.) live in ``.env`` and are
-promoted to real environment variables by ``load_dotenv()`` before the
-Settings model is constructed.  Operational knobs live in ``config.yaml``.
+Secrets live in an explicitly resolved ``.env`` file, while operational
+settings live in an explicitly resolved ``config.yaml``.
 """
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
 import yaml
-from dotenv import load_dotenv
-from pydantic import AliasChoices, BaseModel, Field, field_validator
+from dotenv import dotenv_values
+from pydantic import AliasChoices, BaseModel, Field, PrivateAttr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from tidal.paths import default_config_path, default_env_path, default_pricing_policy_path, resolve_path, tidal_home
 
 
 class MonitoredFeeBurner(BaseModel):
@@ -38,8 +40,13 @@ class Settings(BaseSettings):
         populate_by_name=True,
     )
 
+    _resolved_home_path: Path = PrivateAttr(default_factory=tidal_home)
+    _resolved_config_path: Path = PrivateAttr(default_factory=default_config_path)
+    _resolved_env_path: Path = PrivateAttr(default_factory=default_env_path)
+    _resolved_pricing_policy_path: Path = PrivateAttr(default_factory=default_pricing_policy_path)
+
     rpc_url: str | None = Field(default=None, alias="RPC_URL")
-    db_path: Path = Field(default=Path("./tidal.db"), alias="DB_PATH")
+    db_path: Path | None = Field(default=None, alias="DB_PATH")
     chain_id: int = Field(default=1, alias="CHAIN_ID")
 
     scan_interval_seconds: int = Field(default=300, alias="SCAN_INTERVAL_SECONDS")
@@ -156,15 +163,59 @@ class Settings(BaseSettings):
         return value
 
     @property
+    def resolved_config_path(self) -> Path:
+        return self._resolved_config_path
+
+    @property
+    def resolved_home_path(self) -> Path:
+        return self._resolved_home_path
+
+    @property
+    def resolved_config_dir(self) -> Path:
+        return self.resolved_config_path.parent
+
+    @property
+    def resolved_env_path(self) -> Path:
+        return self._resolved_env_path
+
+    @property
+    def resolved_pricing_policy_path(self) -> Path:
+        return self._resolved_pricing_policy_path
+
+    @property
     def resolved_db_path(self) -> Path:
-        db_path = self.db_path
-        if not db_path.is_absolute():
-            db_path = Path.cwd() / db_path
-        return db_path
+        if self.db_path is None:
+            return (self.resolved_home_path / "state" / "tidal.db").resolve()
+        return self._resolve_config_relative_path(self.db_path)
+
+    @property
+    def resolved_txn_keystore_path(self) -> Path | None:
+        if not self.txn_keystore_path:
+            return None
+        return self._resolve_config_relative_path(self.txn_keystore_path)
 
     @property
     def database_url(self) -> str:
         return f"sqlite:///{self.resolved_db_path}"
+
+    def bind_runtime_paths(
+        self,
+        *,
+        home_path: Path,
+        config_path: Path,
+        env_path: Path,
+        pricing_policy_path: Path,
+    ) -> None:
+        self._resolved_home_path = home_path
+        self._resolved_config_path = config_path
+        self._resolved_env_path = env_path
+        self._resolved_pricing_policy_path = pricing_policy_path
+
+    def _resolve_config_relative_path(self, value: str | Path) -> Path:
+        path = Path(value).expanduser()
+        if path.is_absolute():
+            return path.resolve()
+        return (self.resolved_config_dir / path).resolve()
 
 
 def _load_yaml_config(path: Path) -> dict[str, Any]:
@@ -175,28 +226,71 @@ def _load_yaml_config(path: Path) -> dict[str, Any]:
     return raw
 
 
-_DEFAULT_CONFIG_PATH = Path("config.yaml")
+def _resolve_explicit_file_path(path: str | Path, *, label: str) -> Path:
+    resolved = resolve_path(path)
+    if not resolved.is_file():
+        raise FileNotFoundError(f"{label} not found: {resolved}")
+    return resolved
+
+
+def _resolve_config_path(config_path: Path | None = None) -> Path:
+    if config_path is not None:
+        return _resolve_explicit_file_path(config_path, label="Config file")
+
+    env_override = os.getenv("TIDAL_CONFIG")
+    if env_override:
+        return _resolve_explicit_file_path(env_override, label="Config file")
+
+    return default_config_path()
+
+
+def _resolve_env_path(config_path: Path) -> Path:
+    env_override = os.getenv("TIDAL_ENV_FILE")
+    if env_override:
+        return _resolve_explicit_file_path(env_override, label="Environment file")
+
+    config_dir_env_path = (config_path.parent / ".env").resolve()
+    if config_dir_env_path.is_file():
+        return config_dir_env_path
+
+    return default_env_path()
+
+
+def _resolve_pricing_policy_path(config_path: Path) -> Path:
+    env_override = os.getenv("TIDAL_PRICING_POLICY_PATH")
+    if env_override:
+        return resolve_path(env_override)
+
+    config_dir_policy_path = (config_path.parent / "auction_pricing_policy.yaml").resolve()
+    if config_dir_policy_path.is_file():
+        return config_dir_policy_path
+
+    return default_pricing_policy_path()
 
 
 def load_settings(config_path: Path | None = None) -> Settings:
-    """Load settings from YAML config with env-var overrides for secrets.
+    """Load settings from resolved config and env paths."""
+    resolved_config_path = _resolve_config_path(config_path)
+    resolved_env_path = _resolve_env_path(resolved_config_path)
+    resolved_pricing_policy_path = _resolve_pricing_policy_path(resolved_config_path)
 
-    1. ``load_dotenv()`` promotes ``.env`` secrets to real env vars.
-    2. YAML values are passed as init kwargs (lower priority than env vars).
-    3. Env vars always win — so secrets in ``.env`` override any YAML key.
+    config_data: dict[str, Any] = {}
+    if resolved_config_path.is_file():
+        config_data = _load_yaml_config(resolved_config_path)
 
-    When no explicit path is given, falls back to ``config.yaml`` in the
-    current working directory if it exists.
-    """
-    load_dotenv()
+    env_data: dict[str, Any] = {}
+    if resolved_env_path.is_file():
+        env_data = {
+            key: value
+            for key, value in dotenv_values(resolved_env_path).items()
+            if value is not None
+        }
 
-    if config_path is None:
-        candidate = Path.cwd() / _DEFAULT_CONFIG_PATH
-        if candidate.is_file():
-            config_path = candidate
-
-    if config_path is None:
-        return Settings()
-
-    config_data = _load_yaml_config(config_path)
-    return Settings(**config_data)
+    settings = Settings(**{**config_data, **env_data})
+    settings.bind_runtime_paths(
+        home_path=tidal_home(),
+        config_path=resolved_config_path,
+        env_path=resolved_env_path,
+        pricing_policy_path=resolved_pricing_policy_path,
+    )
+    return settings

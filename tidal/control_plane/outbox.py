@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from tidal.control_plane.client import ControlPlaneClient, ControlPlaneError
+from tidal.paths import default_action_outbox_path
 from tidal.time import utcnow_iso
 
 _OUTBOX_SCHEMA = """
@@ -27,17 +27,8 @@ CREATE TABLE IF NOT EXISTS action_report_outbox (
     UNIQUE(base_url, action_id, tx_index, report_type)
 )
 """
-
-
-def default_operator_state_dir() -> Path:
-    override = os.getenv("TIDAL_OPERATOR_STATE_DIR")
-    if override:
-        return Path(override).expanduser()
-    return Path.home() / ".tidal" / "operator-state"
-
-
 def default_action_report_outbox_path() -> Path:
-    return default_operator_state_dir() / "action_outbox.db"
+    return default_action_outbox_path()
 
 
 @dataclass(frozen=True, slots=True)

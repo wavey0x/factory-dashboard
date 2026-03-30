@@ -1,6 +1,6 @@
 # Tidal
 
-Tidal is Yearn's auction operations stack. It scans strategy and fee-burner inventories, caches balances and token prices in SQLite, prepares auction actions through a control-plane API, supports local transaction signing from an operator CLI, and exposes a dashboard for monitoring the resulting state.
+Tidal is Yearn's auction operations stack. It scans strategy and fee-burner inventories, caches balances and token prices in SQLite, prepares auction actions through a control-plane API, supports local transaction signing from a CLI client, and exposes a dashboard for monitoring the resulting state.
 
 Documentation lives in [`docs/`](./docs/index.md). The intended hosted docs domain is `https://docs.tidal.wavey.info`.
 
@@ -8,9 +8,9 @@ Documentation lives in [`docs/`](./docs/index.md). The intended hosted docs doma
 
 | Component | Role | Entry point |
 |---|---|---|
-| `tidal-server` | Server/admin CLI for migrations, scans, kick daemons, API serving, and API key management | `tidal.server_cli:app` |
-| `tidal` | Operator CLI for API-backed inspection, preparation, signing, broadcast, and log inspection | `tidal.cli:app` |
-| `ui/` | React dashboard for strategies, fee burners, logs, and operator actions | `ui/src/App.jsx` |
+| `tidal-server` | Server operator CLI for migrations, scans, kick daemons, API serving, and API key management | `tidal.server_cli:app` |
+| `tidal` | CLI client for API-backed inspection, preparation, signing, broadcast, and log inspection | `tidal.cli:app` |
+| `ui/` | React dashboard for strategies, fee burners, logs, and CLI client actions | `ui/src/App.jsx` |
 | `contracts/` | Foundry project for the on-chain `AuctionKicker` helper contract | `contracts/src/AuctionKicker.sol` |
 
 ## System Shape
@@ -19,14 +19,14 @@ Documentation lives in [`docs/`](./docs/index.md). The intended hosted docs doma
 scanner -> SQLite -> FastAPI control plane -> dashboard UI
                                   ^
                                   |
-                      operator CLI prepare/read calls
+                       CLI client prepare/read calls
                                   |
                            local wallet signing
                                   |
                                Ethereum
 ```
 
-The server owns the database, scans, API, and audit history. Operators keep private keys local: the CLI asks the API to prepare actions, signs transactions locally, broadcasts them, and reports broadcast/receipt data back to the API.
+The server owns the database, scans, API, and audit history. CLI clients keep private keys local: the CLI asks the API to prepare actions, signs transactions locally, broadcasts them, and reports broadcast/receipt data back to the API.
 
 ## Quick Start
 
@@ -43,15 +43,16 @@ tidal-server api serve
 
 Required setup:
 
-- Put secrets such as `RPC_URL` and API keys in `.env`.
-- Put operational settings in [`config.yaml`](./config.yaml).
+- Run `tidal init` to scaffold `~/.tidal/config.yaml`, `~/.tidal/.env`, and `~/.tidal/auction_pricing_policy.yaml`.
+- Put secrets such as `RPC_URL` and API keys in `~/.tidal/.env`.
+- Put operational settings in `~/.tidal/config.yaml`.
 - If you want the UI locally, run `cd ui && npm install && npm run dev`.
 
-### Remote operator
+### CLI client
 
 ```bash
 export TIDAL_API_BASE_URL=https://api.tidal.wavey.info
-export TIDAL_API_KEY=<operator-api-key>
+export TIDAL_API_KEY=<cli-client-api-key>
 
 tidal kick inspect
 tidal kick run
@@ -76,8 +77,8 @@ Broadcasting commands use a Foundry-style wallet surface: `--sender`, `--account
 - Start with the docs landing page: [`docs/index.md`](./docs/index.md)
 - System overview: [`docs/architecture.md`](./docs/architecture.md)
 - Local development: [`docs/local-dev.md`](./docs/local-dev.md)
-- Operator workflows: [`docs/operator-guide.md`](./docs/operator-guide.md)
-- Server operations: [`docs/server-ops.md`](./docs/server-ops.md)
+- CLI client guide: [`docs/operator-guide.md`](./docs/operator-guide.md)
+- Server operator guide: [`docs/server-ops.md`](./docs/server-ops.md)
 - CLI reference: [`docs/cli-reference.md`](./docs/cli-reference.md)
 - API reference: [`docs/api-reference.md`](./docs/api-reference.md)
 - Configuration reference: [`docs/config.md`](./docs/config.md)
@@ -88,7 +89,7 @@ Broadcasting commands use a Foundry-style wallet surface: `--sender`, `--account
 - Kick engine: [`tidal/transaction_service/service.py`](./tidal/transaction_service/service.py)
 - Kick shortlist logic: [`tidal/transaction_service/evaluator.py`](./tidal/transaction_service/evaluator.py)
 - FastAPI app: [`tidal/api/app.py`](./tidal/api/app.py)
-- Operator CLI: [`tidal/cli.py`](./tidal/cli.py)
-- Server CLI: [`tidal/server_cli.py`](./tidal/server_cli.py)
+- CLI client: [`tidal/cli.py`](./tidal/cli.py)
+- Server operator CLI: [`tidal/server_cli.py`](./tidal/server_cli.py)
 - Dashboard UI: [`ui/src/App.jsx`](./ui/src/App.jsx)
 - Contract: [`contracts/src/AuctionKicker.sol`](./contracts/src/AuctionKicker.sol)

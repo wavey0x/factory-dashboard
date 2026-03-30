@@ -5,9 +5,9 @@
 Tidal exists to answer two operational questions quickly and safely:
 
 1. What auction actions are currently worth taking?
-2. How can an operator prepare and broadcast those actions without giving the server custody of private keys?
+2. How can a CLI client prepare and broadcast those actions without giving the server custody of private keys?
 
-The design splits shared state from signing authority. The server owns the database and background jobs. Operators keep keys local.
+The design splits shared state from signing authority. The server owns the database and background jobs. CLI clients keep keys local.
 
 ## Main Components
 
@@ -18,9 +18,9 @@ The design splits shared state from signing authority. The server owns the datab
 | Transaction service | Selects candidates, inspects auctions, prepares actions, signs/broadcasts when running server-side flows | `tidal/transaction_service/` |
 | API | Exposes read models and action preparation over HTTP | `tidal/api/app.py` |
 | Read models | Dashboard rows, kick logs, scan logs, run details | `tidal/read/` |
-| Operator CLI | API-backed inspection and action execution with local wallet signing | `tidal/cli.py` |
-| Server CLI | Direct server/admin entrypoint for migrations, scans, daemons, API, auth | `tidal/server_cli.py` |
-| UI | Read-only monitoring plus operator action flows | `ui/src/App.jsx` |
+| CLI client | API-backed inspection and action execution with local wallet signing | `tidal/cli.py` |
+| Server operator CLI | Direct server-side entrypoint for migrations, scans, daemons, API, auth | `tidal/server_cli.py` |
+| UI | Read-only monitoring plus CLI client action flows | `ui/src/App.jsx` |
 | Contract | On-chain `AuctionKicker` helper used for atomic kick execution | `contracts/src/AuctionKicker.sol` |
 
 ## End-To-End Flow
@@ -36,7 +36,7 @@ Yearn contracts / auctions / token APIs
                 |
                 +--> FastAPI control plane --> dashboard UI
                 |
-                +--> FastAPI control plane --> operator CLI
+                +--> FastAPI control plane --> CLI client
                                               |
                                               v
                                        local wallet signing
@@ -69,7 +69,7 @@ It is responsible for:
 
 ### 2. Read Path
 
-The UI and operator CLI do not query SQLite directly. They read through the FastAPI control plane.
+The UI and CLI client do not query SQLite directly. They read through the FastAPI control plane.
 
 That gives one shared source of truth for:
 
@@ -83,7 +83,7 @@ That gives one shared source of truth for:
 
 For mutating workflows, the server prepares actions but does not hold the wallet.
 
-The normal operator path is:
+The normal CLI client path is:
 
 1. CLI calls the API to inspect or prepare an action.
 2. API returns calldata, pricing context, and audit identifiers.
@@ -91,7 +91,7 @@ The normal operator path is:
 4. CLI broadcasts locally.
 5. CLI reports broadcast and receipt details back to the API.
 
-This keeps signing authority on the operator machine while the server remains the source of shared state and audit history.
+This keeps signing authority on the CLI client machine while the server remains the source of shared state and audit history.
 
 ## Kick Pipeline
 
@@ -151,11 +151,11 @@ The server is trusted with:
 
 The server is not trusted with:
 
-- operator private keys
+- CLI client private keys
 
-### Operator CLI
+### CLI Client
 
-The operator CLI is trusted with:
+The CLI client is trusted with:
 
 - local keystore access
 - local transaction signing
@@ -169,5 +169,5 @@ The CLI depends on the API for shared state and prepared payloads, but the signi
 - Kick shortlist: `tidal/transaction_service/evaluator.py`
 - Kick prepare logic: `tidal/transaction_service/kicker.py`
 - API app assembly: `tidal/api/app.py`
-- Operator HTTP client: `tidal/control_plane/client.py`
+- CLI client HTTP client: `tidal/control_plane/client.py`
 - Dashboard UI: `ui/src/App.jsx`

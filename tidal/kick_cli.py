@@ -137,19 +137,20 @@ def kick_run(
     if bypass_confirmation and not broadcast:
         raise typer.BadParameter("--bypass-confirmation requires --broadcast", param_hint="--bypass-confirmation")
     cli_ctx = CLIContext(config)
+    normalized_source_type = _normalize_source_type_filter(source_type)
+    normalized_source_address = normalize_cli_address(source_address, param_hint="--source")
+    normalized_auction_address = normalize_cli_address(auction_address, param_hint="--auction")
+    normalized_sender = normalize_cli_address(sender, param_hint="--sender")
     try:
         cli_ctx.require_rpc()
     except ConfigurationError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
 
-    normalized_source_type = _normalize_source_type_filter(source_type)
-    normalized_source_address = normalize_cli_address(source_address, param_hint="--source")
-    normalized_auction_address = normalize_cli_address(auction_address, param_hint="--auction")
     exec_ctx = cli_ctx.resolve_execution(
         broadcast=broadcast,
         required_for="broadcast kick execution",
-        sender=normalize_cli_address(sender, param_hint="--sender"),
+        sender=normalized_sender,
         account_name=account,
         keystore_path=keystore,
         password_file=password_file,

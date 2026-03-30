@@ -1,8 +1,8 @@
-# Server Operations
+# Server Operator Guide
 
-## What The Server Owns
+## What The Server Operator Owns
 
-`tidal-server` is the server/admin CLI. It owns:
+`tidal-server` is the server operator CLI. It owns:
 
 - Alembic migrations
 - scanner execution
@@ -25,16 +25,29 @@ Minimal production deployment:
   - optional tidal-server kick daemon
 ```
 
-Separate the operator wallet from this machine whenever possible.
+Separate the CLI client wallet from this machine whenever possible.
 
 ## First-Time Bootstrap
 
-Install the project and create a config/environment:
+Install the tool, then scaffold the runtime home:
 
 ```bash
-pip install -e ".[dev]"
+uv tool install /path/to/tidal
+uv tool update-shell
+tidal init
+```
+
+Then edit:
+
+- `~/.tidal/config.yaml`
+- `~/.tidal/.env`
+- `~/.tidal/auction_pricing_policy.yaml`
+
+Then run:
+
+```bash
 tidal-server db migrate
-tidal-server auth create --label operator-name
+tidal-server auth create --label cli-client-name
 tidal-server scan run
 tidal-server api serve
 ```
@@ -51,13 +64,21 @@ One simple production shape is:
 - API bind: `127.0.0.1:8020`
 - reverse proxy: nginx terminating TLS at `api.tidal.wavey.info`
 
-Example `.env`:
+Example `~/.tidal/.env`:
 
 ```bash
-DB_PATH=data/tidal.db
 RPC_URL=http://127.0.0.1:8545
-TIDAL_API_PORT=8020
-TIDAL_API_HOST=127.0.0.1
+TOKEN_PRICE_AGG_KEY=...
+```
+
+Example `~/.tidal/config.yaml` overrides:
+
+```yaml
+db_path: state/tidal.db
+tidal_api_host: 127.0.0.1
+tidal_api_port: 8020
+scan_interval_seconds: 300
+scan_auto_settle_enabled: false
 ```
 
 ## Long-Running Commands
@@ -80,10 +101,10 @@ API:
 tidal-server api serve
 ```
 
-The API host and port come from:
+The API host and port normally come from `~/.tidal/config.yaml`:
 
-- `TIDAL_API_HOST`
-- `TIDAL_API_PORT`
+- `tidal_api_host`
+- `tidal_api_port`
 
 ## systemd Example
 
@@ -98,9 +119,9 @@ After=network.target
 Type=simple
 User=wavey
 Group=wavey
-WorkingDirectory=/home/wavey/tidal
-EnvironmentFile=/home/wavey/tidal/.env
-ExecStart=/home/wavey/tidal/venv/bin/tidal-server api serve
+Environment=TIDAL_HOME=/home/wavey/.tidal
+EnvironmentFile=/home/wavey/.tidal/.env
+ExecStart=/home/wavey/.local/bin/tidal-server api serve
 Restart=on-failure
 RestartSec=5
 
@@ -119,12 +140,14 @@ After=network.target
 Type=oneshot
 User=wavey
 Group=wavey
-WorkingDirectory=/home/wavey/tidal
-EnvironmentFile=/home/wavey/tidal/.env
-ExecStart=/home/wavey/tidal/venv/bin/tidal-server scan run
+Environment=TIDAL_HOME=/home/wavey/.tidal
+EnvironmentFile=/home/wavey/.tidal/.env
+ExecStart=/home/wavey/.local/bin/tidal-server scan run
 ```
 
 Pair the scan oneshot with a systemd timer or external scheduler.
+
+Adjust `/home/wavey/.local/bin/tidal-server` to whatever `command -v tidal-server` returns on the target host.
 
 ## Reverse Proxy Example
 
@@ -206,6 +229,7 @@ Operational implications:
 - back up the `.db`, `.db-wal`, and `.db-shm` files consistently
 
 Also ignore runtime data directories in git. A server-local `data/` directory should never be committed.
+With the current layout, the canonical runtime home is `~/.tidal/`, not a repo-local `data/` directory.
 
 ## Auth Model
 
@@ -252,10 +276,10 @@ journalctl -u tidal-scan -f
 
 ## Deployment Boundaries
 
-Do not point multiple operator CLIs directly at the SQLite database. The intended model is:
+Do not point multiple CLI clients directly at the SQLite database. The intended model is:
 
 - server owns DB and preparation logic
-- operator CLI talks over HTTP
-- operator CLI signs locally
+- CLI client talks over HTTP
+- CLI client signs locally
 
 That keeps schema changes and audit behavior centralized.

@@ -5,29 +5,43 @@
 Tidal loads settings in this order:
 
 ```text
-environment variables > config.yaml > Python defaults
+environment variables > ~/.tidal/config.yaml > Python defaults
 ```
 
-Secrets belong in `.env`. Operational knobs belong in `config.yaml`.
+Secrets belong in `~/.tidal/.env`. Operational knobs belong in `~/.tidal/config.yaml`.
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `config.yaml` | Runtime settings for scanner, API, multicall, pricing, and transaction behavior |
-| `.env` | Secrets such as `RPC_URL`, API keys, and keystore secrets |
-| `auction_pricing_policy.yaml` | Auction pricing profiles and token-specific USD sizing caps |
+| `~/.tidal/config.yaml` | Runtime settings for scanner, API, multicall, pricing, and transaction behavior |
+| `~/.tidal/.env` | Secrets such as `RPC_URL`, API keys, and keystore secrets |
+| `~/.tidal/auction_pricing_policy.yaml` | Auction pricing profiles and token-specific USD sizing caps |
 
-## `.env`
+## Role Model
+
+Tidal uses one runtime config format, but not every key matters to every user:
+
+- `Server operator`: runs `tidal-server`, owns scans, SQLite, API serving, and reconciliation.
+- `CLI client`: runs `tidal`, calls the API, and may sign/broadcast locally.
+
+The generated scaffold in `~/.tidal/config.yaml` is organized into:
+
+- `Shared`
+- `Server operator only`
+- `Shared execution defaults`
+- `CLI client convenience`
+
+## `~/.tidal/.env`
 
 Common environment variables:
 
-- `RPC_URL`
-- `TOKEN_PRICE_AGG_KEY`
-- `TIDAL_API_KEY`
-- `TIDAL_API_BASE_URL`
-- `TIDAL_API_HOST`
-- `TIDAL_API_PORT`
+- Server operator:
+  `RPC_URL`, `TOKEN_PRICE_AGG_KEY`
+- CLI client:
+  `TIDAL_API_KEY`, `TXN_KEYSTORE_PATH`, `TXN_KEYSTORE_PASSPHRASE`
+- Either role when useful:
+  `TIDAL_API_BASE_URL`, `TIDAL_API_HOST`, `TIDAL_API_PORT`
 
 Less common but supported:
 
@@ -35,26 +49,27 @@ Less common but supported:
 - `CHAIN_ID`
 - any setting declared in `tidal/config.py`
 
-## `config.yaml`
+## `~/.tidal/config.yaml`
 
-The sample file at repo root is the best starting point. Major sections:
+Run `tidal init` to scaffold the default files under `~/.tidal/`. The generated `config.yaml` is the best starting point.
 
-### General
+### Shared
+
+Used by both roles, or by any command that needs local RPC access:
 
 - `db_path`
 - `chain_id`
+- `rpc_timeout_seconds`
+- `rpc_retry_attempts`
 
-### Scanner
+### Server operator only
+
+These drive scanning, cached state, discovery, and API serving:
 
 - `scan_interval_seconds`
 - `scan_concurrency`
 - `scan_auto_settle_enabled`
-- `rpc_timeout_seconds`
-- `rpc_retry_attempts`
 - `monitored_fee_burners`
-
-### Multicall
-
 - `multicall_enabled`
 - `multicall_address`
 - `multicall_discovery_batch_calls`
@@ -63,13 +78,7 @@ The sample file at repo root is the best starting point. Major sections:
 - `multicall_balance_batch_calls`
 - `multicall_overflow_queue_max`
 - `multicall_auction_batch_calls`
-
-### Auctions
-
 - `auction_factory_address`
-
-### Pricing
-
 - `price_refresh_enabled`
 - `token_price_agg_base_url`
 - `price_timeout_seconds`
@@ -79,8 +88,15 @@ The sample file at repo root is the best starting point. Major sections:
 - `auctionscan_base_url`
 - `auctionscan_api_base_url`
 - `auctionscan_recheck_seconds`
+- `tidal_api_host`
+- `tidal_api_port`
+- `tidal_api_receipt_reconcile_interval_seconds`
+- `tidal_api_receipt_reconcile_threshold_seconds`
+- `tidal_api_cors_allowed_origins`
 
-### Transaction service
+### Shared execution defaults
+
+These affect local execution and server-side transaction logic:
 
 - `auction_kicker_address`
 - `txn_usd_threshold`
@@ -96,14 +112,12 @@ The sample file at repo root is the best starting point. Major sections:
 - `max_batch_kick_size`
 - `batch_kick_delay_seconds`
 
-### API / control plane
+### CLI client convenience
 
-- `tidal_api_host`
-- `tidal_api_port`
+These are mainly useful to the `tidal` CLI client:
+
+- `tidal_api_base_url`
 - `tidal_api_request_timeout_seconds`
-- `tidal_api_receipt_reconcile_interval_seconds`
-- `tidal_api_receipt_reconcile_threshold_seconds`
-- `tidal_api_cors_allowed_origins`
 
 ## `monitored_fee_burners`
 
@@ -122,7 +136,7 @@ These entries are used by the scanner to:
 - resolve source names
 - map fee burners to auctions using `(receiver, want)`
 
-## `auction_pricing_policy.yaml`
+## `~/.tidal/auction_pricing_policy.yaml`
 
 This file controls two things:
 
@@ -185,6 +199,7 @@ Current defaults from `tidal/config.py` include:
 
 ## Rule Of Thumb
 
-- put secrets in `.env`
-- put operational settings in `config.yaml`
-- put pricing intent in `auction_pricing_policy.yaml`
+- run `tidal init`
+- put secrets in `~/.tidal/.env`
+- put operational settings in `~/.tidal/config.yaml`
+- put pricing intent in `~/.tidal/auction_pricing_policy.yaml`

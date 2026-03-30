@@ -307,11 +307,11 @@ def build_sync_web3(settings) -> Web3:
 
 
 def maybe_build_signer(settings, *, require_for_live: bool) -> TransactionSigner | None:
-    keystore_path = settings.txn_keystore_path
+    keystore_path = settings.resolved_txn_keystore_path
     passphrase = settings.txn_keystore_passphrase
 
     if keystore_path and passphrase:
-        return TransactionSigner(keystore_path, passphrase)
+        return TransactionSigner(str(keystore_path), passphrase)
 
     if require_for_live:
         raise SystemExit("TXN_KEYSTORE_PATH and TXN_KEYSTORE_PASSPHRASE are required for --live")

@@ -1,5 +1,7 @@
 # Local Development
 
+This guide is for contributors and local server operators working from a repo checkout.
+
 ## Prerequisites
 
 - Python 3.12+
@@ -19,7 +21,13 @@ This installs the Python package, test dependencies, and MkDocs Material for loc
 
 ## Secrets And Config
 
-Put secrets in `.env`:
+Initialize the local config home first:
+
+```bash
+tidal init
+```
+
+Put secrets in `~/.tidal/.env`:
 
 ```bash
 RPC_URL=https://...
@@ -27,18 +35,17 @@ TOKEN_PRICE_AGG_KEY=...
 TIDAL_API_KEY=...
 ```
 
-Put operational settings in `config.yaml`. The current sample file already includes:
+Put operational settings in `~/.tidal/config.yaml`. The scaffold written by `tidal init` already includes:
 
 - SQLite path
-- scanner concurrency
-- fee burner registrations
-- multicall settings
+- role-labeled sections for shared defaults, server operator settings, and CLI client convenience values
+- scanner and API server defaults
 - transaction guardrails
 
 Settings precedence is:
 
 ```text
-environment variables > config.yaml > Python defaults
+environment variables > ~/.tidal/config.yaml > Python defaults
 ```
 
 See [Configuration](config.md) for the full schema.
@@ -81,7 +88,7 @@ tidal-server api serve
 
 By default the API listens on `0.0.0.0:8787`. Override with `TIDAL_API_HOST` and `TIDAL_API_PORT` if needed.
 
-## Use The Operator CLI Against Local API
+## Use The CLI Client Against Local API
 
 ```bash
 export TIDAL_API_BASE_URL=http://127.0.0.1:8787

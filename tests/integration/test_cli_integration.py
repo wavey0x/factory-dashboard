@@ -20,6 +20,46 @@ def _write_txn_config(tmp_path: Path) -> Path:
     return config_path
 
 
+def test_db_migrate_uses_same_tidal_home_from_different_working_directories(tmp_path, monkeypatch) -> None:
+    home_root = tmp_path / "home"
+    app_home = home_root / ".tidal"
+    app_home.mkdir(parents=True)
+    (app_home / "config.yaml").write_text("db_path: state/tidal.db\n", encoding="utf-8")
+
+    captured_urls: list[str] = []
+
+    def fake_run_migrations(database_url: str) -> None:
+        captured_urls.append(database_url)
+
+    monkeypatch.delenv("DB_PATH", raising=False)
+    monkeypatch.delenv("TIDAL_HOME", raising=False)
+    monkeypatch.delenv("TIDAL_CONFIG", raising=False)
+    monkeypatch.delenv("TIDAL_ENV_FILE", raising=False)
+    monkeypatch.delenv("TIDAL_PRICING_POLICY_PATH", raising=False)
+    monkeypatch.setenv("HOME", str(home_root))
+    monkeypatch.delenv("TIDAL_HOME", raising=False)
+    monkeypatch.setattr("tidal.server_cli.run_migrations", fake_run_migrations)
+
+    cwd_a = tmp_path / "repo-a"
+    cwd_b = tmp_path / "repo-b"
+    cwd_a.mkdir()
+    cwd_b.mkdir()
+
+    runner = CliRunner()
+
+    monkeypatch.chdir(cwd_a)
+    result_a = runner.invoke(app, ["db", "migrate"])
+    monkeypatch.chdir(cwd_b)
+    result_b = runner.invoke(app, ["db", "migrate"])
+
+    assert result_a.exit_code == 0
+    assert result_b.exit_code == 0
+    assert captured_urls == [
+        f"sqlite:///{app_home / 'state' / 'tidal.db'}",
+        f"sqlite:///{app_home / 'state' / 'tidal.db'}",
+    ]
+
+
 class _FakeTxnService:
     async def run_once(self, **kwargs):  # noqa: ANN003
         return SimpleNamespace(

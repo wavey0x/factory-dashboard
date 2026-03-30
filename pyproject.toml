@@ -36,6 +36,7 @@ tidal-server = "tidal.server_cli:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["tidal"]
+include = ["tidal/_resources/**/*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

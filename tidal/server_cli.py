@@ -1,4 +1,4 @@
-"""Server/admin CLI entrypoint for Tidal."""
+"""Server operator CLI entrypoint for Tidal."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from tidal.logs_cli import app as logs_app
 from tidal.migrations import run_migrations
 from tidal.scan_cli import app as scan_app
 
-app = typer.Typer(help="Tidal server/admin CLI")
+app = typer.Typer(help="Tidal server operator CLI")
 db_app = typer.Typer(help="Database commands", no_args_is_help=True)
 api_app = typer.Typer(help="API server commands", no_args_is_help=True)
 
@@ -33,6 +33,7 @@ app.add_typer(auth_app, name="auth")
 def db_migrate(config: ConfigOption = None) -> None:
     configure_logging(output_mode=OutputMode.TEXT)
     cli_ctx = CLIContext(config)
+    cli_ctx.settings.resolved_db_path.parent.mkdir(parents=True, exist_ok=True)
     run_migrations(cli_ctx.settings.database_url)
     typer.echo("migrations applied")
 
@@ -52,4 +53,3 @@ def api_serve(config: ConfigOption = None) -> None:
 
 if __name__ == "__main__":
     app()
-

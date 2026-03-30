@@ -11,9 +11,6 @@ import yaml
 from tidal.normalizers import normalize_address
 
 
-_DEFAULT_POLICY_PATH = Path("auction_pricing_policy.yaml")
-
-
 @dataclass(frozen=True, slots=True)
 class AuctionPricingProfile:
     name: str
@@ -75,7 +72,9 @@ def _load_raw_policy(policy_path: Path) -> dict[str, object]:
 
 
 def load_auction_pricing_policy(policy_path: Path | None = None) -> AuctionPricingPolicy:
-    resolved_path = policy_path or (Path.cwd() / _DEFAULT_POLICY_PATH)
+    if policy_path is None:
+        raise ValueError("policy_path is required")
+    resolved_path = Path(policy_path).expanduser().resolve()
     raw = _load_raw_policy(resolved_path)
 
     default_profile_name = str(raw.get("default_profile") or "").strip()
@@ -138,7 +137,9 @@ def load_auction_pricing_policy(policy_path: Path | None = None) -> AuctionPrici
 
 
 def load_token_sizing_policy(policy_path: Path | None = None) -> TokenSizingPolicy:
-    resolved_path = policy_path or (Path.cwd() / _DEFAULT_POLICY_PATH)
+    if policy_path is None:
+        raise ValueError("policy_path is required")
+    resolved_path = Path(policy_path).expanduser().resolve()
     raw = _load_raw_policy(resolved_path)
 
     raw_limits = raw.get("usd_kick_limit") or {}

@@ -22,7 +22,7 @@ app = typer.Typer(help="Scanner commands", no_args_is_help=True)
 def _require_scan_runtime(ctx: CLIContext) -> None:
     ctx.require_rpc()
     if ctx.settings.scan_auto_settle_enabled:
-        if not ctx.settings.txn_keystore_path or not ctx.settings.txn_keystore_passphrase:
+        if not ctx.settings.resolved_txn_keystore_path or not ctx.settings.txn_keystore_passphrase:
             raise ConfigurationError("TXN_KEYSTORE_PATH and TXN_KEYSTORE_PASSPHRASE are required for transaction commands")
 
 

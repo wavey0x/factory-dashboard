@@ -39,6 +39,7 @@ from tidal.scanner.fee_burner import FeeBurnerTokenResolver
 from tidal.scanner.reward_token_resolver import RewardTokenResolver
 from tidal.scanner.service import ScannerService
 from tidal.scanner.token_metadata import TokenMetadataService
+from tidal.paths import default_txn_lock_path
 from tidal.transaction_service.signer import TransactionSigner
 from tidal.transaction_service.pricing_policy import load_auction_pricing_policy, load_token_sizing_policy
 
@@ -124,8 +125,11 @@ def build_scanner_service(settings: Settings, session) -> ScannerService:
 
     auction_settler = None
     if settings.scan_auto_settle_enabled:
+        resolved_keystore_path = settings.resolved_txn_keystore_path
+        if resolved_keystore_path is None or not settings.txn_keystore_passphrase:
+            raise ValueError("TXN_KEYSTORE_PATH and TXN_KEYSTORE_PASSPHRASE are required for transaction commands")
         signer = TransactionSigner(
-            settings.txn_keystore_path,
+            str(resolved_keystore_path),
             settings.txn_keystore_passphrase,
         )
         auction_settler = AuctionSettlementService(
@@ -223,11 +227,11 @@ def build_txn_service(
     resolved_signer = signer
     if (
         resolved_signer is None
-        and settings.txn_keystore_path
+        and settings.resolved_txn_keystore_path
         and settings.txn_keystore_passphrase
     ):
         resolved_signer = TransactionSigner(
-            settings.txn_keystore_path,
+            str(settings.resolved_txn_keystore_path),
             settings.txn_keystore_passphrase,
         )
 
@@ -248,8 +252,8 @@ def build_txn_service(
         multicall_enabled=settings.multicall_enabled,
         multicall_auction_batch_calls=settings.multicall_auction_batch_calls,
     )
-    pricing_policy = load_auction_pricing_policy()
-    token_sizing_policy = load_token_sizing_policy()
+    pricing_policy = load_auction_pricing_policy(settings.resolved_pricing_policy_path)
+    token_sizing_policy = load_token_sizing_policy(settings.resolved_pricing_policy_path)
     resolved_require_curve_quote = (
         settings.txn_require_curve_quote
         if require_curve_quote is None
@@ -287,7 +291,7 @@ def build_txn_service(
         token_sizing_policy=token_sizing_policy,
     )
 
-    lock_path = settings.resolved_db_path.parent / "txn_daemon.lock"
+    lock_path = default_txn_lock_path()
 
     return TxnService(
         session=session,

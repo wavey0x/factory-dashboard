@@ -76,7 +76,7 @@ curve quote unavailable (status: ...)
 
 ## Auction Pricing Profiles
 
-Profiles come from `auction_pricing_policy.yaml`.
+Profiles come from `~/.tidal/auction_pricing_policy.yaml` by default.
 
 Each profile defines:
 
@@ -156,4 +156,4 @@ This is a diagnostic warning, not an automatic rejection.
 - Do not use live quote data to rank the shortlist.
 - Do not assume the warning means the on-chain transaction is wrong.
 - Treat large warning deviations as a signal to inspect the want-token USD mark or quote path.
-- Stable-looking pairs should usually be mapped to the `stable` pricing profile in `auction_pricing_policy.yaml`.
+- Stable-looking pairs should usually be mapped to the `stable` pricing profile in `~/.tidal/auction_pricing_policy.yaml`.

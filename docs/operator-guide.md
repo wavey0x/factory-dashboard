@@ -1,24 +1,36 @@
-# Operator Guide
+# CLI Client Guide
 
-## Role Of The Operator CLI
+## Role Of The CLI Client
 
-`tidal` is the API-backed operator CLI. It does not own the shared database. It reads and prepares actions through the control-plane API, then signs and broadcasts transactions locally.
+`tidal` is the API-backed CLI client. It does not own the shared database. It reads and prepares actions through the control-plane API, then signs and broadcasts transactions locally.
 
 That split matters:
 
 - the server owns shared state and audit history
-- the CLI owns private-key access
+- the CLI client owns private-key access
 
 ## Required Environment
 
-At minimum:
+Run `tidal init` once first. That scaffolds:
+
+- `~/.tidal/config.yaml`
+- `~/.tidal/.env`
+- `~/.tidal/auction_pricing_policy.yaml`
+
+At minimum, put the API auth values in `~/.tidal/.env` or export them in your shell:
 
 ```bash
 export TIDAL_API_BASE_URL=https://api.tidal.wavey.info
-export TIDAL_API_KEY=<operator-api-key>
+export TIDAL_API_KEY=<cli-client-api-key>
 ```
 
-You can also pass `--api-base-url` and `--api-key` per command, but environment variables are the normal path.
+You can also pass `--api-base-url` and `--api-key` per command, but `~/.tidal/.env` is the normal path.
+
+Client-side config values that are often useful in `~/.tidal/config.yaml`:
+
+- `tidal_api_base_url`
+- `tidal_api_request_timeout_seconds`
+- shared RPC timeout settings if you also do local preview/broadcast work
 
 ## Wallet Flags
 
@@ -28,6 +40,11 @@ Broadcasting commands share the same wallet surface:
 - `--account`: Foundry keystore name under `~/.foundry/keystores`
 - `--keystore`: explicit keystore path
 - `--password-file`: file containing the keystore password
+
+The keystore secrets themselves usually live in `~/.tidal/.env`:
+
+- `TXN_KEYSTORE_PATH`
+- `TXN_KEYSTORE_PASSPHRASE`
 
 Example:
 
@@ -79,7 +96,7 @@ Use this to see candidates in cached order without broadcasting:
 tidal kick run
 ```
 
-The operator flow ranks candidates from cached scanner data, then prepares one candidate at a time. It does not live-quote the whole shortlist up front.
+The CLI client flow ranks candidates from cached scanner data, then prepares one candidate at a time. It does not live-quote the whole shortlist up front.
 
 ### Broadcast
 
@@ -153,7 +170,7 @@ See [Pricing](pricing.md) for the exact formula.
 
 ## Failure Modes To Expect
 
-Common operator-facing failures:
+Common CLI client-facing failures:
 
 - `curve quote unavailable`: the fresh quote succeeded overall, but Curve did not provide a usable route and strict Curve mode was enabled
 - `below threshold on live balance`: cached shortlist value looked large enough, but the current on-chain balance does not
@@ -170,4 +187,4 @@ Use `tidal-server` only when you are operating the server itself:
 - API serving
 - API key management
 
-For day-to-day remote operator work, use `tidal`.
+For day-to-day remote execution, use the CLI client `tidal`.
