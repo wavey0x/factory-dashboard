@@ -408,6 +408,75 @@ async def prepare_deploy_action(
     starting_price: int,
     salt: str | None,
 ) -> tuple[str, list[str], dict[str, object]]:
+    warnings, request_payload, preview_payload, tx = _build_deploy_prepare_payload(
+        settings,
+        want=want,
+        receiver=receiver,
+        sender=sender,
+        factory=factory,
+        governance=governance,
+        starting_price=starting_price,
+        salt=salt,
+    )
+    action_id = create_prepared_action(
+        session,
+        operator_id=operator_id,
+        action_type="deploy",
+        sender=sender,
+        request_payload=request_payload,
+        preview_payload=preview_payload,
+        transactions=[tx],
+        resource_address=str(request_payload["receiver"]),
+        auction_address=_optional_normalize_address(preview_payload["predictedAuctionAddress"]),
+        source_address=str(request_payload["receiver"]),
+    )
+    return "ok", warnings, {
+        "actionId": action_id,
+        "actionType": "deploy",
+        "preview": preview_payload,
+        "transactions": [tx],
+    }
+
+
+async def prepare_deploy_browser_action(
+    settings: Settings,
+    *,
+    want: str,
+    receiver: str,
+    sender: str | None,
+    factory: str | None,
+    governance: str | None,
+    starting_price: int,
+    salt: str | None,
+) -> tuple[str, list[str], dict[str, object]]:
+    warnings, _, preview_payload, tx = _build_deploy_prepare_payload(
+        settings,
+        want=want,
+        receiver=receiver,
+        sender=sender,
+        factory=factory,
+        governance=governance,
+        starting_price=starting_price,
+        salt=salt,
+    )
+    return "ok", warnings, {
+        "actionType": "deploy",
+        "preview": preview_payload,
+        "transactions": [tx],
+    }
+
+
+def _build_deploy_prepare_payload(
+    settings: Settings,
+    *,
+    want: str,
+    receiver: str,
+    sender: str | None,
+    factory: str | None,
+    governance: str | None,
+    starting_price: int,
+    salt: str | None,
+) -> tuple[list[str], dict[str, object], dict[str, object], dict[str, object]]:
     w3 = build_sync_web3(settings)
     normalized_want = normalize_address(want)
     normalized_receiver = normalize_address(receiver)
@@ -447,6 +516,15 @@ async def prepare_deploy_action(
         "gasEstimate": preview.gas_estimate,
         "gasLimit": min(int(preview.gas_estimate * _GAS_ESTIMATE_BUFFER), settings.txn_max_gas_limit) if preview.gas_estimate is not None else None,
     }
+    request_payload = {
+        "want": normalized_want,
+        "receiver": normalized_receiver,
+        "sender": sender,
+        "factory": normalized_factory,
+        "governance": normalized_governance,
+        "startingPrice": starting_price,
+        "salt": resolved_salt,
+    }
     preview_payload = {
         "factoryAddress": normalized_factory,
         "want": normalized_want,
@@ -458,32 +536,7 @@ async def prepare_deploy_action(
         "predictedAuctionAddressExists": preview.predicted_address_exists,
         "existingMatches": [_serialize(match) for match in preview.existing_matches],
     }
-    action_id = create_prepared_action(
-        session,
-        operator_id=operator_id,
-        action_type="deploy",
-        sender=sender,
-        request_payload={
-            "want": normalized_want,
-            "receiver": normalized_receiver,
-            "sender": sender,
-            "factory": normalized_factory,
-            "governance": normalized_governance,
-            "startingPrice": starting_price,
-            "salt": resolved_salt,
-        },
-        preview_payload=preview_payload,
-        transactions=[tx],
-        resource_address=normalized_receiver,
-        auction_address=preview.predicted_address,
-        source_address=normalized_receiver,
-    )
-    return "ok", warnings, {
-        "actionId": action_id,
-        "actionType": "deploy",
-        "preview": preview_payload,
-        "transactions": [tx],
-    }
+    return warnings, request_payload, preview_payload, tx
 
 
 async def prepare_enable_tokens_action(

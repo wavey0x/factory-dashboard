@@ -739,12 +739,13 @@ function MissingAuctionAction({ deployState, onDeploy }) {
   const txHash = deployState?.txHash || null;
   const error = deployState?.error || "";
   const isBusy = status === "preparing" || status === "wallet";
+  const txStatusLabel = status === "error" ? "failed" : "submitted";
 
   return (
     <div className="auction-missing-state">
       {txHash ? (
         <div className="auction-action-status">
-          <span className="row-secondary mono">submitted</span>
+          <span className="row-secondary mono">{txStatusLabel}</span>
           <span className="kick-separator mono">·</span>
           <EtherscanTxLink txHash={txHash} />
         </div>
@@ -2526,6 +2527,7 @@ export default function App() {
     setDeployConfirm(null);
 
     updateDeployState(sourceAddress, { status: "wallet", error: "" });
+    let txHash = null;
 
     try {
       const accounts = await provider.request({ method: "eth_requestAccounts" });
@@ -2534,7 +2536,7 @@ export default function App() {
         throw new Error("No wallet account connected");
       }
 
-      const prepareResponse = await apiFetch("/auctions/deploy/prepare", {
+      const prepareResponse = await apiFetch("/auctions/deploy/browser-prepare", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -2563,8 +2565,7 @@ export default function App() {
 
       const preparedAction = preparedPayload?.data;
       const txRequest = preparedAction?.transactions?.[0];
-      const actionId = preparedAction?.actionId;
-      if (!txRequest?.to || !txRequest?.data || !actionId) {
+      if (!txRequest?.to || !txRequest?.data) {
         throw new Error("Deploy transaction payload is incomplete");
       }
 
@@ -2591,42 +2592,17 @@ export default function App() {
         ],
       });
 
-      await apiFetch(`/actions/${actionId}/broadcast`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          txIndex: 0,
-          sender: account,
-          txHash,
-          broadcastAt: new Date().toISOString(),
-        }),
-      });
+      updateDeployState(sourceAddress, { status: "submitted", error: "", txHash });
 
       const receipt = await waitForTransactionReceipt(provider, txHash);
-      if (receipt) {
-        await apiFetch(`/actions/${actionId}/receipt`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            txIndex: 0,
-            receiptStatus: receipt.status === "0x1" ? "CONFIRMED" : "REVERTED",
-            blockNumber: hexToNumber(receipt.blockNumber),
-            gasUsed: hexToNumber(receipt.gasUsed),
-            gasPriceGwei: null,
-            observedAt: new Date().toISOString(),
-          }),
-        });
+      if (receipt && receipt.status !== "0x1") {
+        throw new Error("Deployment transaction reverted");
       }
-
-      updateDeployState(sourceAddress, { status: "submitted", error: "", txHash });
     } catch (deployError) {
       updateDeployState(sourceAddress, {
-        status: "idle",
+        status: txHash ? "error" : "idle",
         error: formatDeployError(deployError),
+        txHash,
       });
     }
   }

@@ -3,7 +3,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from tidal.api.services.action_prepare import _estimate_transaction, load_strategy_deploy_defaults, prepare_kick_action
+from tidal.api.services.action_prepare import (
+    _estimate_transaction,
+    load_strategy_deploy_defaults,
+    prepare_deploy_browser_action,
+    prepare_kick_action,
+)
 from tidal.transaction_service.types import KickAction, KickCandidate, PreparedKick
 
 
@@ -233,3 +238,67 @@ async def test_load_strategy_deploy_defaults_includes_receiver_address(monkeypat
     assert data["receiverAddress"] == strategy_address
     assert data["factoryAddress"] == factory_address
     assert data["predictedAuctionAddress"] == predicted_address
+
+
+@pytest.mark.asyncio
+async def test_prepare_deploy_browser_action_is_stateless(monkeypatch) -> None:
+    want_address = "0x1111111111111111111111111111111111111111"
+    receiver_address = "0x2222222222222222222222222222222222222222"
+    sender_address = "0x3333333333333333333333333333333333333333"
+    factory_address = "0x4444444444444444444444444444444444444444"
+    governance_address = "0x5555555555555555555555555555555555555555"
+    predicted_address = "0x6666666666666666666666666666666666666666"
+
+    class _FakeCreateNewAuctionFn:
+        def _encode_transaction_data(self) -> str:
+            return "0xdeadbeef"
+
+    class _FakeFunctions:
+        def createNewAuction(self, *args):  # noqa: ANN002, ANN003
+            return _FakeCreateNewAuctionFn()
+
+    class _FakeEth:
+        def contract(self, address, abi):  # noqa: ANN001, ANN201
+            del address, abi
+            return SimpleNamespace(functions=_FakeFunctions())
+
+    monkeypatch.setattr(
+        "tidal.api.services.action_prepare.build_sync_web3",
+        lambda settings: SimpleNamespace(eth=_FakeEth()),
+    )
+    monkeypatch.setattr(
+        "tidal.api.services.action_prepare.preview_deployment",
+        lambda *args, **kwargs: SimpleNamespace(
+            preview_error=None,
+            gas_error=None,
+            gas_estimate=210000,
+            predicted_address=predicted_address,
+            predicted_address_exists=False,
+            existing_matches=[],
+        ),
+    )
+    monkeypatch.setattr(
+        "tidal.api.services.action_prepare.create_prepared_action",
+        lambda *args, **kwargs: pytest.fail("browser deploy prepare should not create action rows"),
+    )
+
+    status, warnings, data = await prepare_deploy_browser_action(
+        SimpleNamespace(
+            chain_id=1,
+            txn_max_gas_limit=500000,
+        ),
+        want=want_address,
+        receiver=receiver_address,
+        sender=sender_address,
+        factory=factory_address,
+        governance=governance_address,
+        starting_price=610,
+        salt="0x" + "11" * 32,
+    )
+
+    assert status == "ok"
+    assert warnings == []
+    assert "actionId" not in data
+    assert data["actionType"] == "deploy"
+    assert data["preview"]["predictedAuctionAddress"] == predicted_address
+    assert data["transactions"][0]["to"] == factory_address

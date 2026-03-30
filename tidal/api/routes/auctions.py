@@ -14,6 +14,7 @@ from tidal.api.schemas.auctions import (
 )
 from tidal.api.services.action_prepare import (
     load_strategy_deploy_defaults,
+    prepare_deploy_browser_action,
     prepare_deploy_action,
     prepare_enable_tokens_action,
     prepare_settle_action,
@@ -46,6 +47,24 @@ async def post_deploy_prepare(
         settings,
         session,
         operator_id=operator.operator_id,
+        want=payload.want,
+        receiver=payload.receiver,
+        sender=payload.sender,
+        factory=payload.factory,
+        governance=payload.governance,
+        starting_price=payload.starting_price,
+        salt=payload.salt,
+    )
+    return {"status": status, "warnings": redact_sensitive_data(warnings), "data": redact_sensitive_data(data)}
+
+
+@router.post("/auctions/deploy/browser-prepare")
+async def post_deploy_browser_prepare(
+    payload: AuctionDeployPrepareRequest,
+    settings: Settings = Depends(get_settings),
+) -> dict[str, object]:
+    status, warnings, data = await prepare_deploy_browser_action(
+        settings,
         want=payload.want,
         receiver=payload.receiver,
         sender=payload.sender,

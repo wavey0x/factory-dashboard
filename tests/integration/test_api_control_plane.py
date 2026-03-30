@@ -3,6 +3,7 @@ import sqlite3
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
@@ -303,6 +304,118 @@ def test_auction_settle_prepare_route_threads_sweep_override(tmp_path: Path, mon
 
     assert response.status_code == 200
     assert captured["sweep"] is True
+
+
+def test_public_browser_deploy_prepare_route_is_unauthenticated(tmp_path: Path, monkeypatch) -> None:
+    settings = _make_settings(tmp_path)
+    _init_db(settings)
+    captured: dict[str, object] = {}
+
+    async def fake_prepare_deploy_browser_action(settings, **kwargs):  # noqa: ANN001, ANN003
+        del settings
+        captured.update(kwargs)
+        return "ok", [], {"actionType": "deploy", "preview": {}, "transactions": [{"to": "0xabc", "data": "0xdeadbeef"}]}
+
+    monkeypatch.setattr("tidal.api.routes.auctions.prepare_deploy_browser_action", fake_prepare_deploy_browser_action)
+
+    client = TestClient(create_app(settings))
+    response = client.post(
+        "/api/v1/tidal/auctions/deploy/browser-prepare",
+        json={
+            "want": "0x4000000000000000000000000000000000000004",
+            "receiver": "0x2000000000000000000000000000000000000002",
+            "sender": "0x6000000000000000000000000000000000000006",
+            "factory": "0x7000000000000000000000000000000000000007",
+            "governance": "0x8000000000000000000000000000000000000008",
+            "startingPrice": 610,
+            "salt": "0x" + "11" * 32,
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured["receiver"] == "0x2000000000000000000000000000000000000002"
+    assert captured["starting_price"] == 610
+
+
+def test_public_browser_deploy_prepare_route_does_not_create_action_rows(tmp_path: Path, monkeypatch) -> None:
+    settings = _make_settings(tmp_path)
+    _init_db(settings)
+
+    class _FakeCreateNewAuctionFn:
+        def _encode_transaction_data(self) -> str:
+            return "0xdeadbeef"
+
+    class _FakeFunctions:
+        def createNewAuction(self, *args):  # noqa: ANN002, ANN003
+            return _FakeCreateNewAuctionFn()
+
+    class _FakeEth:
+        def contract(self, address, abi):  # noqa: ANN001, ANN201
+            del address, abi
+            return type("Contract", (), {"functions": _FakeFunctions()})()
+
+    monkeypatch.setattr(
+        "tidal.api.services.action_prepare.build_sync_web3",
+        lambda settings: type("Web3", (), {"eth": _FakeEth()})(),
+    )
+    monkeypatch.setattr(
+        "tidal.api.services.action_prepare.preview_deployment",
+        lambda *args, **kwargs: type(
+            "Preview",
+            (),
+            {
+                "preview_error": None,
+                "gas_error": None,
+                "gas_estimate": 210000,
+                "predicted_address": "0x9000000000000000000000000000000000000009",
+                "predicted_address_exists": False,
+                "existing_matches": [],
+            },
+        )(),
+    )
+
+    client = TestClient(create_app(settings))
+    response = client.post(
+        "/api/v1/tidal/auctions/deploy/browser-prepare",
+        json={
+            "want": "0x4000000000000000000000000000000000000004",
+            "receiver": "0x2000000000000000000000000000000000000002",
+            "sender": "0x6000000000000000000000000000000000000006",
+            "factory": "0x7000000000000000000000000000000000000007",
+            "governance": "0x8000000000000000000000000000000000000008",
+            "startingPrice": 610,
+            "salt": "0x" + "11" * 32,
+        },
+    )
+
+    assert response.status_code == 200
+
+    engine = create_engine(settings.database_url, future=True)
+    with Session(engine, future=True) as session:
+        assert session.execute(select(models.api_actions)).mappings().all() == []
+        assert session.execute(select(models.api_action_transactions)).mappings().all() == []
+
+
+def test_audited_deploy_prepare_route_still_requires_bearer_token(tmp_path: Path) -> None:
+    settings = _make_settings(tmp_path)
+    _init_db(settings)
+    client = TestClient(create_app(settings))
+
+    response = client.post(
+        "/api/v1/tidal/auctions/deploy/prepare",
+        json={
+            "want": "0x4000000000000000000000000000000000000004",
+            "receiver": "0x2000000000000000000000000000000000000002",
+            "sender": "0x6000000000000000000000000000000000000006",
+            "factory": "0x7000000000000000000000000000000000000007",
+            "governance": "0x8000000000000000000000000000000000000008",
+            "startingPrice": 610,
+            "salt": "0x" + "11" * 32,
+        },
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Bearer token required"
 
 
 def test_actions_broadcast_and_receipt_routes_update_status(tmp_path: Path) -> None:
