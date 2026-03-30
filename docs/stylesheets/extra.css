@@ -90,6 +90,10 @@ button {
   margin: 0.65rem auto 0.7rem;
 }
 
+.md-tabs__item {
+  position: relative;
+}
+
 .md-tabs__link {
   margin-top: 0;
   padding: 0.42rem 0.9rem;
@@ -124,21 +128,31 @@ button {
 
 .md-tabs__item--active .md-tabs__link,
 .md-tabs__link--active {
-  background: #f4f5f7;
-  border-color: #f4f5f7;
-  box-shadow: 0 0 0 1px rgba(2, 13, 34, 0.08), 0 6px 18px rgba(2, 13, 34, 0.18);
-  color: var(--tidal-navy);
-  font-weight: 600;
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.22);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+  color: #ffffff;
+  font-weight: 500;
 }
 
 .md-tabs__item--active .md-tabs__link:hover,
 .md-tabs__link--active:hover,
 .md-tabs__item--active .md-tabs__link:focus-visible,
 .md-tabs__link--active:focus-visible {
-  background: #ffffff;
-  border-color: #ffffff;
-  color: var(--tidal-navy);
-  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.28);
+  color: #ffffff;
+}
+
+.md-tabs__item--active::after {
+  content: "";
+  position: absolute;
+  left: 1rem;
+  right: 1rem;
+  bottom: -0.45rem;
+  height: 2px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
 }
 
 .md-search__form {
