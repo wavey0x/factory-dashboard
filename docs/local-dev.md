@@ -28,7 +28,7 @@ uv run tidal init
 uv run tidal-server init-config
 ```
 
-Put client secrets in `~/.tidal/.env`:
+Put client secrets in `~/.tidal/cli/.env`:
 
 ```bash
 TIDAL_API_KEY=...
@@ -36,7 +36,7 @@ RPC_URL=https://...
 ```
 
 Put shared server runtime settings in `config/server.yaml`.
-Put server secrets in `config/.env` for local repo work.
+Put server secrets in `~/.tidal/server/.env`, or set `TIDAL_ENV_FILE=config/.env` for repo-local work.
 
 The tracked server config already includes:
 

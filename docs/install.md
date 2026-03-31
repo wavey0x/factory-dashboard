@@ -19,11 +19,8 @@ managed interpreter than the repo is actively exercised on.
 
 `tidal init` scaffolds:
 
-- `~/.tidal/config.yaml`
-- `~/.tidal/.env`
-- `~/.tidal/state/`
-- `~/.tidal/state/operator/`
-- `~/.tidal/run/`
+- `~/.tidal/cli/config.yaml`
+- `~/.tidal/cli/.env`
 
 This scaffold is client-focused:
 
@@ -51,8 +48,8 @@ tidal init
 
 Then review:
 
-- `~/.tidal/.env`: set `TIDAL_API_KEY`, plus keystore secrets if you will broadcast locally
-- `~/.tidal/config.yaml`: confirm `tidal_api_base_url`
+- `~/.tidal/cli/.env`: set `TIDAL_API_KEY`, plus keystore secrets if you will broadcast locally
+- `~/.tidal/cli/config.yaml`: confirm `tidal_api_base_url`
 
 Minimum client setup:
 
@@ -96,8 +93,8 @@ Then review:
 
 - `config/server.yaml`: authoritative server runtime and kick policy
 - `config/.env.example`: documented server secrets
-- `config/.env` or `TIDAL_ENV_FILE`: actual server secrets such as `RPC_URL`
-- `TIDAL_HOME=/var/lib/tidal` or another non-repo state location
+- `~/.tidal/server/.env` or `TIDAL_ENV_FILE`: actual server secrets such as `RPC_URL`
+- `TIDAL_HOME=/var/lib/tidal` or another non-repo state location if you do not want `~/.tidal`
 
 Minimum server operator bootstrap:
 

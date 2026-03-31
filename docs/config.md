@@ -17,7 +17,7 @@ That split is intentional:
 Client commands load:
 
 ```text
-environment variables > ~/.tidal/config.yaml > Python defaults
+environment variables > ~/.tidal/cli/config.yaml > Python defaults
 ```
 
 Server commands load:
@@ -32,15 +32,15 @@ An explicit `--config` or `TIDAL_CONFIG` override wins in either case.
 
 | File | Purpose |
 |---|---|
-| `~/.tidal/config.yaml` | Client-only workstation config for `tidal` |
-| `~/.tidal/.env` | Client secrets such as `TIDAL_API_KEY`, `RPC_URL`, and keystore secrets |
+| `~/.tidal/cli/config.yaml` | Client-only workstation config for `tidal` |
+| `~/.tidal/cli/.env` | Client secrets such as `TIDAL_API_KEY`, `RPC_URL`, and keystore secrets |
 | `config/server.yaml` | Tracked server runtime config and kick policy for `tidal-server` |
 | `config/.env.example` | Documented server secret names |
-| `config/.env` or `TIDAL_ENV_FILE` | Actual server secrets outside normal Git workflow |
+| `~/.tidal/server/.env` or `TIDAL_ENV_FILE` | Actual server secrets outside normal Git workflow |
 
 ## Client Config
 
-Run `tidal init` to scaffold the client files under `~/.tidal/`.
+Run `tidal init` to scaffold the client files under `~/.tidal/cli/`.
 
 The client scaffold is intentionally narrow. It is for:
 
@@ -67,9 +67,15 @@ Run `tidal-server init-config` to scaffold the tracked server files under `confi
 - server-side transaction execution defaults
 - kick pricing, ignore rules, and cooldown policy
 
-Use `config/.env` for local repo development, or point `TIDAL_ENV_FILE` to a path outside the repo for production.
+Server runtime secrets default to `~/.tidal/server/.env`. For repo-local development, you can also point `TIDAL_ENV_FILE=config/.env`.
 
-For mutable state, prefer `TIDAL_HOME=/var/lib/tidal` or another non-repo path.
+Server mutable files default under `~/.tidal/server/`:
+
+- `tidal.db`
+- `action_outbox.db`
+- `txn_daemon.lock`
+
+Use `TIDAL_HOME` if you want a different root, for example `/var/lib/tidal`.
 
 ## `kick:` Section
 
@@ -152,6 +158,6 @@ Current defaults from `tidal/config.py` include:
 
 - run `tidal init` on workstations
 - run `tidal-server init-config` in the repo checkout
-- keep client secrets in `~/.tidal/.env`
+- keep client secrets in `~/.tidal/cli/.env`
 - keep server secrets out of Git
 - treat `config/server.yaml` as the source of truth for shared runtime behavior

@@ -43,10 +43,10 @@ uv run tidal-server api serve --config config/server.yaml
 
 Required setup:
 
-- Run `uv run tidal init` to scaffold client files under `~/.tidal/`.
+- Run `uv run tidal init` to scaffold client files under `~/.tidal/cli/`.
 - Run `uv run tidal-server init-config` to scaffold tracked server files under `config/`.
-- Put client secrets in `~/.tidal/.env`.
-- Put server secrets in `config/.env` for local repo use, or point `TIDAL_ENV_FILE` at a path outside Git.
+- Put client secrets in `~/.tidal/cli/.env`.
+- Put server secrets in `~/.tidal/server/.env`, or point `TIDAL_ENV_FILE` somewhere explicit.
 - Put authoritative server runtime and kick policy in `config/server.yaml`.
 - If you want the UI locally, run `cd ui && npm install && npm run dev`.
 

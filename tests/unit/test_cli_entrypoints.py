@@ -30,27 +30,24 @@ def test_server_cli_exposes_scan_db_and_api_commands() -> None:
 
 def test_operator_init_creates_tidal_home_layout(tmp_path, monkeypatch) -> None:
     app_home = tmp_path / "operator-home"
-    monkeypatch.delenv("TIDAL_OPERATOR_STATE_DIR", raising=False)
     monkeypatch.setenv("TIDAL_HOME", str(app_home))
 
     runner = CliRunner()
     result = runner.invoke(operator_app, ["init"])
 
     assert result.exit_code == 0
-    assert (app_home / "config.yaml").is_file()
-    assert (app_home / ".env").is_file()
-    assert (app_home / "state").is_dir()
-    assert (app_home / "state" / "operator").is_dir()
-    assert (app_home / "run").is_dir()
-    scaffold = (app_home / "config.yaml").read_text(encoding="utf-8")
-    env_scaffold = (app_home / ".env").read_text(encoding="utf-8")
+    assert (app_home / "cli" / "config.yaml").is_file()
+    assert (app_home / "cli" / ".env").is_file()
+    scaffold = (app_home / "cli" / "config.yaml").read_text(encoding="utf-8")
+    env_scaffold = (app_home / "cli" / ".env").read_text(encoding="utf-8")
     assert "https://api.tidal.wavey.info" in scaffold
     assert scaffold.index("tidal_api_base_url") < scaffold.index("auction_kicker_address")
     assert "prepared_action_max_age_seconds: 300" in scaffold
     assert scaffold.index("prepared_action_max_age_seconds") < scaffold.index("auction_kicker_address")
     assert env_scaffold.index("TIDAL_API_KEY") < env_scaffold.index("RPC_URL")
+    assert "Client dir:" in result.output
     assert "Config:" in result.output
-    assert str(app_home / "config.yaml") in result.output
+    assert str(app_home / "cli" / "config.yaml") in result.output
 
 
 def test_server_init_config_creates_tracked_server_config(tmp_path, monkeypatch) -> None:

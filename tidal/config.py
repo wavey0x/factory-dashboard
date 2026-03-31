@@ -2,9 +2,10 @@
 
 Precedence (highest wins): env vars > YAML config > Python defaults.
 
-Client commands load ``~/.tidal/config.yaml`` by default.
+Client commands load ``~/.tidal/cli/config.yaml`` by default.
 Server commands load ``config/server.yaml`` by default.
-Secrets live in an explicitly resolved ``.env`` file.
+Client secrets live in ``~/.tidal/cli/.env`` by default.
+Server secrets live in ``~/.tidal/server/.env`` by default.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ from dotenv import dotenv_values
 from pydantic import AliasChoices, BaseModel, Field, PrivateAttr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from tidal.paths import default_config_path, default_env_path, default_server_config_path, resolve_path, tidal_home
+from tidal.paths import default_config_path, default_env_path, default_server_config_path, default_server_env_path, resolve_path, tidal_home
 from tidal.transaction_service.kick_policy import KickConfig, build_kick_config
 
 
@@ -183,7 +184,7 @@ class Settings(BaseSettings):
     @property
     def resolved_db_path(self) -> Path:
         if self.db_path is None:
-            return (self.resolved_home_path / "state" / "tidal.db").resolve()
+            return (self.resolved_home_path / "server" / "tidal.db").resolve()
         return self._resolve_config_relative_path(self.db_path)
 
     @property
@@ -272,10 +273,13 @@ def _resolve_env_path(
     if env_override:
         return _resolve_explicit_file_path(env_override, label="Environment file")
 
+    if mode == "server":
+        return default_server_env_path()
+
     config_dir_env_path = (config_path.parent / ".env").resolve()
     if config_dir_env_path.is_file():
         return config_dir_env_path
-    if mode == "server" or not use_home_fallback:
+    if not use_home_fallback:
         return config_dir_env_path
 
     return default_env_path()

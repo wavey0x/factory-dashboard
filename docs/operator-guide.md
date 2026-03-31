@@ -13,7 +13,7 @@ That split matters:
 
 ## First-Time Setup
 
-At minimum, put the API auth values in `~/.tidal/.env` or export them in your shell:
+At minimum, put the API auth values in `~/.tidal/cli/.env` or export them in your shell:
 
 ```bash
 export TIDAL_API_BASE_URL=https://api.tidal.wavey.info
@@ -22,9 +22,9 @@ export TIDAL_API_KEY=<cli-client-api-key>
 
 If you are using `https://api.tidal.wavey.info`, API keys are provided by wavey on request.
 
-You can also pass `--api-base-url` and `--api-key` per command, but `~/.tidal/.env` is the normal path.
+You can also pass `--api-base-url` and `--api-key` per command, but `~/.tidal/cli/.env` is the normal path.
 
-Client-side config values that are often useful in `~/.tidal/config.yaml`:
+Client-side config values that are often useful in `~/.tidal/cli/config.yaml`:
 
 - `tidal_api_base_url`
 - `tidal_api_request_timeout_seconds`
@@ -35,7 +35,7 @@ For API-backed `tidal` workflows, prepared kick behavior comes from the server's
 
 That means:
 
-- editing local `~/.tidal/config.yaml` does not change the server-side `kick:` policy
+- editing local `~/.tidal/cli/config.yaml` does not change the server-side `kick:` policy
 - edit `config/server.yaml` on the server checkout if you want shared prepare behavior to change
 - the authoritative pricing, ignore, and cooldown rules live under `kick:` in that file
 
@@ -48,7 +48,7 @@ Broadcasting commands share the same wallet surface:
 - `--keystore`: explicit keystore path
 - `--password-file`: file containing the keystore password
 
-The keystore secrets themselves usually live in `~/.tidal/.env`:
+The keystore secrets themselves usually live in `~/.tidal/cli/.env`:
 
 - `TXN_KEYSTORE_PATH`
 - `TXN_KEYSTORE_PASSPHRASE`

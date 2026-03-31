@@ -31,7 +31,7 @@ tidal-server scan run --config config/server.yaml --json
 
 At minimum, scanner execution needs:
 
-- `RPC_URL` in `config/.env` or `TIDAL_ENV_FILE`
+- `RPC_URL` in `~/.tidal/server/.env` or `TIDAL_ENV_FILE`
 - monitored fee burners in `config/server.yaml`
 
 The scanner populates the shared SQLite cache that powers:

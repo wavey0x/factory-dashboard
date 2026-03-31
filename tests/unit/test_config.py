@@ -12,7 +12,6 @@ def _clear_runtime_env(monkeypatch) -> None:
         "TIDAL_HOME",
         "TIDAL_CONFIG",
         "TIDAL_ENV_FILE",
-        "TIDAL_OPERATOR_STATE_DIR",
         "PREPARED_ACTION_MAX_AGE_SECONDS",
     ):
         monkeypatch.delenv(key, raising=False)
@@ -21,12 +20,13 @@ def _clear_runtime_env(monkeypatch) -> None:
 def test_load_client_settings_defaults_to_tidal_home_paths(tmp_path, monkeypatch) -> None:
     home_root = tmp_path / "home"
     app_home = home_root / ".tidal"
-    app_home.mkdir(parents=True)
-    (app_home / "config.yaml").write_text(
+    cli_home = app_home / "cli"
+    cli_home.mkdir(parents=True)
+    (cli_home / "config.yaml").write_text(
         "txn_keystore_path: keys/ops.json\n",
         encoding="utf-8",
     )
-    (app_home / ".env").write_text("RPC_URL=https://example-rpc.invalid\n", encoding="utf-8")
+    (cli_home / ".env").write_text("RPC_URL=https://example-rpc.invalid\n", encoding="utf-8")
 
     _clear_runtime_env(monkeypatch)
     monkeypatch.setenv("HOME", str(home_root))
@@ -34,10 +34,10 @@ def test_load_client_settings_defaults_to_tidal_home_paths(tmp_path, monkeypatch
     settings = load_client_settings()
 
     assert settings.resolved_home_path == app_home
-    assert settings.resolved_config_path == app_home / "config.yaml"
-    assert settings.resolved_env_path == app_home / ".env"
-    assert settings.resolved_db_path == app_home / "state" / "tidal.db"
-    assert settings.resolved_txn_keystore_path == app_home / "keys" / "ops.json"
+    assert settings.resolved_config_path == cli_home / "config.yaml"
+    assert settings.resolved_env_path == cli_home / ".env"
+    assert settings.resolved_db_path == app_home / "server" / "tidal.db"
+    assert settings.resolved_txn_keystore_path == cli_home / "keys" / "ops.json"
     assert settings.prepared_action_max_age_seconds == 300
     assert settings.rpc_url == "https://example-rpc.invalid"
 
@@ -46,9 +46,10 @@ def test_load_client_settings_uses_tidal_config_override_and_config_local_env(tm
     home_root = tmp_path / "home"
     home_root.mkdir(parents=True)
     app_home = home_root / ".tidal"
-    app_home.mkdir()
-    (app_home / "config.yaml").write_text("chain_id: 1\n", encoding="utf-8")
-    (app_home / ".env").write_text("RPC_URL=https://home.invalid\n", encoding="utf-8")
+    cli_home = app_home / "cli"
+    cli_home.mkdir(parents=True)
+    (cli_home / "config.yaml").write_text("chain_id: 1\n", encoding="utf-8")
+    (cli_home / ".env").write_text("RPC_URL=https://home.invalid\n", encoding="utf-8")
 
     config_dir = tmp_path / "custom-config"
     config_dir.mkdir()
@@ -67,7 +68,7 @@ def test_load_client_settings_uses_tidal_config_override_and_config_local_env(tm
 
     assert settings.resolved_config_path == config_path
     assert settings.resolved_env_path == config_dir / ".env"
-    assert settings.resolved_db_path == app_home / "state" / "tidal.db"
+    assert settings.resolved_db_path == app_home / "server" / "tidal.db"
     assert settings.resolved_txn_keystore_path == config_dir / "keys" / "override.json"
     assert settings.rpc_url == "https://config-dir.invalid"
 
@@ -75,9 +76,10 @@ def test_load_client_settings_uses_tidal_config_override_and_config_local_env(tm
 def test_load_client_settings_uses_explicit_env_override(tmp_path, monkeypatch) -> None:
     home_root = tmp_path / "home"
     app_home = home_root / ".tidal"
-    app_home.mkdir(parents=True)
-    (app_home / "config.yaml").write_text("chain_id: 1\n", encoding="utf-8")
-    (app_home / ".env").write_text("RPC_URL=https://home.invalid\n", encoding="utf-8")
+    cli_home = app_home / "cli"
+    cli_home.mkdir(parents=True)
+    (cli_home / "config.yaml").write_text("chain_id: 1\n", encoding="utf-8")
+    (cli_home / ".env").write_text("RPC_URL=https://home.invalid\n", encoding="utf-8")
 
     explicit_env_path = tmp_path / "secrets.env"
     explicit_env_path.write_text("RPC_URL=https://override.invalid\n", encoding="utf-8")
@@ -95,8 +97,9 @@ def test_load_client_settings_uses_explicit_env_override(tmp_path, monkeypatch) 
 def test_load_client_settings_reads_prepared_action_max_age_seconds_from_config(tmp_path, monkeypatch) -> None:
     home_root = tmp_path / "home"
     app_home = home_root / ".tidal"
-    app_home.mkdir(parents=True)
-    (app_home / "config.yaml").write_text(
+    cli_home = app_home / "cli"
+    cli_home.mkdir(parents=True)
+    (cli_home / "config.yaml").write_text(
         "prepared_action_max_age_seconds: 45\n",
         encoding="utf-8",
     )
@@ -113,6 +116,9 @@ def test_load_server_settings_uses_project_config_and_embedded_kick(tmp_path, mo
     project_root = tmp_path / "repo"
     config_dir = project_root / "config"
     config_dir.mkdir(parents=True)
+    home_root = tmp_path / "home"
+    server_home = home_root / ".tidal" / "server"
+    server_home.mkdir(parents=True)
     (project_root / "pyproject.toml").write_text("[project]\nname='tidal'\nversion='0'\n", encoding="utf-8")
     (config_dir / "server.yaml").write_text(
         """
@@ -132,15 +138,16 @@ kick:
         + "\n",
         encoding="utf-8",
     )
-    (config_dir / ".env").write_text("RPC_URL=https://server.invalid\n", encoding="utf-8")
+    (server_home / ".env").write_text("RPC_URL=https://server.invalid\n", encoding="utf-8")
 
     _clear_runtime_env(monkeypatch)
+    monkeypatch.setenv("HOME", str(home_root))
     monkeypatch.chdir(project_root)
 
     settings = load_server_settings()
 
     assert settings.resolved_config_path == config_dir / "server.yaml"
-    assert settings.resolved_env_path == config_dir / ".env"
+    assert settings.resolved_env_path == server_home / ".env"
     assert settings.rpc_url == "https://server.invalid"
     assert settings.kick_config.pricing_policy.default_profile_name == "volatile"
 
@@ -151,7 +158,8 @@ def test_load_server_settings_does_not_fall_back_to_client_env_file(tmp_path, mo
     config_dir.mkdir(parents=True)
     home_root = tmp_path / "home"
     app_home = home_root / ".tidal"
-    app_home.mkdir(parents=True)
+    cli_home = app_home / "cli"
+    cli_home.mkdir(parents=True)
     (project_root / "pyproject.toml").write_text("[project]\nname='tidal'\nversion='0'\n", encoding="utf-8")
     (config_dir / "server.yaml").write_text(
         """
@@ -167,7 +175,7 @@ kick:
         + "\n",
         encoding="utf-8",
     )
-    (app_home / ".env").write_text("RPC_URL=https://client.invalid\n", encoding="utf-8")
+    (cli_home / ".env").write_text("RPC_URL=https://client.invalid\n", encoding="utf-8")
 
     _clear_runtime_env(monkeypatch)
     monkeypatch.setenv("HOME", str(home_root))
@@ -175,7 +183,7 @@ kick:
 
     settings = load_server_settings()
 
-    assert settings.resolved_env_path == config_dir / ".env"
+    assert settings.resolved_env_path == app_home / "server" / ".env"
     assert settings.rpc_url is None
 
 
@@ -203,5 +211,5 @@ def test_default_outbox_and_lock_paths_live_under_tidal_home(tmp_path, monkeypat
     monkeypatch.setenv("HOME", str(home_root))
 
     app_home = home_root / ".tidal"
-    assert default_action_report_outbox_path() == app_home / "state" / "operator" / "action_outbox.db"
-    assert default_txn_lock_path() == app_home / "run" / "txn_daemon.lock"
+    assert default_action_report_outbox_path() == app_home / "server" / "action_outbox.db"
+    assert default_txn_lock_path() == app_home / "server" / "txn_daemon.lock"

@@ -34,8 +34,8 @@ Separate the CLI client wallet from this machine whenever possible.
 After following [Install](install.md), review:
 
 - `config/server.yaml`
-- `config/.env` for local repo use, or `TIDAL_ENV_FILE` for a secret path outside Git
-- `TIDAL_HOME` if you want state outside the repo checkout
+- `~/.tidal/server/.env` for host-local secrets, or `TIDAL_ENV_FILE` for an explicit path
+- `TIDAL_HOME` if you want mutable files outside `~/.tidal`
 
 Then run:
 
@@ -53,12 +53,12 @@ If you plan to reconcile receipts in the API process, set `RPC_URL` so the backg
 One simple production shape is:
 
 - host: `electro`
-- user: `wavey`
-- working directory: `/home/wavey/tidal`
+- user: `tidal`
+- working directory: `/srv/tidal`
 - API bind: `127.0.0.1:8020`
 - reverse proxy: nginx terminating TLS at `api.tidal.wavey.info`
 
-Example `config/.env`:
+Example `~/.tidal/server/.env`:
 
 ```bash
 RPC_URL=http://127.0.0.1:8545
@@ -110,12 +110,12 @@ After=network.target
 
 [Service]
 Type=simple
-User=wavey
-Group=wavey
-WorkingDirectory=/home/wavey/tidal
+User=tidal
+Group=tidal
+WorkingDirectory=/srv/tidal
 Environment=TIDAL_HOME=/var/lib/tidal
-EnvironmentFile=/home/wavey/tidal/config/.env
-ExecStart=/home/wavey/.local/bin/tidal-server api serve --config /home/wavey/tidal/config/server.yaml
+EnvironmentFile=/var/lib/tidal/server/.env
+ExecStart=/usr/local/bin/tidal-server api serve --config /srv/tidal/config/server.yaml
 Restart=on-failure
 RestartSec=5
 
@@ -132,17 +132,17 @@ After=network.target
 
 [Service]
 Type=oneshot
-User=wavey
-Group=wavey
-WorkingDirectory=/home/wavey/tidal
+User=tidal
+Group=tidal
+WorkingDirectory=/srv/tidal
 Environment=TIDAL_HOME=/var/lib/tidal
-EnvironmentFile=/home/wavey/tidal/config/.env
-ExecStart=/home/wavey/.local/bin/tidal-server scan run --config /home/wavey/tidal/config/server.yaml
+EnvironmentFile=/var/lib/tidal/server/.env
+ExecStart=/usr/local/bin/tidal-server scan run --config /srv/tidal/config/server.yaml
 ```
 
 Pair the scan oneshot with a systemd timer or external scheduler.
 
-Adjust `/home/wavey/.local/bin/tidal-server` to whatever `command -v tidal-server` returns on the target host.
+Adjust `/usr/local/bin/tidal-server` to whatever `command -v tidal-server` returns on the target host.
 
 ## Reverse Proxy Example
 

@@ -18,11 +18,8 @@ tidal init --force
 
 The command creates:
 
-- `~/.tidal/config.yaml`
-- `~/.tidal/.env`
-- `~/.tidal/state/`
-- `~/.tidal/state/operator/`
-- `~/.tidal/run/`
+- `~/.tidal/cli/config.yaml`
+- `~/.tidal/cli/.env`
 
 ## When To Use It
 
@@ -37,9 +34,9 @@ Use `tidal-server init-config` for tracked server config in the repo.
 
 After initialization, the usual next steps for a CLI client are:
 
-1. Put `TIDAL_API_KEY` in `~/.tidal/.env`.
+1. Put `TIDAL_API_KEY` in `~/.tidal/cli/.env`.
 2. If you are using `https://api.tidal.wavey.info`, get that API key from wavey.
-3. Confirm `tidal_api_base_url` in `~/.tidal/config.yaml`.
+3. Confirm `tidal_api_base_url` in `~/.tidal/cli/config.yaml`.
 4. Add keystore-related values if you will broadcast locally.
 
 See [Configuration](config.md) for the setting-level breakdown.

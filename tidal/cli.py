@@ -10,14 +10,9 @@ from tidal.operator_auction_cli import app as auction_app
 from tidal.operator_kick_cli import app as kick_app
 from tidal.operator_logs_cli import app as logs_app
 from tidal.paths import (
-    default_action_outbox_path,
+    default_cli_dir,
     default_config_path,
-    default_db_path,
     default_env_path,
-    default_operator_state_dir,
-    default_run_dir,
-    default_state_dir,
-    default_txn_lock_path,
     tidal_home,
 )
 from tidal.resources import read_template_text
@@ -41,11 +36,9 @@ def init_command(
     force: bool = typer.Option(False, "--force", help="Overwrite existing template files."),
 ) -> None:
     home_dir = tidal_home()
-    state_dir = default_state_dir()
-    operator_state_dir = default_operator_state_dir()
-    run_dir = default_run_dir()
+    cli_dir = default_cli_dir()
 
-    for directory in (home_dir, state_dir, operator_state_dir, run_dir):
+    for directory in (home_dir, cli_dir):
         directory.mkdir(parents=True, exist_ok=True)
 
     config_path = default_config_path()
@@ -54,11 +47,9 @@ def init_command(
     env_status = _write_template(env_path, read_template_text("env.template"), force=force)
 
     typer.echo(f"Home:            {home_dir}")
+    typer.echo(f"Client dir:      {cli_dir}")
     typer.echo(f"Config:          {config_path} ({config_status})")
     typer.echo(f"Env:             {env_path} ({env_status})")
-    typer.echo(f"Database:        {default_db_path()}")
-    typer.echo(f"Outbox:          {default_action_outbox_path()}")
-    typer.echo(f"Lock file:       {default_txn_lock_path()}")
 
 
 if __name__ == "__main__":
