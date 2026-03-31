@@ -10,9 +10,9 @@ from tidal.control_plane.client import ControlPlaneError
 import tidal.operator_kick_cli as operator_kick_cli_module
 
 
-def _write_config(tmp_path: Path) -> Path:
+def _write_config(tmp_path: Path, *, extra: str = "") -> Path:
     config_path = tmp_path / "config.yaml"
-    config_path.write_text("db_path: ./test.db\n", encoding="utf-8")
+    config_path.write_text(f"db_path: ./test.db\n{extra}", encoding="utf-8")
     return config_path
 
 
@@ -88,9 +88,21 @@ class _DryRunClient:
 
 
 class _BroadcastClient:
-    def __init__(self) -> None:
+    def __init__(self, ready_entries: list[dict[str, object]] | None = None) -> None:
         self.inspect_calls: list[dict[str, object]] = []
         self.prepare_calls: list[dict[str, object]] = []
+        self.ready_entries = ready_entries or [
+            _ready_entry(
+                token_address="0x3333333333333333333333333333333333333333",
+                source_address="0x1111111111111111111111111111111111111111",
+                auction_address="0x2222222222222222222222222222222222222222",
+            ),
+            _ready_entry(
+                token_address="0x4444444444444444444444444444444444444444",
+                source_address="0x5555555555555555555555555555555555555555",
+                auction_address="0x6666666666666666666666666666666666666666",
+            ),
+        ]
 
     def __enter__(self) -> "_BroadcastClient":
         return self
@@ -103,20 +115,7 @@ class _BroadcastClient:
         return {
             "status": "ok",
             "warnings": [],
-            "data": _inspect_payload(
-                [
-                    _ready_entry(
-                        token_address="0x3333333333333333333333333333333333333333",
-                        source_address="0x1111111111111111111111111111111111111111",
-                        auction_address="0x2222222222222222222222222222222222222222",
-                    ),
-                    _ready_entry(
-                        token_address="0x4444444444444444444444444444444444444444",
-                        source_address="0x5555555555555555555555555555555555555555",
-                        auction_address="0x6666666666666666666666666666666666666666",
-                    ),
-                ]
-            ),
+            "data": _inspect_payload(self.ready_entries),
         }
 
     def prepare_kicks(self, body: dict[str, object]) -> dict[str, object]:
@@ -424,6 +423,156 @@ def test_operator_kick_run_declined_confirmations_reports_skipped_summary(tmp_pa
     assert result.exit_code == 2
     assert "All prepared kick transactions were skipped." in result.output
     assert "No kick transactions were sent." not in result.output
+
+
+def test_operator_kick_run_warns_and_skips_stale_prepared_transaction(tmp_path, monkeypatch) -> None:
+    config_path = _write_config(tmp_path)
+    client = _BroadcastClient(
+        [
+            _ready_entry(
+                token_address="0x3333333333333333333333333333333333333333",
+                source_address="0x1111111111111111111111111111111111111111",
+                auction_address="0x2222222222222222222222222222222222222222",
+            )
+        ]
+    )
+    monotonic_values = iter([100.0, 401.0])
+
+    monkeypatch.setattr(
+        operator_kick_cli_module.CLIContext,
+        "verify_authenticated_api_access",
+        lambda self: None,
+    )
+    monkeypatch.setattr(
+        operator_kick_cli_module.CLIContext,
+        "control_plane_client",
+        lambda self, auth=True: client,
+    )
+    monkeypatch.setattr(
+        operator_kick_cli_module.CLIContext,
+        "resolve_execution",
+        lambda self, **kwargs: SimpleNamespace(
+            signer=SimpleNamespace(),
+            sender="0x9999999999999999999999999999999999999999",
+        ),
+    )
+    monkeypatch.setattr(operator_kick_cli_module.typer, "confirm", lambda *args, **kwargs: True)
+    monkeypatch.setattr(operator_kick_cli_module, "_current_monotonic", lambda: next(monotonic_values))
+    monkeypatch.setattr(
+        operator_kick_cli_module,
+        "execute_prepared_action_sync",
+        lambda **kwargs: pytest.fail(f"stale prepared action should not broadcast: {kwargs}"),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(operator_app, ["kick", "run", "--broadcast", "--config", str(config_path)])
+
+    assert result.exit_code == 2
+    assert "Warnings" in result.output
+    assert "Prepared transaction expired after 5 minutes" in result.output
+    assert "All prepared kick transactions were skipped." in result.output
+
+
+def test_operator_kick_run_uses_configured_prepared_transaction_age_limit(tmp_path, monkeypatch) -> None:
+    config_path = _write_config(tmp_path, extra="prepared_action_max_age_seconds: 1\n")
+    client = _BroadcastClient(
+        [
+            _ready_entry(
+                token_address="0x3333333333333333333333333333333333333333",
+                source_address="0x1111111111111111111111111111111111111111",
+                auction_address="0x2222222222222222222222222222222222222222",
+            )
+        ]
+    )
+    monotonic_values = iter([100.0, 102.0])
+
+    monkeypatch.setattr(
+        operator_kick_cli_module.CLIContext,
+        "verify_authenticated_api_access",
+        lambda self: None,
+    )
+    monkeypatch.setattr(
+        operator_kick_cli_module.CLIContext,
+        "control_plane_client",
+        lambda self, auth=True: client,
+    )
+    monkeypatch.setattr(
+        operator_kick_cli_module.CLIContext,
+        "resolve_execution",
+        lambda self, **kwargs: SimpleNamespace(
+            signer=SimpleNamespace(),
+            sender="0x9999999999999999999999999999999999999999",
+        ),
+    )
+    monkeypatch.setattr(operator_kick_cli_module.typer, "confirm", lambda *args, **kwargs: True)
+    monkeypatch.setattr(operator_kick_cli_module, "_current_monotonic", lambda: next(monotonic_values))
+    monkeypatch.setattr(
+        operator_kick_cli_module,
+        "execute_prepared_action_sync",
+        lambda **kwargs: pytest.fail(f"stale prepared action should not broadcast: {kwargs}"),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(operator_app, ["kick", "run", "--broadcast", "--config", str(config_path)])
+
+    assert result.exit_code == 2
+    assert "Prepared transaction expired after 1 second" in result.output
+
+
+def test_operator_kick_run_bypass_confirmation_still_blocks_stale_prepared_transaction(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    config_path = _write_config(tmp_path)
+    client = _BroadcastClient(
+        [
+            _ready_entry(
+                token_address="0x3333333333333333333333333333333333333333",
+                source_address="0x1111111111111111111111111111111111111111",
+                auction_address="0x2222222222222222222222222222222222222222",
+            )
+        ]
+    )
+    monotonic_values = iter([100.0, 401.0])
+
+    monkeypatch.setattr(
+        operator_kick_cli_module.CLIContext,
+        "verify_authenticated_api_access",
+        lambda self: None,
+    )
+    monkeypatch.setattr(
+        operator_kick_cli_module.CLIContext,
+        "control_plane_client",
+        lambda self, auth=True: client,
+    )
+    monkeypatch.setattr(
+        operator_kick_cli_module.CLIContext,
+        "resolve_execution",
+        lambda self, **kwargs: SimpleNamespace(
+            signer=SimpleNamespace(),
+            sender="0x9999999999999999999999999999999999999999",
+        ),
+    )
+    monkeypatch.setattr(
+        operator_kick_cli_module.typer,
+        "confirm",
+        lambda *args, **kwargs: pytest.fail("confirmation prompt should not run with --bypass-confirmation"),
+    )
+    monkeypatch.setattr(operator_kick_cli_module, "_current_monotonic", lambda: next(monotonic_values))
+    monkeypatch.setattr(
+        operator_kick_cli_module,
+        "execute_prepared_action_sync",
+        lambda **kwargs: pytest.fail(f"stale prepared action should not broadcast: {kwargs}"),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        operator_app,
+        ["kick", "run", "--broadcast", "--bypass-confirmation", "--config", str(config_path)],
+    )
+
+    assert result.exit_code == 2
+    assert "Prepared transaction expired after 5 minutes" in result.output
 
 
 def test_operator_kick_run_checks_api_auth_before_resolving_execution(tmp_path, monkeypatch) -> None:

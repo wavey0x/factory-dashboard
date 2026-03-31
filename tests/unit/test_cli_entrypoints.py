@@ -49,6 +49,8 @@ def test_operator_init_creates_tidal_home_layout(tmp_path, monkeypatch) -> None:
     assert "0xb911Fcce8D5AFCEc73E072653107260bb23C1eE8" in scaffold
     assert "https://api.tidal.wavey.info" in scaffold
     assert scaffold.index("tidal_api_base_url") < scaffold.index("db_path")
+    assert "prepared_action_max_age_seconds: 300" in scaffold
+    assert scaffold.index("prepared_action_max_age_seconds") < scaffold.index("db_path")
     assert env_scaffold.index("TIDAL_API_KEY") < env_scaffold.index("RPC_URL")
     assert "Consumer: the runtime that prepares kicks." in kick_scaffold
     assert "profile_overrides:" in kick_scaffold

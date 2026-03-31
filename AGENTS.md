@@ -5,6 +5,15 @@
 - Never add `Co-Authored-By` trailers to commit messages.
 - Git commit and push whenever a meaningful unit of work is completed.
 
+## CLI Styling Guide
+
+- Reuse shared helpers in `tidal/cli_renderers.py` before adding one-off output.
+- Use `render_warning_panel` for recoverable operator warnings that should not crash the run.
+- Use `render_skip_panel` for candidate-level exclusions and prepare-time skips.
+- Use `render_status_panel` or the shared progress helpers for neutral workflow state.
+- Keep warning copy short, directive, and action-oriented.
+- Apply styling rules only to text output; `--json` stays data-only.
+
 ## UI Compliance Guardrails
 
 These rules apply to `the `ui/` directory`.

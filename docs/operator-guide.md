@@ -28,6 +28,7 @@ Client-side config values that are often useful in `~/.tidal/config.yaml`:
 
 - `tidal_api_base_url`
 - `tidal_api_request_timeout_seconds`
+- `prepared_action_max_age_seconds`
 - shared RPC timeout settings if you also do local preview/broadcast work
 
 For API-backed `tidal` workflows, prepared kick behavior comes from the server's `kick.yaml`, not the workstation's.
@@ -123,6 +124,7 @@ The CLI will:
 6. report broadcast and receipt data back to the API
 
 Because preparation happens through the API, the confirmation panel reflects server-side `kick.yaml` config.
+The client also enforces a local age limit for prepared transactions. If you wait longer than `prepared_action_max_age_seconds` before sending, that prepared transaction is skipped and you need to re-run.
 
 Useful flags:
 

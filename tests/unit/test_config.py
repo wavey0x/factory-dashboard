@@ -14,6 +14,7 @@ def _clear_runtime_env(monkeypatch) -> None:
         "TIDAL_ENV_FILE",
         "TIDAL_KICK_PATH",
         "TIDAL_OPERATOR_STATE_DIR",
+        "PREPARED_ACTION_MAX_AGE_SECONDS",
     ):
         monkeypatch.delenv(key, raising=False)
 
@@ -40,6 +41,7 @@ def test_load_settings_defaults_to_tidal_home_paths(tmp_path, monkeypatch) -> No
     assert settings.resolved_kick_path == app_home / "kick.yaml"
     assert settings.resolved_db_path == app_home / "state" / "custom.db"
     assert settings.resolved_txn_keystore_path == app_home / "keys" / "ops.json"
+    assert settings.prepared_action_max_age_seconds == 300
     assert settings.rpc_url == "https://example-rpc.invalid"
 
 
@@ -124,3 +126,20 @@ def test_default_outbox_and_lock_paths_live_under_tidal_home(tmp_path, monkeypat
     app_home = home_root / ".tidal"
     assert default_action_report_outbox_path() == app_home / "state" / "operator" / "action_outbox.db"
     assert default_txn_lock_path() == app_home / "run" / "txn_daemon.lock"
+
+
+def test_load_settings_reads_prepared_action_max_age_seconds_from_config(tmp_path, monkeypatch) -> None:
+    home_root = tmp_path / "home"
+    app_home = home_root / ".tidal"
+    app_home.mkdir(parents=True)
+    (app_home / "config.yaml").write_text(
+        "prepared_action_max_age_seconds: 45\n",
+        encoding="utf-8",
+    )
+
+    _clear_runtime_env(monkeypatch)
+    monkeypatch.setenv("HOME", str(home_root))
+
+    settings = load_settings()
+
+    assert settings.prepared_action_max_age_seconds == 45

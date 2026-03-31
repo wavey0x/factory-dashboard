@@ -16,6 +16,7 @@ txn_start_price_buffer_bps: 1000
 txn_min_price_buffer_bps: 500
 txn_quote_spot_warning_threshold_pct: 2
 txn_max_data_age_seconds: 6000
+prepared_action_max_age_seconds: 300
 txn_require_curve_quote: true
 max_batch_kick_size: 5
 batch_kick_delay_seconds: 5

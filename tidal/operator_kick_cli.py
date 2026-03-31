@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import asdict
 from typing import Any
 
@@ -42,6 +43,31 @@ from tidal.operator_cli_support import (
 from tidal.ops.kick_inspect import KickInspectEntry, KickInspectResult
 
 app = typer.Typer(help="Kick auction lots", no_args_is_help=True)
+
+
+def _current_monotonic() -> float:
+    return time.monotonic()
+
+
+def _format_prepared_action_age_limit(max_age_seconds: int) -> str:
+    if max_age_seconds % 60 == 0 and max_age_seconds >= 60:
+        minutes = max_age_seconds // 60
+        unit = "minute" if minutes == 1 else "minutes"
+        return f"{minutes} {unit}"
+    unit = "second" if max_age_seconds == 1 else "seconds"
+    return f"{max_age_seconds} {unit}"
+
+
+def _prepared_action_is_stale(*, prepared_at_monotonic: float, max_age_seconds: int) -> bool:
+    return _current_monotonic() - prepared_at_monotonic > max_age_seconds
+
+
+def _prepared_action_stale_warning(max_age_seconds: int) -> str:
+    return (
+        "Prepared transaction expired after "
+        f"{_format_prepared_action_age_limit(max_age_seconds)}; "
+        "re-run to refresh quotes before sending."
+    )
 
 
 def _normalize_source_type_filter(value: str | None) -> str | None:
@@ -380,6 +406,7 @@ def kick_run(
         "includeLiveInspection": False,
     }
     preview_fee_context = _resolve_preview_fee_context(cli_ctx) if broadcast and not json_output else None
+    local_warnings: list[str] = []
     try:
         with cli_ctx.control_plane_client(auth=broadcast) as client:
             if json_output:
@@ -406,6 +433,7 @@ def kick_run(
                     else:
                         with progress_status(f"Preparing kick {index} of {total_ready}..."):
                             prepare_response = client.prepare_kicks(prepare_payload)
+                    prepared_at_monotonic = _current_monotonic()
                     prepared_data = prepare_response["data"]
                     prepared_actions.append(prepared_data)
                     warnings = list(prepare_response.get("warnings") or [])
@@ -459,6 +487,18 @@ def kick_run(
                     if not bypass_confirmation and not typer.confirm("Send this transaction?", default=False):
                         skipped_confirmation_count += 1
                         continue
+                    if _prepared_action_is_stale(
+                        prepared_at_monotonic=prepared_at_monotonic,
+                        max_age_seconds=cli_ctx.settings.prepared_action_max_age_seconds,
+                    ):
+                        skipped_confirmation_count += 1
+                        warning = _prepared_action_stale_warning(
+                            cli_ctx.settings.prepared_action_max_age_seconds
+                        )
+                        local_warnings.append(warning)
+                        if not json_output:
+                            render_warnings([warning])
+                        continue
                     if exec_ctx.signer is None or exec_ctx.sender is None:
                         raise typer.Exit(code=1)
                     if not json_output:
@@ -495,7 +535,7 @@ def kick_run(
         if broadcast:
             output["preparedActions"] = prepared_actions
             output["broadcastRecords"] = broadcast_records
-        emit_json("kick.run", status=status, data=output)
+        emit_json("kick.run", status=status, data=output, warnings=local_warnings)
     else:
         if not broadcast:
             render_kick_inspect(inspect_result, show_all=True)

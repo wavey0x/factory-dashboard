@@ -63,6 +63,7 @@ The client does not precompute and broadcast a whole batch at once. Instead it r
 5. report broadcast and receipt data back to the API
 
 That keeps the final transaction payload aligned with the latest on-chain state.
+If a prepared transaction sits longer than `prepared_action_max_age_seconds`, the client skips it instead of broadcasting stale quotes.
 
 ## Review And Warning Notes
 

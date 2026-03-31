@@ -73,9 +73,12 @@ These affect local execution and server-side transaction logic:
 - `txn_min_price_buffer_bps`
 - `txn_quote_spot_warning_threshold_pct`
 - `txn_max_data_age_seconds`
+- `prepared_action_max_age_seconds`
 - `txn_require_curve_quote`
 - `max_batch_kick_size`
 - `batch_kick_delay_seconds`
+
+`prepared_action_max_age_seconds` is a CLI-side safety guard for API-backed broadcast flows. If the operator waits too long between prepare and send, the client skips that prepared transaction and tells the user to re-run so quotes are refreshed.
 
 ### Shared runtime
 
@@ -229,6 +232,7 @@ Current defaults from `tidal/config.py` include:
 - `txn_max_base_fee_gwei = 0.5`
 - `txn_max_priority_fee_gwei = 2`
 - `txn_quote_spot_warning_threshold_pct = 2`
+- `prepared_action_max_age_seconds = 300`
 - `cooldown_minutes = 60` in `kick.yaml`
 - `tidal_api_request_timeout_seconds = 30`
 
