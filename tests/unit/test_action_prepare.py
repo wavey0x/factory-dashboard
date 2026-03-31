@@ -148,6 +148,120 @@ async def test_prepare_kick_action_threads_curve_quote_override(monkeypatch) -> 
 
 
 @pytest.mark.asyncio
+async def test_prepare_kick_action_skips_unsendable_batch_kick_when_gas_estimate_fails(monkeypatch) -> None:
+    candidate = KickCandidate(
+        source_type="fee_burner",
+        source_address="0x1111111111111111111111111111111111111111",
+        token_address="0x2222222222222222222222222222222222222222",
+        auction_address="0x3333333333333333333333333333333333333333",
+        normalized_balance="1000",
+        price_usd="1.0",
+        want_address="0x4444444444444444444444444444444444444444",
+        usd_value=1000.0,
+        decimals=18,
+        source_name="Fee Burner",
+        token_symbol="CRV",
+        want_symbol="crvUSD",
+    )
+    prepared = PreparedKick(
+        candidate=candidate,
+        sell_amount=10**21,
+        starting_price_unscaled=1100,
+        minimum_price_scaled_1e18=950_000_000_000_000_000,
+        minimum_quote_unscaled=950,
+        sell_amount_str="1000",
+        starting_price_unscaled_str="1100",
+        minimum_price_scaled_1e18_str="950000000000000000",
+        minimum_quote_unscaled_str="950",
+        usd_value_str="1000",
+        live_balance_raw=10**21,
+        normalized_balance="1000",
+        quote_amount_str="1000",
+        start_price_buffer_bps=1000,
+        min_price_buffer_bps=500,
+        step_decay_rate_bps=25,
+        pricing_profile_name="volatile",
+        settle_token=None,
+    )
+
+    shortlist = SimpleNamespace(
+        selected_candidates=[candidate],
+        eligible_candidates=[candidate],
+        ignored_skips=[],
+        cooldown_skips=[],
+        deferred_same_auction_count=0,
+        limited_candidates=[],
+    )
+    monkeypatch.setattr("tidal.api.services.action_prepare.build_shortlist", lambda *args, **kwargs: shortlist)
+    monkeypatch.setattr("tidal.api.services.action_prepare.sort_candidates", lambda candidates: candidates)
+
+    class _FakeBatchKickFn:
+        def _encode_transaction_data(self) -> str:
+            return "0xdeadbeef"
+
+    class _FakeFunctions:
+        def batchKick(self, kick_tuples):  # noqa: ANN001
+            assert kick_tuples == [()]
+            return _FakeBatchKickFn()
+
+    fake_web3 = SimpleNamespace(contract=lambda address, abi: SimpleNamespace(functions=_FakeFunctions()))
+    fake_kicker = SimpleNamespace(
+        inspect_candidates=AsyncMock(return_value={(candidate.auction_address, candidate.token_address): None}),
+        prepare_kick=AsyncMock(return_value=prepared),
+        web3_client=fake_web3,
+        _kick_args=lambda prepared_kick: (),
+    )
+
+    monkeypatch.setattr(
+        "tidal.api.services.action_prepare.build_txn_service",
+        lambda settings, session, **kwargs: SimpleNamespace(kicker=fake_kicker),
+    )
+    monkeypatch.setattr(
+        "tidal.api.services.action_prepare._estimate_transaction",
+        AsyncMock(return_value=(None, None, "Gas estimate failed: call to 0x3333…3333 failed: active auction")),
+    )
+    create_prepared_action = AsyncMock()
+    monkeypatch.setattr("tidal.api.services.action_prepare.create_prepared_action", create_prepared_action)
+
+    status, warnings, data = await prepare_kick_action(
+        session=object(),
+        settings=SimpleNamespace(
+            txn_usd_threshold=100.0,
+            txn_max_data_age_seconds=600,
+            kick_config=SimpleNamespace(ignore_policy=object(), cooldown_policy=object()),
+            txn_max_gas_limit=500000,
+            auction_kicker_address="0x5555555555555555555555555555555555555555",
+            chain_id=1,
+        ),
+        operator_id="tester",
+        source_type="fee_burner",
+        source_address=candidate.source_address,
+        auction_address=candidate.auction_address,
+        token_address=candidate.token_address,
+        limit=1,
+        sender="0x6666666666666666666666666666666666666666",
+        require_curve_quote=None,
+    )
+
+    assert status == "noop"
+    assert warnings == ["Gas estimate failed: call to 0x3333…3333 failed: active auction"]
+    assert data["transactions"] == []
+    assert data["preview"]["preparedOperations"] == []
+    assert data["preview"]["skippedDuringPrepare"] == [
+        {
+            "sourceAddress": candidate.source_address,
+            "sourceName": candidate.source_name,
+            "auctionAddress": candidate.auction_address,
+            "tokenAddress": candidate.token_address,
+            "tokenSymbol": candidate.token_symbol,
+            "wantSymbol": candidate.want_symbol,
+            "reason": "Gas estimate failed: call to 0x3333…3333 failed: active auction",
+        }
+    ]
+    create_prepared_action.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_load_strategy_deploy_defaults_includes_receiver_address(monkeypatch) -> None:
     strategy_address = "0x1111111111111111111111111111111111111111"
     want_address = "0x2222222222222222222222222222222222222222"

@@ -162,12 +162,6 @@ async def prepare_kick_action(
         else:
             prepared_kicks.append(result)
 
-    preview["skippedDuringPrepare"] = skipped_prepare
-    preview["preparedOperations"] = [
-        *_prepared_sweep_preview(prepared_sweep_and_settle),
-        *_prepared_kick_preview(prepared_kicks),
-    ]
-
     transactions: list[dict[str, Any]] = []
     web3_client = txn_service.kicker.web3_client
     kicker_contract = web3_client.contract(settings.auction_kicker_address, AUCTION_KICKER_ABI)
@@ -213,18 +207,27 @@ async def prepare_kick_action(
         )
         if gas_warning:
             warnings.append(gas_warning)
-        transactions.append(
-            {
-                "operation": "kick",
-                "to": normalize_address(settings.auction_kicker_address),
-                "data": data,
-                "value": "0x0",
-                "chainId": settings.chain_id,
-                "sender": sender,
-                "gasEstimate": gas_estimate,
-                "gasLimit": gas_limit,
-            }
-        )
+            skipped_prepare.extend(_prepared_kick_gas_estimate_skips(prepared_kicks, reason=gas_warning))
+            prepared_kicks = []
+        else:
+            transactions.append(
+                {
+                    "operation": "kick",
+                    "to": normalize_address(settings.auction_kicker_address),
+                    "data": data,
+                    "value": "0x0",
+                    "chainId": settings.chain_id,
+                    "sender": sender,
+                    "gasEstimate": gas_estimate,
+                    "gasLimit": gas_limit,
+                }
+            )
+
+    preview["skippedDuringPrepare"] = skipped_prepare
+    preview["preparedOperations"] = [
+        *_prepared_sweep_preview(prepared_sweep_and_settle),
+        *_prepared_kick_preview(prepared_kicks),
+    ]
 
     if not transactions:
         return "noop", warnings, {"preview": preview, "transactions": []}
@@ -830,6 +833,21 @@ def _prepared_kick_preview(items: list[PreparedKick]) -> list[dict[str, object]]
             "startRate": item.start_rate,
             "floorRate": item.floor_rate,
             "settleToken": item.settle_token,
+        }
+        for item in items
+    ]
+
+
+def _prepared_kick_gas_estimate_skips(items: list[PreparedKick], *, reason: str) -> list[dict[str, object]]:
+    return [
+        {
+            "sourceAddress": item.candidate.source_address,
+            "sourceName": item.candidate.source_name,
+            "auctionAddress": item.candidate.auction_address,
+            "tokenAddress": item.candidate.token_address,
+            "tokenSymbol": item.candidate.token_symbol,
+            "wantSymbol": item.candidate.want_symbol,
+            "reason": reason,
         }
         for item in items
     ]
