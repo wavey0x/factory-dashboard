@@ -35,15 +35,7 @@ SINGLE_AUCTION_FACTORY_ABI = AUCTION_FACTORY_ABI + [
     }
 ]
 
-SINGLE_AUCTION_ABI = AUCTION_ABI + [
-    {
-        "inputs": [],
-        "name": "startingPrice",
-        "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
-        "stateMutability": "view",
-        "type": "function",
-    },
-]
+SINGLE_AUCTION_ABI = AUCTION_ABI
 
 
 @dataclass(slots=True)
