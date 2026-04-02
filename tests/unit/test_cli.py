@@ -66,7 +66,6 @@ def test_make_confirm_fn_displays_pricing_profile(capsys):
     assert "Rate:        2.5000 quoted | 2.7500 start | 2.3750 floor USDC/CRV" in output
     assert "Min quote:   2,375 USDC (-5.00% buffer)" in output
     assert "Profile:     stable | decay 0.01%" in output
-    assert "Submitting transaction..." in output
     confirm_mock.assert_called_once_with("Send this transaction?", default=False)
 
 

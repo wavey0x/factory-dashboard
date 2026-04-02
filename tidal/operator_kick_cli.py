@@ -35,7 +35,6 @@ from tidal.operator_cli_support import (
     progress_status,
     render_action_preview,
     render_broadcast_result,
-    submission_progress,
     render_warnings,
 )
 from tidal.ops.kick_inspect import KickInspectEntry, KickInspectResult
@@ -495,16 +494,14 @@ def kick_run(
                         raise typer.Exit(code=1)
                     if not json_output:
                         typer.echo()
-                    with submission_progress("Submitting transaction...") as update_progress:
-                        action_records = execute_prepared_action_sync(
-                            settings=cli_ctx.settings,
-                            client=client,
-                            action_id=str(prepared_data["actionId"]),
-                            sender=exec_ctx.sender,
-                            signer=exec_ctx.signer,
-                            transactions=transactions,
-                            progress_callback=update_progress,
-                        )
+                    action_records = execute_prepared_action_sync(
+                        settings=cli_ctx.settings,
+                        client=client,
+                        action_id=str(prepared_data["actionId"]),
+                        sender=exec_ctx.sender,
+                        signer=exec_ctx.signer,
+                        transactions=transactions,
+                    )
                     if not json_output and action_records:
                         render_broadcast_result(action_records)
                         broadcast_feedback_emitted = True

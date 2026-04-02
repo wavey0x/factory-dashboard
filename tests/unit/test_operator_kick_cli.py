@@ -344,7 +344,6 @@ def test_operator_kick_run_broadcast_prepares_candidates_one_by_one(tmp_path, mo
     assert "Quote out:   2,500.00 USDC" in result.output
     assert "Start quote: 2,750 USDC (+10.00% buffer)" in result.output
     assert "Min quote:   2,375 USDC (-0.50% buffer)" in result.output
-    assert "Submitting transaction..." in result.output
     assert "Confirmed" in result.output
     assert "Gas limit:   252,000" in result.output
     assert "max 2.50 gwei" in result.output
