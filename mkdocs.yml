@@ -42,9 +42,6 @@ nav:
       - Scan (`tidal-server scan`): cli-server-scan.md
       - API (`tidal-server api`): cli-server-api.md
       - Auth (`tidal-server auth`): cli-server-auth.md
-      - Kick (`tidal-server kick`): cli-server-kick.md
-      - Auction (`tidal-server auction`): cli-server-auction.md
-      - Logs (`tidal-server logs`): cli-server-logs.md
     - API: api-reference.md
     - Configuration: config.md
   - Concepts:

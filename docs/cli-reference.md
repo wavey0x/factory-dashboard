@@ -35,12 +35,12 @@ Use `tidal` when:
 - you are a remote operator calling the hosted or self-hosted API
 - you want the server to own shared state and audit history
 - you want wallet signing to stay local to your workstation
+- you want kick, auction, or log workflows, including from the server host itself
 
 Use `tidal-server` when:
 
 - you are operating the host that owns the shared database
 - you are running the scanner, API, or auth management
-- you intentionally want transactions to execute from the server itself
 
 ## CLI Client Commands
 
@@ -59,6 +59,3 @@ Use `tidal-server` when:
 | `tidal-server scan` | You need to run one scan cycle or an explicit scan-side auto-settle pass | [Server Operator: `tidal-server scan`](cli-server-scan.md) |
 | `tidal-server api` | You need to serve the FastAPI control plane | [Server Operator: `tidal-server api`](cli-server-api.md) |
 | `tidal-server auth` | You need to create, list, or revoke API keys | [Server Operator: `tidal-server auth`](cli-server-auth.md) |
-| `tidal-server kick` | You want to inspect or execute kicks directly from the server | [Server Operator: `tidal-server kick`](cli-server-kick.md) |
-| `tidal-server auction` | You want to manage auctions directly from the server | [Server Operator: `tidal-server auction`](cli-server-auction.md) |
-| `tidal-server logs` | You want local operational history from the shared database | [Server Operator: `tidal-server logs`](cli-server-logs.md) |

@@ -8,7 +8,6 @@ Use this page after [Install](install.md). It focuses on the supported `tidal-se
 
 - Alembic migrations
 - scan execution
-- optional server-local kick execution
 - FastAPI serving
 - API key management
 - the canonical SQLite database
@@ -20,7 +19,7 @@ The intended runtime surface is:
 - `tidal-server db migrate`
 - `tidal-server scan run`
 - `tidal-server api serve`
-- `tidal-server kick run`
+- `tidal-server auth ...`
 
 Repeated invocation and scheduling are external concerns.
 
@@ -62,25 +61,18 @@ When `--auto-settle` is used, the server also needs valid local wallet configura
 - `TXN_KEYSTORE_PATH`
 - `TXN_KEYSTORE_PASSPHRASE`
 
-## Kick Execution
+## Operator Actions From The Server Host
 
-Inspect:
-
-```bash
-tidal-server kick inspect --config config/server.yaml
-```
-
-Run once with the configured keystore:
+Use `tidal`, not `tidal-server`, even when you are working directly on the server machine:
 
 ```bash
-tidal-server kick run --config config/server.yaml
+export TIDAL_API_BASE_URL=http://127.0.0.1:8787
+tidal kick inspect
+tidal kick run
+tidal logs kicks
 ```
 
-Run once without an interactive confirmation step:
-
-```bash
-tidal-server kick run --config config/server.yaml --no-confirmation
-```
+If API auth is enabled, create a client key with `tidal-server auth create` and export `TIDAL_API_KEY` before using `tidal`.
 
 ## Config Notes
 
@@ -99,7 +91,7 @@ Most scanner, pricing, multicall, and reconcile tuning also now defaults in code
 Scan auto-settle is not configured in `server.yaml`.
 Enable it explicitly with `--auto-settle` when needed.
 
-For kick and other transaction-sending commands, keep `TXN_KEYSTORE_PATH` and `TXN_KEYSTORE_PASSPHRASE` in the service environment. Use `--keystore` and `--password-file` only for one-off overrides. The sender address is inferred from the keystore.
+For scan-side auto-settle, keep `TXN_KEYSTORE_PATH` and `TXN_KEYSTORE_PASSPHRASE` in the service environment. Use `--keystore` and `--password-file` only for one-off overrides when running `tidal`.
 
 ## API Key Management
 

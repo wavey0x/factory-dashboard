@@ -5,7 +5,7 @@ from typer.testing import CliRunner
 
 from tidal.cli import app as operator_app
 from tidal.control_plane.client import ControlPlaneError
-import tidal.operator_auction_cli as operator_auction_cli_module
+import tidal.auction_cli as operator_auction_cli_module
 
 
 def _write_config(tmp_path: Path) -> Path:

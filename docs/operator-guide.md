@@ -185,11 +185,10 @@ Use `tidal-server` only when you are operating the server itself:
 
 - database migration
 - scan execution
-- server-local kick execution
 - API serving
 - API key management
 
-For day-to-day remote execution, use the CLI client `tidal`.
+For kick, auction, and log workflows, use `tidal` even if you are standing on the server host. Point it at the local API and keep the keystore local to that machine.
 
 ## Command Reference
 

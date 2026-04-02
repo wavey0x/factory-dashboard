@@ -6,9 +6,9 @@ from pathlib import Path
 
 import typer
 
-from tidal.operator_auction_cli import app as auction_app
-from tidal.operator_kick_cli import app as kick_app
-from tidal.operator_logs_cli import app as logs_app
+from tidal.auction_cli import app as auction_app
+from tidal.kick_cli import app as kick_app
+from tidal.logs_cli import app as logs_app
 from tidal.paths import (
     default_cli_dir,
     default_config_path,
@@ -17,7 +17,7 @@ from tidal.paths import (
 )
 from tidal.resources import read_template_text
 
-app = typer.Typer(help="Tidal CLI client")
+app = typer.Typer(help="Tidal operator CLI")
 
 app.add_typer(auction_app, name="auction")
 app.add_typer(kick_app, name="kick")

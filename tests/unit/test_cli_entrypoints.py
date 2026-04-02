@@ -18,7 +18,7 @@ def test_operator_cli_does_not_expose_scan_or_db_commands() -> None:
     assert "init" in result.output
 
 
-def test_server_cli_exposes_scan_db_and_api_commands() -> None:
+def test_server_cli_only_exposes_runtime_commands() -> None:
     runner = CliRunner()
     result = runner.invoke(server_app, ["--help"])
 
@@ -26,6 +26,10 @@ def test_server_cli_exposes_scan_db_and_api_commands() -> None:
     assert "scan" in result.output
     assert "db" in result.output
     assert "api" in result.output
+    assert "auth" in result.output
+    assert "kick" not in result.output
+    assert "auction" not in result.output
+    assert "logs" not in result.output
 
 
 def test_operator_init_creates_tidal_home_layout(tmp_path, monkeypatch) -> None:

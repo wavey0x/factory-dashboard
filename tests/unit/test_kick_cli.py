@@ -7,7 +7,7 @@ from typer.testing import CliRunner
 
 from tidal.cli import app as operator_app
 from tidal.control_plane.client import ControlPlaneError
-import tidal.operator_kick_cli as operator_kick_cli_module
+import tidal.kick_cli as operator_kick_cli_module
 
 
 def _write_config(tmp_path: Path, *, extra: str = "") -> Path:

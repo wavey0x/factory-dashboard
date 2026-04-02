@@ -105,6 +105,7 @@ uv run tidal-server api serve --config config/server.yaml
 ```
 
 For a self-hosted server, create client API keys with `tidal-server auth create --label <name>`.
+Operator reads and writes still go through `tidal`; on the server host itself, point `TIDAL_API_BASE_URL` at `http://127.0.0.1:8787`.
 
 ## Contributor Install From A Repo Checkout
 

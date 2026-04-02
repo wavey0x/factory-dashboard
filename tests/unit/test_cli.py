@@ -1,21 +1,16 @@
 import json
 from types import SimpleNamespace
-from unittest.mock import patch
-
-from eth_utils import to_checksum_address
 
 from tidal.cli_renderers import (
     BroadcastRecord,
     render_broadcast_records,
+    render_kick_submission_summary,
     render_kick_run_summary,
     render_prepared_action_summary,
 )
-from tidal.kick_cli import _make_confirm_fn, _make_execution_report_fn
-from tidal.transaction_service.types import TransactionExecutionReport
 
 
-def test_make_confirm_fn_displays_pricing_profile(capsys):
-    confirm_fn = _make_confirm_fn()
+def test_render_kick_submission_summary_displays_pricing_profile(capsys):
     summary = {
         "kicks": [
             {
@@ -52,25 +47,21 @@ def test_make_confirm_fn_displays_pricing_profile(capsys):
         "quote_spot_warning_threshold_pct": 2,
     }
 
-    with patch("tidal.kick_cli.typer.confirm", return_value=True) as confirm_mock:
-        result = confirm_fn(summary)
+    render_kick_submission_summary(summary)
 
     output = capsys.readouterr().out
-    assert result is True
     assert "Auction details" in output
     assert "Send details" in output
-    assert f"Auction:     {to_checksum_address('0x2222222222222222222222222222222222222222')}" in output
+    assert "Auction:     0x2222222222222222222222222222222222222222" in output
     assert "Quote out:   2,500.00 USDC (~$2,500.00)" in output
     assert "From:        -" in output
     assert "Gas limit:   252,000" in output
     assert "Rate:        2.5000 quoted | 2.7500 start | 2.3750 floor USDC/CRV" in output
     assert "Min quote:   2,375 USDC (-5.00% buffer)" in output
     assert "Profile:     stable | decay 0.01%" in output
-    confirm_mock.assert_called_once_with("Send this transaction?", default=False)
 
 
-def test_make_confirm_fn_warns_on_sell_vs_quote_mismatch(capsys):
-    confirm_fn = _make_confirm_fn()
+def test_render_kick_submission_summary_warns_on_sell_vs_quote_mismatch(capsys):
     summary = {
         "kicks": [
             {
@@ -107,8 +98,7 @@ def test_make_confirm_fn_warns_on_sell_vs_quote_mismatch(capsys):
         "quote_spot_warning_threshold_pct": 2,
     }
 
-    with patch("tidal.kick_cli.typer.confirm", return_value=False):
-        _ = confirm_fn(summary)
+    render_kick_submission_summary(summary)
 
     output = capsys.readouterr().out
     assert "Sell amount: 3,473.41 WFRAX (~$10,000.00)" in output
@@ -120,8 +110,7 @@ def test_make_confirm_fn_warns_on_sell_vs_quote_mismatch(capsys):
     assert output.index("⚠️  Warning:") < output.index("Kick (1 of 1)")
 
 
-def test_make_confirm_fn_respects_quote_spot_warning_threshold(capsys):
-    confirm_fn = _make_confirm_fn()
+def test_render_kick_submission_summary_respects_quote_spot_warning_threshold(capsys):
     summary = {
         "kicks": [
             {
@@ -158,38 +147,11 @@ def test_make_confirm_fn_respects_quote_spot_warning_threshold(capsys):
         "quote_spot_warning_threshold_pct": 2,
     }
 
-    with patch("tidal.kick_cli.typer.confirm", return_value=False):
-        _ = confirm_fn(summary)
+    render_kick_submission_summary(summary)
 
     output = capsys.readouterr().out
     assert "Quote out:   1,010.00 USDC (~$1,010.00)" in output
     assert "⚠️  Warning:" not in output
-
-
-def test_make_execution_report_fn_renders_confirmed_panel(capsys):
-    report_fn = _make_execution_report_fn()
-
-    report_fn(
-        TransactionExecutionReport(
-            operation="kick",
-            sender="0x1111111111111111111111111111111111111111",
-            tx_hash="0xabc",
-            broadcast_at="2026-03-29T18:57:32+00:00",
-            chain_id=1,
-            gas_estimate=227159,
-            receipt_status="CONFIRMED",
-            block_number=24765182,
-            gas_used=224212,
-        )
-    )
-
-    output = capsys.readouterr().out
-    assert "Confirmed" in output
-    assert "Operation:    kick" in output
-    assert "Broadcast at: Mar 29, 2026 18:57:32 UTC" in output
-    assert "Explorer:" not in output
-    assert "Gas used:" not in output
-    assert "Gas estimate:" not in output
 
 
 def test_render_kick_run_summary_for_aborted_confirm(capsys):
