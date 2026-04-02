@@ -23,7 +23,7 @@ The design splits shared state from signing authority. The server owns the datab
 | API | Exposes read models and action preparation over HTTP | `tidal/api/app.py` |
 | Read models | Dashboard rows, kick logs, scan logs, run details | `tidal/read/` |
 | CLI client | API-backed inspection and action execution with local wallet signing | `tidal/cli.py` |
-| Server operator CLI | Direct server-side entrypoint for migrations, scans, daemons, API, auth | `tidal/server_cli.py` |
+| Server operator CLI | Direct server-side entrypoint for migrations, scans, one-shot kick execution, API, auth | `tidal/server_cli.py` |
 | UI | Read-only monitoring plus CLI client action flows | `ui/src/App.jsx` |
 | Contract | On-chain `AuctionKicker` helper used for atomic kick execution | `contracts/src/AuctionKicker.sol` |
 

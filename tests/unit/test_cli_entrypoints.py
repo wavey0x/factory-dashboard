@@ -65,6 +65,8 @@ def test_server_init_config_creates_tracked_server_config(tmp_path, monkeypatch)
     scaffold = (repo_root / "config" / "server.yaml").read_text(encoding="utf-8")
     assert "kick:" in scaffold
     assert "profile_overrides:" in scaffold
+    assert "scan_auto_settle_enabled" not in scaffold
+    assert "scan_interval_seconds" not in scaffold
     settings = load_server_settings(repo_root / "config" / "server.yaml")
     assert settings.kick_config.pricing_policy.default_profile_name == "volatile"
     assert "Server config:" in result.output

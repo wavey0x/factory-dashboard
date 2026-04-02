@@ -189,8 +189,8 @@ Common CLI client-facing failures:
 Use `tidal-server` only when you are operating the server itself:
 
 - database migration
-- scan daemon
-- kick daemon
+- scan execution
+- server-local kick execution
 - API serving
 - API key management
 

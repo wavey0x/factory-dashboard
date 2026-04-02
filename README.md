@@ -8,7 +8,7 @@ Documentation lives in [`docs/`](./docs/index.md). The intended hosted docs doma
 
 | Component | Role | Entry point |
 |---|---|---|
-| `tidal-server` | Server operator CLI for migrations, scans, kick daemons, API serving, and API key management | `tidal.server_cli:app` |
+| `tidal-server` | Server operator CLI for migrations, scans, direct kick execution, API serving, and API key management | `tidal.server_cli:app` |
 | `tidal` | CLI client for API-backed inspection, preparation, signing, sending, and log inspection | `tidal.cli:app` |
 | `ui/` | React dashboard for strategies, fee burners, logs, and CLI client actions | `ui/src/App.jsx` |
 | `contracts/` | Foundry project for the on-chain `AuctionKicker` helper contract | `contracts/src/AuctionKicker.sol` |

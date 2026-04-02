@@ -43,7 +43,7 @@ from tidal.paths import default_txn_lock_path
 from tidal.transaction_service.signer import TransactionSigner
 
 
-def build_scanner_service(settings: Settings, session) -> ScannerService:
+def build_scanner_service(settings: Settings, session, *, auto_settle: bool = False) -> ScannerService:
     web3_client = Web3Client(
         settings.rpc_url,
         timeout_seconds=settings.rpc_timeout_seconds,
@@ -123,7 +123,7 @@ def build_scanner_service(settings: Settings, session) -> ScannerService:
     alert_sink = NullAlertSink()
 
     auction_settler = None
-    if settings.scan_auto_settle_enabled:
+    if auto_settle:
         resolved_keystore_path = settings.resolved_txn_keystore_path
         if resolved_keystore_path is None or not settings.txn_keystore_passphrase:
             raise ValueError("TXN_KEYSTORE_PATH and TXN_KEYSTORE_PASSPHRASE are required for transaction commands")

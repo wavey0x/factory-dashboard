@@ -34,20 +34,19 @@ NoConfirmationOption = Annotated[
     ),
 ]
 
+AutoSettleOption = Annotated[
+    bool,
+    typer.Option(
+        "--auto-settle",
+        help="Enable scan-side auction settlement for this run.",
+    ),
+]
+
 VerboseOption = Annotated[
     bool,
     typer.Option(
         "--verbose",
         help="Show extra diagnostic detail.",
-    ),
-]
-
-IntervalOption = Annotated[
-    int | None,
-    typer.Option(
-        "--interval-seconds",
-        min=1,
-        help="Seconds between daemon cycles.",
     ),
 ]
 

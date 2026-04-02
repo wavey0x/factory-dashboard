@@ -7,6 +7,7 @@ from typer.testing import CliRunner
 
 import tidal.auction_cli as auction_cli_module
 import tidal.kick_cli as kick_cli_module
+import tidal.scan_cli as scan_cli_module
 from tidal.server_cli import app
 from tidal.ops.auction_enable import AuctionInspection as EnableAuctionInspection
 from tidal.ops.auction_enable import EnableExecutionPlan
@@ -110,8 +111,10 @@ class _FakeWeb3Client:
         return 0
 
 
-class _StopDaemon(Exception):
-    pass
+class _FakeScannerService:
+    async def scan_once(self, **kwargs):  # noqa: ANN003
+        del kwargs
+        return SimpleNamespace(status="SUCCESS")
 
 
 def test_scan_run_requires_rpc_url(tmp_path, monkeypatch) -> None:
@@ -130,7 +133,7 @@ def test_scan_run_requires_rpc_url(tmp_path, monkeypatch) -> None:
     assert "RPC_URL is required" in result.output
 
 
-def test_scan_run_requires_keystore_when_auto_settle_enabled(tmp_path, monkeypatch) -> None:
+def test_scan_run_requires_keystore_when_auto_settle_requested(tmp_path, monkeypatch) -> None:
     _isolate_runtime_env(tmp_path, monkeypatch)
     monkeypatch.setenv("RPC_URL", "https://example-rpc.invalid")
     monkeypatch.delenv("TXN_KEYSTORE_PATH", raising=False)
@@ -138,7 +141,6 @@ def test_scan_run_requires_keystore_when_auto_settle_enabled(tmp_path, monkeypat
     config_path = tmp_path / "server.yaml"
     config_path.write_text(
         "db_path: ./test.db\n"
-        "scan_auto_settle_enabled: true\n"
         "txn_keystore_path: ''\n"
         "txn_keystore_passphrase: ''\n"
         "kick:\n"
@@ -152,19 +154,18 @@ def test_scan_run_requires_keystore_when_auto_settle_enabled(tmp_path, monkeypat
     )
 
     runner = CliRunner()
-    result = runner.invoke(app, ["scan", "run", "--no-confirmation", "--config", str(config_path)])
+    result = runner.invoke(app, ["scan", "run", "--auto-settle", "--no-confirmation", "--config", str(config_path)])
 
     assert result.exit_code == 1
     assert "TXN_KEYSTORE_PATH and TXN_KEYSTORE_PASSPHRASE are required" in result.output
 
 
-def test_scan_run_requires_no_confirmation_when_auto_settle_enabled(tmp_path, monkeypatch) -> None:
+def test_scan_run_requires_no_confirmation_when_auto_settle_requested(tmp_path, monkeypatch) -> None:
     _isolate_runtime_env(tmp_path, monkeypatch)
     monkeypatch.setenv("RPC_URL", "https://example-rpc.invalid")
     config_path = tmp_path / "server.yaml"
     config_path.write_text(
         "db_path: ./test.db\n"
-        "scan_auto_settle_enabled: true\n"
         "kick:\n"
         "  default_profile: volatile\n"
         "  profiles:\n"
@@ -176,10 +177,60 @@ def test_scan_run_requires_no_confirmation_when_auto_settle_enabled(tmp_path, mo
     )
 
     runner = CliRunner()
-    result = runner.invoke(app, ["scan", "run", "--config", str(config_path)])
+    result = runner.invoke(app, ["scan", "run", "--auto-settle", "--config", str(config_path)])
 
     assert result.exit_code != 0
     assert "--no-confirmation" in result.output
+
+
+@pytest.mark.parametrize(
+    ("flag_args", "expected"),
+    [
+        ([], False),
+        (["--auto-settle", "--no-confirmation"], True),
+    ],
+)
+def test_scan_run_threads_auto_settle_flag(tmp_path, monkeypatch, flag_args, expected) -> None:
+    _isolate_runtime_env(tmp_path, monkeypatch)
+    monkeypatch.setenv("RPC_URL", "https://example-rpc.invalid")
+    config_path = tmp_path / "server.yaml"
+    config_path.write_text(
+        "db_path: ./test.db\n"
+        "txn_keystore_path: ./ops.json\n"
+        "txn_keystore_passphrase: secret\n"
+        "kick:\n"
+        "  default_profile: volatile\n"
+        "  profiles:\n"
+        "    volatile:\n"
+        "      start_price_buffer_bps: 1000\n"
+        "      min_price_buffer_bps: 500\n"
+        "      step_decay_rate_bps: 25\n",
+        encoding="utf-8",
+    )
+    captured = {}
+
+    def fake_build_scanner_service(settings, session, *, auto_settle=False):  # noqa: ANN001
+        del settings, session
+        captured["auto_settle"] = auto_settle
+        return _FakeScannerService()
+
+    monkeypatch.setattr(scan_cli_module, "build_scanner_service", fake_build_scanner_service)
+    monkeypatch.setattr(scan_cli_module, "configure_logging", lambda *args, **kwargs: None)
+    monkeypatch.setattr(scan_cli_module, "render_scan_summary", lambda result: None)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["scan", "run", "--config", str(config_path), *flag_args])
+
+    assert result.exit_code == 0
+    assert captured["auto_settle"] is expected
+
+
+def test_scan_help_does_not_list_daemon() -> None:
+    runner = CliRunner()
+    result = runner.invoke(app, ["scan", "--help"])
+
+    assert result.exit_code == 0
+    assert "daemon" not in result.output
 
 
 def test_kick_rejects_invalid_source_address() -> None:
@@ -244,55 +295,12 @@ def test_kick_threads_curve_quote_override(tmp_path, monkeypatch, flag_args, exp
     assert captured["require_curve_quote"] is expected
 
 
-@pytest.mark.parametrize(
-    ("flag_args", "expected"),
-    [
-        ([], None),
-        (["--require-curve-quote"], True),
-        (["--allow-missing-curve-quote"], False),
-    ],
-)
-def test_kick_daemon_threads_curve_quote_override(tmp_path, monkeypatch, flag_args, expected) -> None:
-    config_path = _write_txn_config(tmp_path)
-    captured = {}
-
-    def fake_build_txn_service(settings, session, **kwargs):  # noqa: ANN001, ANN003
-        del settings, session
-        captured["require_curve_quote"] = kwargs.get("require_curve_quote")
-        return _FakeTxnService()
-
-    async def fake_sleep(_seconds: int | float) -> None:
-        raise _StopDaemon()
-
-    monkeypatch.setattr(kick_cli_module, "build_txn_service", fake_build_txn_service)
-    monkeypatch.setattr(kick_cli_module, "configure_logging", lambda *args, **kwargs: None)
-    monkeypatch.setattr(kick_cli_module.asyncio, "sleep", fake_sleep)
-    monkeypatch.setattr(kick_cli_module, "_load_run_rows", lambda session, run_id: [])
-    monkeypatch.setattr("tidal.cli_context.build_web3_client", lambda settings: _FakeWeb3Client())
-    monkeypatch.setattr(
-        kick_cli_module.CLIContext,
-        "resolve_execution",
-        lambda self, **kwargs: SimpleNamespace(
-            signer=SimpleNamespace(),
-            sender="0x9999999999999999999999999999999999999999",
-        ),
-    )
-
+def test_kick_help_does_not_list_daemon() -> None:
     runner = CliRunner()
-    result = runner.invoke(app, ["kick", "daemon", "--no-confirmation", "--config", str(config_path), *flag_args])
+    result = runner.invoke(app, ["kick", "--help"])
 
-    assert isinstance(result.exception, _StopDaemon)
-    assert captured["require_curve_quote"] is expected
-
-
-def test_kick_daemon_requires_no_confirmation(tmp_path) -> None:
-    config_path = _write_txn_config(tmp_path)
-
-    runner = CliRunner()
-    result = runner.invoke(app, ["kick", "daemon", "--config", str(config_path)])
-
-    assert result.exit_code != 0
-    assert "--no-confirmation" in result.output
+    assert result.exit_code == 0
+    assert "daemon" not in result.output
 
 
 def test_auction_enable_tokens_requires_rpc_url(tmp_path, monkeypatch) -> None:

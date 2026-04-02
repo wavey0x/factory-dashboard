@@ -52,9 +52,7 @@ class Settings(BaseSettings):
     db_path: Path | None = Field(default=None, alias="DB_PATH")
     chain_id: int = Field(default=1, alias="CHAIN_ID")
 
-    scan_interval_seconds: int = Field(default=300, alias="SCAN_INTERVAL_SECONDS")
     scan_concurrency: int = Field(default=20, alias="SCAN_CONCURRENCY")
-    scan_auto_settle_enabled: bool = Field(default=False, alias="SCAN_AUTO_SETTLE_ENABLED")
     rpc_timeout_seconds: int = Field(default=10, alias="RPC_TIMEOUT_SECONDS")
     rpc_retry_attempts: int = Field(default=3, alias="RPC_RETRY_ATTEMPTS")
     multicall_enabled: bool = Field(default=True, alias="MULTICALL_ENABLED")

@@ -5,7 +5,6 @@
 ## Subcommands
 
 - `run`: execute one scan cycle
-- `daemon`: run repeated scan cycles on an interval
 
 ## Common Invocations
 
@@ -15,10 +14,10 @@ Run one scan immediately:
 tidal-server scan run --config config/server.yaml
 ```
 
-Run the scanner continuously:
+Run one scan with auto-settle enabled:
 
 ```bash
-tidal-server scan daemon --config config/server.yaml --interval-seconds 300
+tidal-server scan run --config config/server.yaml --auto-settle --no-confirmation
 ```
 
 Emit machine-readable output:
@@ -45,17 +44,19 @@ The scanner populates the shared SQLite cache that powers:
 
 Common server operator settings for this command:
 
-- `scan_interval_seconds`
-- `monitored_strategy_factories`
+- `scan_concurrency`
 - `monitored_fee_burners`
-- `scan_auto_settle_enabled`
+- `rpc_timeout_seconds`
 
 ## Auto-Settle Note
 
-If `scan_auto_settle_enabled` is enabled, the server also needs valid local wallet configuration such as:
+Auto-settle is not configured in `server.yaml`.
+It is enabled only when `--auto-settle` is passed on `scan run`.
+
+When `--auto-settle` is used, the server also needs valid local wallet configuration such as:
 
 - `TXN_KEYSTORE_PATH`
 - `TXN_KEYSTORE_PASSPHRASE`
-- `--no-confirmation` on `scan run` and `scan daemon`
+- `--no-confirmation`
 
 Without those, the scan will fail when it reaches the settlement path.

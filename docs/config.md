@@ -143,7 +143,6 @@ These entries drive:
 
 Current defaults from `tidal/config.py` include:
 
-- `scan_interval_seconds = 300`
 - `rpc_timeout_seconds = 10`
 - `price_timeout_seconds = 10`
 - `txn_usd_threshold = 100`
@@ -153,6 +152,9 @@ Current defaults from `tidal/config.py` include:
 - `prepared_action_max_age_seconds = 300`
 - `cooldown_minutes = 60` in `config/server.yaml`
 - `tidal_api_request_timeout_seconds = 30`
+
+Scan auto-settle is not a config setting.
+Enable it per invocation with `tidal-server scan run --auto-settle --no-confirmation`.
 
 ## Rule Of Thumb
 

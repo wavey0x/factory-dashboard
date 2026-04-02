@@ -12,9 +12,7 @@ tidal_api_receipt_reconcile_threshold_seconds: 60
 tidal_api_cors_allowed_origins: []
 
 # Scanner and execution settings.
-scan_interval_seconds: 300
 scan_concurrency: 20
-scan_auto_settle_enabled: false
 auction_kicker_address: "0x846475a1B97AC57861813206749c1b0f592383eF"
 txn_usd_threshold: 100
 txn_max_base_fee_gwei: 0.5

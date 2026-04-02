@@ -69,8 +69,8 @@ Instead:
 
 That applies to:
 
-- `tidal-server kick daemon`
-- scanner commands when `scan_auto_settle_enabled` can cause on-chain sends
+- `tidal-server kick run --no-confirmation`
+- `tidal-server scan run --auto-settle --no-confirmation`
 
 ## Runtime semantics
 
@@ -130,26 +130,26 @@ That should fail with a clear error telling the user that `--json` on mutating c
 
 ## Background command rule
 
-### `tidal-server kick daemon`
+### `tidal-server kick run --no-confirmation`
 
 Do not invent a separate `--execute` / observe mode.
 
 Keep the model simple:
 
-- `tidal-server kick daemon --no-confirmation` = allowed
-- `tidal-server kick daemon` = refuse to run
+- `tidal-server kick run --no-confirmation` = allowed unattended
+- `tidal-server kick run` = prompt before sending
 
 Reason:
 
-- daemon mode is fundamentally unattended
+- unattended execution is fundamentally non-interactive
 - a per-transaction prompt loop is poor UX and operationally weak
 - keeping one bypass flag is simpler than introducing a second live/observe mode
 
 ### Scanner auto-settle
 
-If `scan_auto_settle_enabled` is true and the scanner may send transactions:
+If `--auto-settle` is passed and the scanner may send transactions:
 
-- `tidal-server scan run` and `tidal-server scan daemon` must require `--no-confirmation`
+- `tidal-server scan run` must require `--no-confirmation`
 
 No interactive confirmation path is needed for scanner auto-settle in this pass.
 It should be treated as an unattended transaction path.
@@ -205,7 +205,7 @@ For `tidal kick run` specifically:
 - keep `tidal kick inspect` as the read-only shortlist command
 - remove the current non-broadcast inspect-like path from `run`
 
-### 4. Update daemon / unattended commands
+### 4. Update unattended commands
 
 In:
 
@@ -214,8 +214,8 @@ In:
 
 Rules:
 
-- `kick daemon` must require `--no-confirmation`
-- `scan run` / `scan daemon` must require `--no-confirmation` when `scan_auto_settle_enabled` is true
+- `kick run --no-confirmation` remains the unattended kick path
+- `scan run --auto-settle` must require `--no-confirmation`
 
 Implementation can reuse existing runtime behavior; no separate preview mode is needed.
 
@@ -291,8 +291,7 @@ Add coverage for:
 - one-shot commands prompt by default
 - `--no-confirmation` skips prompt
 - `--json` without `--no-confirmation` fails on mutating commands
-- `kick daemon` requires `--no-confirmation`
-- `scan run` / `scan daemon` require `--no-confirmation` when auto-settle is enabled
+- `scan run --auto-settle` requires `--no-confirmation`
 
 ## Migration strategy
 

@@ -16,7 +16,6 @@ from tidal.cli_options import (
     AccountOption,
     AuctionAddressOption,
     ConfigOption,
-    IntervalOption,
     JsonOption,
     KeystoreOption,
     LimitOption,
@@ -27,7 +26,7 @@ from tidal.cli_options import (
     SourceTypeOption,
     VerboseOption,
 )
-from tidal.cli_validation import require_no_confirmation_for_json, require_no_confirmation_for_unattended
+from tidal.cli_validation import require_no_confirmation_for_json
 from tidal.cli_renderers import (
     BroadcastRecord,
     emit_json,
@@ -246,105 +245,6 @@ def kick_run(
         candidates_found=result.candidates_found,
         kicks_failed=result.kicks_failed,
     ))
-
-
-@app.command("daemon")
-def kick_daemon(
-    config: ConfigOption = None,
-    no_confirmation: NoConfirmationOption = False,
-    json_output: JsonOption = False,
-    source_type: SourceTypeOption = None,
-    source_address: SourceAddressOption = None,
-    auction_address: AuctionAddressOption = None,
-    limit: LimitOption = None,
-    interval_seconds: IntervalOption = None,
-    sender: SenderOption = None,
-    account: AccountOption = None,
-    keystore: KeystoreOption = None,
-    password_file: PasswordFileOption = None,
-    verbose: VerboseOption = False,
-    require_curve_quote: bool | None = typer.Option(
-        None,
-        "--require-curve-quote/--allow-missing-curve-quote",
-        help="Override Curve quote strictness for this run.",
-    ),
-) -> None:
-    """Run the kick service continuously."""
-
-    configure_logging(verbose=verbose, output_mode=OutputMode.TEXT)
-    require_no_confirmation_for_unattended(no_confirmation=no_confirmation, command_name="kick daemon")
-    cli_ctx = CLIContext(config, mode="server")
-    try:
-        cli_ctx.require_rpc()
-    except ConfigurationError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(code=1) from exc
-
-    normalized_source_type = _normalize_source_type_filter(source_type)
-    normalized_source_address = normalize_cli_address(source_address, param_hint="--source")
-    normalized_auction_address = normalize_cli_address(auction_address, param_hint="--auction")
-    exec_ctx = cli_ctx.resolve_execution(
-        required=True,
-        required_for="kick daemon execution",
-        sender=normalize_cli_address(sender, param_hint="--sender"),
-        account_name=account,
-        keystore_path=keystore,
-        password_file=password_file,
-    )
-    execution_sender = exec_ctx.sender
-    sleep_seconds = interval_seconds or 1800
-
-    async def run_loop() -> None:
-        while True:
-            web3_client = cli_ctx.web3_client()
-            try:
-                base_fee_wei = await web3_client.get_base_fee()
-                base_fee_gwei = base_fee_wei / 1e9
-            except Exception:
-                base_fee_gwei = 0.0
-
-            if base_fee_gwei > cli_ctx.settings.txn_max_base_fee_gwei:
-                await asyncio.sleep(sleep_seconds)
-                continue
-
-            with cli_ctx.session() as session:
-                txn_service = build_txn_service(
-                    cli_ctx.settings,
-                    session,
-                    require_curve_quote=require_curve_quote,
-                    web3_client=web3_client,
-                    signer=exec_ctx.signer,
-                    skip_base_fee_check=base_fee_gwei > cli_ctx.settings.txn_max_base_fee_gwei,
-                )
-                result = await txn_service.run_once(
-                    live=True,
-                    batch=True,
-                    source_type=normalized_source_type,
-                    source_address=normalized_source_address,
-                    auction_address=normalized_auction_address,
-                    limit=limit,
-                )
-                run_rows = _load_run_rows(session, result.run_id)
-            if json_output:
-                emit_json(
-                    "kick.daemon",
-                    status="ok" if result.candidates_found else "noop",
-                    data={"run": asdict(result), "rows": run_rows, "sender": execution_sender},
-                )
-            else:
-                render_kick_run_summary(
-                    result=result,
-                    live=True,
-                    source_type=normalized_source_type,
-                    source_address=normalized_source_address,
-                    auction_address=normalized_auction_address,
-                    run_rows=run_rows,
-                    verbose=verbose,
-                    sender=execution_sender,
-                )
-            await asyncio.sleep(sleep_seconds)
-
-    asyncio.run(run_loop())
 
 
 @app.command("inspect")
