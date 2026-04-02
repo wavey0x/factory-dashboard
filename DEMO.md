@@ -16,8 +16,8 @@
 ### CLI
 - client for managing and interacting with auctions
 - available to anyone with an api key issued by wavey
-- `tidal kick run --broadcast`
-- `tidal auction settle [0xauction] --sweep --broadcast`
+- `tidal kick run`
+- `tidal auction settle [0xauction] --sweep`
 - Sweep and settle
 	 
 ### API

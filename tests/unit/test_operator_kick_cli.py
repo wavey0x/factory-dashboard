@@ -57,11 +57,11 @@ def _inspect_payload(ready: list[dict[str, object]]) -> dict[str, object]:
     }
 
 
-class _DryRunClient:
+class _InspectOnlyClient:
     def __init__(self) -> None:
         self.inspect_calls: list[dict[str, object]] = []
 
-    def __enter__(self) -> "_DryRunClient":
+    def __enter__(self) -> "_InspectOnlyClient":
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:  # noqa: ANN001
@@ -84,7 +84,7 @@ class _DryRunClient:
         }
 
     def prepare_kicks(self, body: dict[str, object]) -> dict[str, object]:
-        raise AssertionError(f"dry run should not call prepare_kicks: {body}")
+        raise AssertionError(f"inspect should not call prepare_kicks: {body}")
 
 
 class _BroadcastClient:
@@ -216,28 +216,23 @@ class _PrepareNoopClient:
         }
 
 
-def test_operator_kick_run_dry_run_uses_inspect_only(tmp_path, monkeypatch) -> None:
+def test_operator_kick_inspect_uses_inspect_only(tmp_path, monkeypatch) -> None:
     config_path = _write_config(tmp_path)
-    client = _DryRunClient()
+    client = _InspectOnlyClient()
 
     monkeypatch.setattr(
         operator_kick_cli_module.CLIContext,
         "control_plane_client",
         lambda self, auth=True: client,
     )
-    monkeypatch.setattr(
-        operator_kick_cli_module.CLIContext,
-        "resolve_execution",
-        lambda self, **kwargs: SimpleNamespace(signer=None, sender=None),
-    )
 
     runner = CliRunner()
-    result = runner.invoke(operator_app, ["kick", "run", "--config", str(config_path)])
+    result = runner.invoke(operator_app, ["kick", "inspect", "--config", str(config_path)])
 
     assert result.exit_code == 0
     assert len(client.inspect_calls) == 1
-    assert client.inspect_calls[0]["includeLiveInspection"] is False
-    assert "just-in-time during broadcast" in result.output
+    assert "includeLiveInspection" not in client.inspect_calls[0]
+    assert "Kick inspect:" in result.output
 
 
 @pytest.mark.parametrize(
@@ -273,7 +268,7 @@ def test_operator_kick_run_threads_curve_quote_override(tmp_path, monkeypatch, f
     monkeypatch.setattr(operator_kick_cli_module.typer, "confirm", lambda *args, **kwargs: False)
 
     runner = CliRunner()
-    result = runner.invoke(operator_app, ["kick", "run", "--broadcast", "--config", str(config_path), *flag_args])
+    result = runner.invoke(operator_app, ["kick", "run", "--config", str(config_path), *flag_args])
 
     assert result.exit_code == 2
     assert client.prepare_calls
@@ -329,7 +324,7 @@ def test_operator_kick_run_broadcast_prepares_candidates_one_by_one(tmp_path, mo
     )
 
     runner = CliRunner()
-    result = runner.invoke(operator_app, ["kick", "run", "--broadcast", "--config", str(config_path)])
+    result = runner.invoke(operator_app, ["kick", "run", "--config", str(config_path)])
 
     assert result.exit_code == 0
     assert len(client.inspect_calls) == 1
@@ -384,7 +379,7 @@ def test_operator_kick_run_prepare_noop_does_not_repeat_generic_footer(tmp_path,
     )
 
     runner = CliRunner()
-    result = runner.invoke(operator_app, ["kick", "run", "--broadcast", "--config", str(config_path)])
+    result = runner.invoke(operator_app, ["kick", "run", "--config", str(config_path)])
 
     assert result.exit_code == 2
     assert "Skip" in result.output
@@ -420,7 +415,7 @@ def test_operator_kick_run_declined_confirmations_reports_skipped_summary(tmp_pa
     monkeypatch.setattr(operator_kick_cli_module.typer, "confirm", lambda *args, **kwargs: False)
 
     runner = CliRunner()
-    result = runner.invoke(operator_app, ["kick", "run", "--broadcast", "--config", str(config_path)])
+    result = runner.invoke(operator_app, ["kick", "run", "--config", str(config_path)])
 
     assert result.exit_code == 2
     assert "All prepared kick transactions were skipped." in result.output
@@ -467,7 +462,7 @@ def test_operator_kick_run_warns_and_skips_stale_prepared_transaction(tmp_path, 
     )
 
     runner = CliRunner()
-    result = runner.invoke(operator_app, ["kick", "run", "--broadcast", "--config", str(config_path)])
+    result = runner.invoke(operator_app, ["kick", "run", "--config", str(config_path)])
 
     assert result.exit_code == 2
     assert "Warnings" in result.output
@@ -515,13 +510,13 @@ def test_operator_kick_run_uses_configured_prepared_transaction_age_limit(tmp_pa
     )
 
     runner = CliRunner()
-    result = runner.invoke(operator_app, ["kick", "run", "--broadcast", "--config", str(config_path)])
+    result = runner.invoke(operator_app, ["kick", "run", "--config", str(config_path)])
 
     assert result.exit_code == 2
     assert "Prepared transaction expired after 1 second" in result.output
 
 
-def test_operator_kick_run_bypass_confirmation_still_blocks_stale_prepared_transaction(
+def test_operator_kick_run_no_confirmation_still_blocks_stale_prepared_transaction(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -558,7 +553,7 @@ def test_operator_kick_run_bypass_confirmation_still_blocks_stale_prepared_trans
     monkeypatch.setattr(
         operator_kick_cli_module.typer,
         "confirm",
-        lambda *args, **kwargs: pytest.fail("confirmation prompt should not run with --bypass-confirmation"),
+        lambda *args, **kwargs: pytest.fail("confirmation prompt should not run with --no-confirmation"),
     )
     monkeypatch.setattr(operator_kick_cli_module, "_current_monotonic", lambda: next(monotonic_values))
     monkeypatch.setattr(
@@ -570,7 +565,7 @@ def test_operator_kick_run_bypass_confirmation_still_blocks_stale_prepared_trans
     runner = CliRunner()
     result = runner.invoke(
         operator_app,
-        ["kick", "run", "--broadcast", "--bypass-confirmation", "--config", str(config_path)],
+        ["kick", "run", "--no-confirmation", "--config", str(config_path)],
     )
 
     assert result.exit_code == 2
@@ -600,8 +595,19 @@ def test_operator_kick_run_checks_api_auth_before_resolving_execution(tmp_path, 
     )
 
     runner = CliRunner()
-    result = runner.invoke(operator_app, ["kick", "run", "--broadcast", "--config", str(config_path)])
+    result = runner.invoke(operator_app, ["kick", "run", "--config", str(config_path)])
 
     assert result.exit_code == 1
     assert "TIDAL_API_KEY is invalid" in result.output
     assert call_order == ["verify"]
+
+
+def test_operator_kick_run_json_requires_no_confirmation(tmp_path) -> None:
+    config_path = _write_config(tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(operator_app, ["kick", "run", "--json", "--config", str(config_path)])
+
+    assert result.exit_code != 0
+    assert "Invalid value for --json" in result.output
+    assert "--no-confirmation" in result.output

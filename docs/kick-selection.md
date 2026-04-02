@@ -138,7 +138,7 @@ The CLI client API-backed flow is intentionally one-by-one:
 
 - inspect using cached ordering
 - prepare one candidate
-- confirm and optionally broadcast
+- confirm and send
 - move to the next candidate
 
 That means cached prices are used for ranking, while quote freshness is preserved for the actual transaction.

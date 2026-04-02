@@ -5,7 +5,7 @@
 ## Subcommands
 
 - `inspect`: show the current shortlist and why entries are ready or deferred
-- `run`: prepare candidates one at a time and optionally broadcast them
+- `run`: prepare candidates one at a time and send them after review
 
 ## Common Invocations
 
@@ -21,22 +21,22 @@ Focus on fee burners:
 tidal kick inspect --source-type fee-burner
 ```
 
-Run a dry preview loop:
+Run interactively with confirmation:
 
 ```bash
-tidal kick run
+tidal kick run --sender 0xYourAddress --account wavey3
 ```
 
-Broadcast live transactions:
+Run unattended:
 
 ```bash
-tidal kick run --broadcast --sender 0xYourAddress --account wavey3
+tidal kick run --no-confirmation --sender 0xYourAddress --account wavey3
 ```
 
 Allow prepares to continue when Curve quoting is unavailable:
 
 ```bash
-tidal kick run --broadcast --allow-missing-curve-quote
+tidal kick run --sender 0xYourAddress --account wavey3 --allow-missing-curve-quote
 ```
 
 ## Important Flags
@@ -46,24 +46,23 @@ tidal kick run --broadcast --allow-missing-curve-quote
 - `--auction`: target one auction address
 - `--limit`: cap how many candidates are considered
 - `--show-all`: include non-ready entries on `inspect`
-- `--broadcast`: actually sign and send transactions
-- `--bypass-confirmation`: skip the interactive confirmation prompt
+- `--no-confirmation`: skip the interactive confirmation prompt
 - `--verbose`: show more prepare and skip detail on `run`
 - `--require-curve-quote` and `--allow-missing-curve-quote`: tighten or relax fresh quote requirements for that run
-- `--json`: emit machine-readable output
+- `--json`: emit machine-readable output; requires `--no-confirmation` on `run`
 
 ## How `run` Behaves
 
-The client does not precompute and broadcast a whole batch at once. Instead it repeats this loop:
+The client does not precompute and send a whole batch at once. Instead it repeats this loop:
 
 1. fetch the current shortlist from the API
 2. prepare the next exact candidate
 3. show a review panel
-4. sign and broadcast locally if confirmed
+4. sign and send locally if confirmed
 5. report broadcast and receipt data back to the API
 
 That keeps the final transaction payload aligned with the latest on-chain state.
-If a prepared transaction sits longer than `prepared_action_max_age_seconds`, the client skips it instead of broadcasting stale quotes.
+If a prepared transaction sits longer than `prepared_action_max_age_seconds`, the client skips it instead of sending stale quotes.
 
 ## Review And Warning Notes
 

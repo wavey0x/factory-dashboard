@@ -43,6 +43,6 @@ tidal logs show <run_id>
 
 ## Notes
 
-- These commands are safe to use without broadcast credentials.
+- These commands are safe to use without transaction-signing credentials.
 - `--json` is useful when exporting or post-processing historical data.
 - The data comes from the server-side audit tables, not from local CLI state.

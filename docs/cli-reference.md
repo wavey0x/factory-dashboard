@@ -10,9 +10,9 @@ Setup and workflow guidance live elsewhere:
 
 ## Shared Patterns
 
-### Preview first
+### Confirmation first
 
-Mutating transaction commands default to preview mode. Add `--broadcast` to actually sign and send a transaction.
+Mutating transaction commands send transactions after review by default. Use `--no-confirmation` only for unattended or machine-driven execution.
 
 ### Local signing
 
@@ -27,7 +27,7 @@ The private key stays with the machine running the CLI.
 
 ### Machine-readable output
 
-Most read and write commands accept `--json` for scripting and automation.
+Most read and write commands accept `--json` for scripting and automation. On mutating commands, `--json` requires `--no-confirmation`.
 
 ### Config overrides
 
@@ -52,7 +52,7 @@ Use `tidal-server` when:
 | Command | Use it when | Reference |
 |---|---|---|
 | `tidal init` | You are bootstrapping a workstation or refreshing scaffold files | [CLI Client: `tidal init`](cli-client-init.md) |
-| `tidal kick` | You want to inspect or broadcast kick candidates through the API | [CLI Client: `tidal kick`](cli-client-kick.md) |
+| `tidal kick` | You want to inspect or execute kick candidates through the API | [CLI Client: `tidal kick`](cli-client-kick.md) |
 | `tidal auction` | You want to deploy, enable, or settle auctions through the API | [CLI Client: `tidal auction`](cli-client-auction.md) |
 | `tidal logs` | You want historical kick and scan data from the API | [CLI Client: `tidal logs`](cli-client-logs.md) |
 

@@ -621,7 +621,7 @@ def render_kick_run_summary(
     elif result.candidates_found == 0:
         typer.echo("No eligible candidates.")
     elif not live:
-        typer.echo("Dry run complete.")
+        typer.echo("Preview complete.")
     elif result.kicks_failed and result.kicks_succeeded:
         typer.echo("Completed with failures.")
     elif "CONFIRMED" in statuses:
@@ -650,7 +650,7 @@ def render_kick_run_summary(
         if skipped_count:
             typer.echo(f"Skipped:      {skipped_count}")
     else:
-        typer.echo(f"Would kick:   {result.kicks_attempted}")
+        typer.echo(f"Previewed:    {result.kicks_attempted}")
 
     if deferred_same_auction_count:
         typer.echo(f"Deferred:     {deferred_same_auction_count}")

@@ -43,7 +43,7 @@ def normalize_cli_address(value: str | None, *, param_hint: str = "") -> str | N
 
 @dataclass(slots=True)
 class ExecutionContext:
-    """Resolved signer and sender for a broadcast-capable CLI command."""
+    """Resolved signer and sender for a transaction-sending CLI command."""
 
     signer: TransactionSigner | None
     sender: str | None
@@ -103,7 +103,7 @@ class CLIContext:
     def resolve_execution(
         self,
         *,
-        broadcast: bool,
+        required: bool,
         required_for: str,
         sender: str | None = None,
         account_name: str | None = None,
@@ -113,7 +113,7 @@ class CLIContext:
         """Resolve signer, validate sender, and resolve the effective sender address."""
         signer = load_signer_from_options(
             self.settings,
-            required=broadcast,
+            required=required,
             required_for=required_for,
             account_name=account_name,
             keystore_path=keystore_path,

@@ -18,14 +18,14 @@ from tidal.cli_context import CLIContext, normalize_cli_address
 from tidal.cli_exit_codes import EXECUTION_ERROR, NOOP
 from tidal.cli_options import (
     AccountOption,
-    BroadcastOption,
-    BypassConfirmationOption,
     ConfigOption,
     JsonOption,
     KeystoreOption,
+    NoConfirmationOption,
     PasswordFileOption,
     SenderOption,
 )
+from tidal.cli_validation import require_no_confirmation_for_json
 from tidal.cli_renderers import (
     BroadcastRecord,
     emit_json,
@@ -189,7 +189,7 @@ async def _preview_settlement_execution(
         return result
 
     if signer is None:
-        raise SystemExit("Signer is required for broadcast settlement execution.")
+        raise SystemExit("Signer is required for settlement execution.")
 
     tx = {
         "to": to_checksum_address(settlement_call.target_address),
@@ -218,7 +218,6 @@ def _render_settlement_summary(
     decision,
     execution: dict[str, object] | None,
     warnings: list[str],
-    broadcast: bool,
     status: str,
 ) -> None:
     typer.echo(f"Auction:       {to_checksum_address(inspection.auction_address)}")
@@ -264,12 +263,8 @@ def _render_settlement_summary(
         typer.echo("No settlement action is currently available.")
     elif decision.status == "error":
         typer.echo("Settlement inspection failed.")
-    elif not broadcast:
-        typer.echo("Transaction status:")
-        typer.echo("  Dry run mode enabled.")
-        typer.echo("  Use --broadcast to submit transaction on chain.")
     elif status == "noop":
-        typer.echo("Aborted before broadcast.")
+        typer.echo("Aborted before sending.")
 
     if execution is not None and execution.get("tx_hash"):
         typer.echo()
@@ -298,19 +293,17 @@ def deploy(
     governance: str | None = typer.Option(None, "--governance", help="Governance / trade handler address."),
     starting_price: int | None = typer.Option(None, "--starting-price", min=0, help="Starting price for the new auction."),
     salt: str | None = typer.Option(None, "--salt", help="Optional deployment salt."),
-    broadcast: BroadcastOption = False,
-    bypass_confirmation: BypassConfirmationOption = False,
+    no_confirmation: NoConfirmationOption = False,
     sender: SenderOption = None,
     account: AccountOption = None,
     keystore: KeystoreOption = None,
     password_file: PasswordFileOption = None,
     json_output: JsonOption = False,
 ) -> None:
-    """Preview or deploy a single auction from the configured factory."""
+    """Deploy a single auction from the configured factory after review."""
 
     configure_logging(output_mode=OutputMode.TEXT)
-    if bypass_confirmation and not broadcast:
-        raise typer.BadParameter("--bypass-confirmation requires --broadcast", param_hint="--bypass-confirmation")
+    require_no_confirmation_for_json(json_output=json_output, no_confirmation=no_confirmation)
     cli_ctx = CLIContext(config, mode="server")
     try:
         w3 = cli_ctx.sync_web3()
@@ -327,8 +320,8 @@ def deploy(
         else default_governance_address()
     )
     exec_ctx = cli_ctx.resolve_execution(
-        broadcast=broadcast,
-        required_for="broadcast auction deployment",
+        required=True,
+        required_for="auction deployment",
         sender=normalize_cli_address(sender, param_hint="--sender"),
         account_name=account,
         keystore_path=keystore,
@@ -377,27 +370,26 @@ def deploy(
         warnings.append(f"Gas estimate failed: {initial_preview.gas_error}")
 
     execution = None
-    if broadcast:
-        prompt = (
-            "Preview failed. Broadcast deployment anyway?"
-            if initial_preview.preview_error or initial_preview.gas_error
-            else "Broadcast deployment?"
+    prompt = (
+        "Preview failed. Send deployment anyway?"
+        if initial_preview.preview_error or initial_preview.gas_error
+        else "Send deployment?"
+    )
+    if no_confirmation or typer.confirm(prompt, default=False):
+        if exec_ctx.signer is None:
+            raise SystemExit("Signer is required for auction deployment.")
+        execution = send_live_deployment(
+            w3,
+            signer=exec_ctx.signer,
+            factory_address=initial_preview.factory_address,
+            want=initial_preview.want,
+            receiver=initial_preview.receiver,
+            governance=initial_preview.governance,
+            starting_price=initial_preview.starting_price,
+            salt=initial_preview.salt,
         )
-        if bypass_confirmation or typer.confirm(prompt, default=False):
-            if exec_ctx.signer is None:
-                raise SystemExit("Signer is required for broadcast deployment.")
-            execution = send_live_deployment(
-                w3,
-                signer=exec_ctx.signer,
-                factory_address=initial_preview.factory_address,
-                want=initial_preview.want,
-                receiver=initial_preview.receiver,
-                governance=initial_preview.governance,
-                starting_price=initial_preview.starting_price,
-                salt=initial_preview.salt,
-            )
-        else:
-            status = "noop"
+    else:
+        status = "noop"
 
     execution_data = None
     if execution is not None:
@@ -416,10 +408,8 @@ def deploy(
         _render_deploy_preview(initial_preview)
         for warning in warnings:
             typer.echo(f"Warning: {warning}")
-        if not broadcast:
-            typer.echo("Dry run only. No transaction was sent.")
-        elif status == "noop":
-            typer.echo("Aborted before broadcast.")
+        if status == "noop":
+            typer.echo("Aborted before sending.")
         elif execution is not None:
             typer.echo()
             render_broadcast_records(
@@ -454,8 +444,7 @@ def enable_tokens(
         "--extra-token",
         help="Extra token address to probe. Can be supplied multiple times.",
     ),
-    broadcast: BroadcastOption = False,
-    bypass_confirmation: BypassConfirmationOption = False,
+    no_confirmation: NoConfirmationOption = False,
     sender: SenderOption = None,
     account: AccountOption = None,
     keystore: KeystoreOption = None,
@@ -465,8 +454,7 @@ def enable_tokens(
     """Inspect an auction and queue enable(address) calls for relevant tokens."""
 
     configure_logging(output_mode=OutputMode.TEXT)
-    if bypass_confirmation and not broadcast:
-        raise typer.BadParameter("--bypass-confirmation requires --broadcast", param_hint="--bypass-confirmation")
+    require_no_confirmation_for_json(json_output=json_output, no_confirmation=no_confirmation)
     cli_ctx = CLIContext(config, mode="server")
     normalized_auction_address = normalize_cli_address(auction_address, param_hint="AUCTION")
     normalized_extra_tokens = _normalize_address_list(extra_token, param_hint="--extra-token")
@@ -478,8 +466,8 @@ def enable_tokens(
         raise typer.Exit(code=1) from exc
 
     exec_ctx = cli_ctx.resolve_execution(
-        broadcast=broadcast,
-        required_for="broadcast enable-tokens execution",
+        required=True,
+        required_for="enable-tokens execution",
         sender=normalized_sender,
         account_name=account,
         keystore_path=keystore,
@@ -535,15 +523,15 @@ def enable_tokens(
 
     if not eligible:
         status = "noop"
-    elif broadcast:
+    else:
         prompt = (
-            "Preview failed. Broadcast enable-tokens transaction anyway?"
+            "Preview failed. Send enable-tokens transaction anyway?"
             if preview is not None and not preview.call_succeeded
-            else "Broadcast enable-tokens transaction?"
+            else "Send enable-tokens transaction?"
         )
-        if bypass_confirmation or typer.confirm(prompt, default=False):
+        if no_confirmation or typer.confirm(prompt, default=False):
             if exec_ctx.signer is None:
-                raise SystemExit("Signer is required for broadcast execution.")
+                raise SystemExit("Signer is required for enable-tokens execution.")
             tx_hash, tx_gas_estimate = enabler.send_execute_transaction(
                 signer=exec_ctx.signer,
                 trade_handler_address=inspection.governance,
@@ -553,8 +541,6 @@ def enable_tokens(
             tx_broadcast_at = utcnow_iso()
         else:
             status = "noop"
-    elif preview is not None and not preview.call_succeeded:
-        status = "error"
 
     data = {
         "inspection": asdict(inspection),
@@ -606,12 +592,10 @@ def enable_tokens(
             if preview.error_message:
                 typer.echo(f"  detail        {preview.error_message}")
             typer.echo()
-        if status == "noop" and not broadcast:
+        if status == "noop" and not eligible:
             typer.echo("No enable() calls need to be queued.")
-        elif not broadcast:
-            typer.echo("Dry run only. No transaction was sent.")
         elif status == "noop":
-            typer.echo("Aborted before broadcast.")
+            typer.echo("Aborted before sending.")
         elif tx_hash is not None:
             typer.echo()
             render_broadcast_records(
@@ -636,8 +620,7 @@ def enable_tokens(
 def settle(
     auction_address: str = typer.Argument(..., metavar="AUCTION", help="Auction contract address."),
     config: ConfigOption = None,
-    broadcast: BroadcastOption = False,
-    bypass_confirmation: BypassConfirmationOption = False,
+    no_confirmation: NoConfirmationOption = False,
     token_address: str | None = typer.Option(None, "--token", help="Expected active token address."),
     sweep: bool = typer.Option(
         False,
@@ -649,13 +632,12 @@ def settle(
     keystore: KeystoreOption = None,
     password_file: PasswordFileOption = None,
     json_output: JsonOption = False,
-    receipt_timeout: int = typer.Option(120, "--receipt-timeout", min=1, help="Seconds to wait for a receipt after broadcasting."),
+    receipt_timeout: int = typer.Option(120, "--receipt-timeout", min=1, help="Seconds to wait for a receipt after sending."),
 ) -> None:
     """Resolve the current active lot if it is settleable."""
 
     configure_logging(output_mode=OutputMode.TEXT)
-    if bypass_confirmation and not broadcast:
-        raise typer.BadParameter("--bypass-confirmation requires --broadcast", param_hint="--bypass-confirmation")
+    require_no_confirmation_for_json(json_output=json_output, no_confirmation=no_confirmation)
     cli_ctx = CLIContext(config, mode="server")
     normalized_auction_address = normalize_cli_address(auction_address, param_hint="AUCTION")
     normalized_token_address = normalize_cli_address(token_address, param_hint="--token")
@@ -667,8 +649,8 @@ def settle(
         raise typer.Exit(code=1) from exc
 
     exec_ctx = cli_ctx.resolve_execution(
-        broadcast=broadcast,
-        required_for="broadcast settlement execution",
+        required=True,
+        required_for="settlement execution",
         sender=normalized_sender,
         account_name=account,
         keystore_path=keystore,
@@ -723,14 +705,14 @@ def settle(
     elif decision.status == "error":
         status = "error"
 
-    if broadcast and decision.status == "actionable":
+    if decision.status == "actionable":
         action_label = format_operation_type(decision.operation_type)
         prompt = (
-            f"Preview failed. Broadcast {action_label} transaction anyway?"
+            f"Preview failed. Send {action_label} transaction anyway?"
             if warnings
-            else f"Broadcast {action_label} transaction?"
+            else f"Send {action_label} transaction?"
         )
-        if bypass_confirmation or typer.confirm(prompt, default=False):
+        if no_confirmation or typer.confirm(prompt, default=False):
             execution = asyncio.run(
                 _preview_settlement_execution(
                     settings=cli_ctx.settings,
@@ -760,7 +742,6 @@ def settle(
             decision=decision,
             execution=execution,
             warnings=warnings,
-            broadcast=broadcast,
             status=status,
         )
 

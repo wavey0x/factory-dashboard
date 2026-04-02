@@ -9,14 +9,14 @@ from tidal.cli_options import (
     AccountOption,
     ApiBaseUrlOption,
     ApiKeyOption,
-    BroadcastOption,
-    BypassConfirmationOption,
     ConfigOption,
     JsonOption,
     KeystoreOption,
+    NoConfirmationOption,
     PasswordFileOption,
     SenderOption,
 )
+from tidal.cli_validation import require_no_confirmation_for_json
 from tidal.cli_renderers import emit_json, format_settlement_reason_lines, render_status_panel
 from tidal.control_plane.client import ControlPlaneError
 from tidal.errors import ConfigurationError
@@ -85,8 +85,7 @@ def _handle_prepared_action(
     cli_ctx: CLIContext,
     response: dict[str, object],
     data: dict[str, object],
-    broadcast: bool,
-    bypass_confirmation: bool,
+    no_confirmation: bool,
     exec_ctx,
     json_output: bool,
     command_name: str,
@@ -99,12 +98,10 @@ def _handle_prepared_action(
         render_warnings(list(response.get("warnings") or []))
     try:
         with cli_ctx.control_plane_client() as client:
-            if broadcast and response["status"] == "ok":
-                confirmation_prompt = f"Broadcast {len(transactions)} transaction(s)?"
-                if not bypass_confirmation and not typer.confirm(
-                    confirmation_prompt,
-                    default=False,
-                ):
+            if response["status"] == "ok":
+                tx_count = len(transactions)
+                confirmation_prompt = "Send this transaction?" if tx_count == 1 else f"Send {tx_count} transaction(s)?"
+                if not no_confirmation and not typer.confirm(confirmation_prompt, default=False):
                     raise typer.Exit(code=2)
                 if exec_ctx.signer is None or exec_ctx.sender is None:
                     raise typer.Exit(code=1)
@@ -124,8 +121,7 @@ def _handle_prepared_action(
 
     if json_output:
         output = dict(data)
-        if broadcast:
-            output["broadcastRecords"] = broadcast_records
+        output["broadcastRecords"] = broadcast_records
         emit_json(command_name, status=response["status"], data=output, warnings=response.get("warnings"))
         return
 
@@ -133,15 +129,6 @@ def _handle_prepared_action(
         render_status_panel(
             "No Transaction Prepared",
             _noop_status_lines(command_name=command_name, data=data),
-            border_style="yellow",
-        )
-    elif not broadcast:
-        render_status_panel(
-            "Transaction Status",
-            [
-                "Dry run mode enabled.",
-                "Use --broadcast to submit transaction on chain.",
-            ],
             border_style="yellow",
         )
     else:
@@ -162,16 +149,14 @@ def deploy(
     factory: str | None = typer.Option(None, "--factory", help="Auction factory address."),
     governance: str | None = typer.Option(None, "--governance", help="Governance / trade handler address."),
     salt: str | None = typer.Option(None, "--salt", help="Optional deployment salt."),
-    broadcast: BroadcastOption = False,
-    bypass_confirmation: BypassConfirmationOption = False,
+    no_confirmation: NoConfirmationOption = False,
     sender: SenderOption = None,
     account: AccountOption = None,
     keystore: KeystoreOption = None,
     password_file: PasswordFileOption = None,
     json_output: JsonOption = False,
 ) -> None:
-    if bypass_confirmation and not broadcast:
-        raise typer.BadParameter("--bypass-confirmation requires --broadcast", param_hint="--bypass-confirmation")
+    require_no_confirmation_for_json(json_output=json_output, no_confirmation=no_confirmation)
     cli_ctx = CLIContext(config, api_base_url=api_base_url, api_key=api_key)
     try:
         cli_ctx.verify_authenticated_api_access()
@@ -179,8 +164,8 @@ def deploy(
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
     exec_ctx = cli_ctx.resolve_execution(
-        broadcast=broadcast,
-        required_for="broadcast auction deployment",
+        required=True,
+        required_for="auction deployment",
         sender=normalize_cli_address(sender, param_hint="--sender"),
         account_name=account,
         keystore_path=keystore,
@@ -209,8 +194,7 @@ def deploy(
         cli_ctx=cli_ctx,
         response=response,
         data=response["data"],
-        broadcast=broadcast,
-        bypass_confirmation=bypass_confirmation,
+        no_confirmation=no_confirmation,
         exec_ctx=exec_ctx,
         json_output=json_output,
         command_name="auction.deploy",
@@ -224,16 +208,14 @@ def enable_tokens(
     api_base_url: ApiBaseUrlOption = None,
     api_key: ApiKeyOption = None,
     extra_token: list[str] | None = typer.Option(None, "--extra-token", help="Extra token address to probe."),
-    broadcast: BroadcastOption = False,
-    bypass_confirmation: BypassConfirmationOption = False,
+    no_confirmation: NoConfirmationOption = False,
     sender: SenderOption = None,
     account: AccountOption = None,
     keystore: KeystoreOption = None,
     password_file: PasswordFileOption = None,
     json_output: JsonOption = False,
 ) -> None:
-    if bypass_confirmation and not broadcast:
-        raise typer.BadParameter("--bypass-confirmation requires --broadcast", param_hint="--bypass-confirmation")
+    require_no_confirmation_for_json(json_output=json_output, no_confirmation=no_confirmation)
     cli_ctx = CLIContext(config, api_base_url=api_base_url, api_key=api_key)
     try:
         cli_ctx.verify_authenticated_api_access()
@@ -241,8 +223,8 @@ def enable_tokens(
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
     exec_ctx = cli_ctx.resolve_execution(
-        broadcast=broadcast,
-        required_for="broadcast enable-tokens execution",
+        required=True,
+        required_for="enable-tokens execution",
         sender=normalize_cli_address(sender, param_hint="--sender"),
         account_name=account,
         keystore_path=keystore,
@@ -272,8 +254,7 @@ def enable_tokens(
         cli_ctx=cli_ctx,
         response=response,
         data=response["data"],
-        broadcast=broadcast,
-        bypass_confirmation=bypass_confirmation,
+        no_confirmation=no_confirmation,
         exec_ctx=exec_ctx,
         json_output=json_output,
         command_name="auction.enable-tokens",
@@ -286,8 +267,7 @@ def settle(
     config: ConfigOption = None,
     api_base_url: ApiBaseUrlOption = None,
     api_key: ApiKeyOption = None,
-    broadcast: BroadcastOption = False,
-    bypass_confirmation: BypassConfirmationOption = False,
+    no_confirmation: NoConfirmationOption = False,
     token_address: str | None = typer.Option(None, "--token", help="Expected active token address."),
     sweep: bool = typer.Option(
         False,
@@ -300,8 +280,7 @@ def settle(
     password_file: PasswordFileOption = None,
     json_output: JsonOption = False,
 ) -> None:
-    if bypass_confirmation and not broadcast:
-        raise typer.BadParameter("--bypass-confirmation requires --broadcast", param_hint="--bypass-confirmation")
+    require_no_confirmation_for_json(json_output=json_output, no_confirmation=no_confirmation)
     cli_ctx = CLIContext(config, api_base_url=api_base_url, api_key=api_key)
     try:
         cli_ctx.verify_authenticated_api_access()
@@ -309,8 +288,8 @@ def settle(
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
     exec_ctx = cli_ctx.resolve_execution(
-        broadcast=broadcast,
-        required_for="broadcast settlement execution",
+        required=True,
+        required_for="settlement execution",
         sender=normalize_cli_address(sender, param_hint="--sender"),
         account_name=account,
         keystore_path=keystore,
@@ -341,8 +320,7 @@ def settle(
         cli_ctx=cli_ctx,
         response=response,
         data=response["data"],
-        broadcast=broadcast,
-        bypass_confirmation=bypass_confirmation,
+        no_confirmation=no_confirmation,
         exec_ctx=exec_ctx,
         json_output=json_output,
         command_name="auction.settle",

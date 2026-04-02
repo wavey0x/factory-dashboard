@@ -82,10 +82,12 @@ Scanner daemon:
 tidal-server scan daemon --config config/server.yaml --interval-seconds 300
 ```
 
+If `scan_auto_settle_enabled` is true, add `--no-confirmation`.
+
 Kick daemon:
 
 ```bash
-tidal-server kick daemon --config config/server.yaml --broadcast --sender 0xYourAddress --account wavey3
+tidal-server kick daemon --config config/server.yaml --no-confirmation --sender 0xYourAddress --account wavey3
 ```
 
 API:

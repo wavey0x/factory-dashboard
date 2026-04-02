@@ -57,7 +57,7 @@ def resolve_keystore_path(
     account_name: str | None = None,
     keystore_path: str | Path | None = None,
     required: bool = False,
-    required_for: str = "broadcast execution",
+    required_for: str = "transaction execution",
 ) -> Path | None:
     if account_name and keystore_path is not None:
         raise SystemExit(f"Specify only one of --account or --keystore for {required_for}.")
@@ -106,7 +106,7 @@ def resolve_keystore_password(
     password_file: str | Path | None = None,
     passphrase: str | None = None,
     prompt_if_missing: bool = False,
-    required_for: str = "broadcast execution",
+    required_for: str = "transaction execution",
 ) -> str | None:
     if passphrase is not None:
         return passphrase
@@ -131,7 +131,7 @@ def load_signer_from_options(
     settings: Any,
     *,
     required: bool,
-    required_for: str = "broadcast execution",
+    required_for: str = "transaction execution",
     account_name: str | None = None,
     keystore_path: str | Path | None = None,
     password_file: str | Path | None = None,
@@ -185,7 +185,7 @@ def maybe_load_signer(
     settings: Any,
     *,
     required: bool,
-    required_for: str = "broadcast execution",
+    required_for: str = "transaction execution",
     account_name: str | None = None,
     keystore_path: str | Path | None = None,
     passphrase: str | None = None,
@@ -230,7 +230,7 @@ def validate_sender_matches_signer(
     *,
     sender: str | None,
     signer: TransactionSigner | None,
-    required_for: str = "broadcast execution",
+    required_for: str = "transaction execution",
 ) -> str | None:
     normalized_sender = normalize_address(sender) if sender is not None else None
     if signer is None:

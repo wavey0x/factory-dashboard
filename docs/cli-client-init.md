@@ -37,6 +37,6 @@ After initialization, the usual next steps for a CLI client are:
 1. Put `TIDAL_API_KEY` in `~/.tidal/cli/.env`.
 2. If you are using `https://api.tidal.wavey.info`, get that API key from wavey.
 3. Confirm `tidal_api_base_url` in `~/.tidal/cli/config.yaml`.
-4. Add keystore-related values if you will broadcast locally.
+4. Add keystore-related values if you will send transactions locally.
 
 See [Configuration](config.md) for the setting-level breakdown.

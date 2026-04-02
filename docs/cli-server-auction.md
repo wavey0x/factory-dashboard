@@ -17,7 +17,6 @@ tidal-server auction deploy \
   --want 0xWant \
   --receiver 0xReceiver \
   --starting-price 1234 \
-  --broadcast \
   --sender 0xYourAddress \
   --account wavey3
 ```
@@ -25,26 +24,25 @@ tidal-server auction deploy \
 Enable tokens:
 
 ```bash
-tidal-server auction enable-tokens 0xAuction --broadcast --sender 0xYourAddress --account wavey3
+tidal-server auction enable-tokens 0xAuction --sender 0xYourAddress --account wavey3
 ```
 
 Settle the current lot:
 
 ```bash
-tidal-server auction settle 0xAuction --broadcast --sender 0xYourAddress --account wavey3
+tidal-server auction settle 0xAuction --sender 0xYourAddress --account wavey3
 ```
 
 ## Important Flags
 
 Shared across these subcommands:
 
-- `--broadcast`
-- `--bypass-confirmation`
+- `--no-confirmation`
 - `--sender`
 - `--account`
 - `--keystore`
 - `--password-file`
-- `--json`
+- `--json` which requires `--no-confirmation`
 
 Subcommand-specific flags:
 

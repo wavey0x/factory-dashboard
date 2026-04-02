@@ -4,7 +4,7 @@ Use this page after [Install](install.md). It focuses on day-to-day CLI-client u
 
 ## Role Of The CLI Client
 
-`tidal` is the API-backed CLI client. It does not own the shared database. It reads and prepares actions through the control-plane API, then signs and broadcasts transactions locally.
+`tidal` is the API-backed CLI client. It does not own the shared database. It reads and prepares actions through the control-plane API, then signs and sends transactions locally.
 
 That split matters:
 
@@ -29,7 +29,7 @@ Client-side config values that are often useful in `~/.tidal/cli/config.yaml`:
 - `tidal_api_base_url`
 - `tidal_api_request_timeout_seconds`
 - `prepared_action_max_age_seconds`
-- shared RPC timeout settings if you also do local preview/broadcast work
+- shared RPC timeout settings if you also do local prepare/send work
 
 For API-backed `tidal` workflows, prepared kick behavior comes from the server's tracked `config/server.yaml`, not the workstation.
 
@@ -41,9 +41,9 @@ That means:
 
 ## Wallet Flags
 
-Broadcasting commands share the same wallet surface:
+Transaction-sending commands share the same wallet surface:
 
-- `--sender`: address to preview and broadcast from
+- `--sender`: address to review and send from
 - `--account`: Foundry keystore name under `~/.foundry/keystores`
 - `--keystore`: explicit keystore path
 - `--password-file`: file containing the keystore password
@@ -57,7 +57,6 @@ Example:
 
 ```bash
 tidal kick run \
-  --broadcast \
   --sender 0xYourAddress \
   --account wavey3
 ```
@@ -95,21 +94,10 @@ tidal kick inspect --show-all
 
 ## Kick Workflow
 
-### Dry run
-
-Use this to see candidates in cached order without broadcasting:
-
-```bash
-tidal kick run
-```
-
-The CLI client flow ranks candidates from cached scanner data, then prepares one candidate at a time. It does not live-quote the whole shortlist up front.
-
-### Broadcast
+### Run
 
 ```bash
 tidal kick run \
-  --broadcast \
   --sender 0xYourAddress \
   --account wavey3
 ```
@@ -120,11 +108,20 @@ The CLI will:
 2. prepare the next exact candidate through the API
 3. show a confirmation summary
 4. sign locally
-5. broadcast locally
+5. send locally
 6. report broadcast and receipt data back to the API
 
 Because preparation happens through the API, the confirmation panel reflects server-side `config/server.yaml` policy.
 The client also enforces a local age limit for prepared transactions. If you wait longer than `prepared_action_max_age_seconds` before sending, that prepared transaction is skipped and you need to re-run.
+
+For unattended execution:
+
+```bash
+tidal kick run \
+  --no-confirmation \
+  --sender 0xYourAddress \
+  --account wavey3
+```
 
 Useful flags:
 
@@ -132,7 +129,7 @@ Useful flags:
 - `--source-type`: `strategy` or `fee-burner`
 - `--source`: target one source address
 - `--auction`: target one auction
-- `--bypass-confirmation`: skip interactive confirmation
+- `--no-confirmation`: skip interactive confirmation
 - `--verbose`: show more diagnostic detail
 - `--allow-missing-curve-quote`: relax Curve quote strictness for this run
 

@@ -56,5 +56,6 @@ If `scan_auto_settle_enabled` is enabled, the server also needs valid local wall
 
 - `TXN_KEYSTORE_PATH`
 - `TXN_KEYSTORE_PASSPHRASE`
+- `--no-confirmation` on `scan run` and `scan daemon`
 
-Without that, the scan will fail when it reaches the settlement path.
+Without those, the scan will fail when it reaches the settlement path.

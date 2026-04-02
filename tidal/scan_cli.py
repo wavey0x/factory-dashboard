@@ -10,7 +10,8 @@ import typer
 
 from tidal.cli_context import CLIContext
 from tidal.cli_exit_codes import scan_exit_code
-from tidal.cli_options import ConfigOption, IntervalOption, JsonOption
+from tidal.cli_options import ConfigOption, IntervalOption, JsonOption, NoConfirmationOption
+from tidal.cli_validation import require_no_confirmation_for_unattended
 from tidal.cli_renderers import emit_json, render_scan_summary
 from tidal.errors import ConfigurationError
 from tidal.logging import OutputMode, configure_logging
@@ -24,6 +25,11 @@ def _require_scan_runtime(ctx: CLIContext) -> None:
     if ctx.settings.scan_auto_settle_enabled:
         if not ctx.settings.resolved_txn_keystore_path or not ctx.settings.txn_keystore_passphrase:
             raise ConfigurationError("TXN_KEYSTORE_PATH and TXN_KEYSTORE_PASSPHRASE are required for transaction commands")
+
+
+def _require_scan_confirmation_policy(ctx: CLIContext, *, no_confirmation: bool) -> None:
+    if ctx.settings.scan_auto_settle_enabled:
+        require_no_confirmation_for_unattended(no_confirmation=no_confirmation, command_name="scan auto-settle")
 
 
 def _run_scan_once(*, ctx: CLIContext) -> object:
@@ -47,16 +53,24 @@ def _run_scan_once(*, ctx: CLIContext) -> object:
 
 
 @app.command("run")
-def scan_run(config: ConfigOption = None, json_output: JsonOption = False) -> None:
+def scan_run(
+    config: ConfigOption = None,
+    json_output: JsonOption = False,
+    no_confirmation: NoConfirmationOption = False,
+) -> None:
     """Run a single scan cycle."""
 
     configure_logging(output_mode=OutputMode.TEXT)
     cli_ctx = CLIContext(config, mode="server")
     try:
+        _require_scan_confirmation_policy(cli_ctx, no_confirmation=no_confirmation)
         result = _run_scan_once(ctx=cli_ctx)
     except ConfigurationError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
+    except typer.BadParameter as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2) from exc
 
     if json_output:
         emit_json("scan.run", status="ok" if result.status == "SUCCESS" else "error", data=asdict(result))
@@ -70,16 +84,21 @@ def scan_daemon(
     config: ConfigOption = None,
     interval_seconds: IntervalOption = None,
     json_output: JsonOption = False,
+    no_confirmation: NoConfirmationOption = False,
 ) -> None:
     """Run the scanner continuously."""
 
     configure_logging(output_mode=OutputMode.TEXT)
     cli_ctx = CLIContext(config, mode="server")
     try:
+        _require_scan_confirmation_policy(cli_ctx, no_confirmation=no_confirmation)
         _require_scan_runtime(cli_ctx)
     except ConfigurationError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
+    except typer.BadParameter as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2) from exc
 
     sleep_seconds = interval_seconds or cli_ctx.settings.scan_interval_seconds
 

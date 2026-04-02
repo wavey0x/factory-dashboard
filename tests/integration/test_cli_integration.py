@@ -149,10 +149,34 @@ def test_scan_run_requires_keystore_when_auto_settle_enabled(tmp_path, monkeypat
     )
 
     runner = CliRunner()
-    result = runner.invoke(app, ["scan", "run", "--config", str(config_path)])
+    result = runner.invoke(app, ["scan", "run", "--no-confirmation", "--config", str(config_path)])
 
     assert result.exit_code == 1
     assert "TXN_KEYSTORE_PATH and TXN_KEYSTORE_PASSPHRASE are required" in result.output
+
+
+def test_scan_run_requires_no_confirmation_when_auto_settle_enabled(tmp_path, monkeypatch) -> None:
+    _isolate_runtime_env(tmp_path, monkeypatch)
+    monkeypatch.setenv("RPC_URL", "https://example-rpc.invalid")
+    config_path = tmp_path / "server.yaml"
+    config_path.write_text(
+        "db_path: ./test.db\n"
+        "scan_auto_settle_enabled: true\n"
+        "kick:\n"
+        "  default_profile: volatile\n"
+        "  profiles:\n"
+        "    volatile:\n"
+        "      start_price_buffer_bps: 1000\n"
+        "      min_price_buffer_bps: 500\n"
+        "      step_decay_rate_bps: 25\n",
+        encoding="utf-8",
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["scan", "run", "--config", str(config_path)])
+
+    assert result.exit_code != 0
+    assert "--no-confirmation" in result.output
 
 
 def test_kick_rejects_invalid_source_address() -> None:
@@ -171,13 +195,13 @@ def test_kick_rejects_invalid_auction_address() -> None:
     assert "invalid address" in result.output
 
 
-def test_kick_rejects_bypass_confirmation_without_broadcast() -> None:
+def test_kick_rejects_json_without_no_confirmation() -> None:
     runner = CliRunner()
-    result = runner.invoke(app, ["kick", "run", "--bypass-confirmation"])
+    result = runner.invoke(app, ["kick", "run", "--json"])
 
     assert result.exit_code != 0
-    assert "Invalid value for --bypass-confirmation" in result.output
-    assert "--broadcast" in result.output
+    assert "Invalid value for --json" in result.output
+    assert "--no-confirmation" in result.output
 
 
 @pytest.mark.parametrize(
@@ -200,9 +224,18 @@ def test_kick_threads_curve_quote_override(tmp_path, monkeypatch, flag_args, exp
     monkeypatch.setattr(kick_cli_module, "build_txn_service", fake_build_txn_service)
     monkeypatch.setattr(kick_cli_module, "configure_logging", lambda *args, **kwargs: None)
     monkeypatch.setattr(kick_cli_module, "_load_run_rows", lambda session, run_id: [])
+    monkeypatch.setattr(
+        kick_cli_module.CLIContext,
+        "resolve_execution",
+        lambda self, **kwargs: SimpleNamespace(
+            signer=SimpleNamespace(),
+            sender="0x9999999999999999999999999999999999999999",
+        ),
+    )
+    monkeypatch.setattr(kick_cli_module.CLIContext, "web3_client", lambda self: _FakeWeb3Client())
 
     runner = CliRunner()
-    result = runner.invoke(app, ["kick", "run", "--json", "--config", str(config_path), *flag_args])
+    result = runner.invoke(app, ["kick", "run", "--json", "--no-confirmation", "--config", str(config_path), *flag_args])
 
     assert result.exit_code == 2
     assert captured["require_curve_quote"] is expected
@@ -233,12 +266,30 @@ def test_kick_daemon_threads_curve_quote_override(tmp_path, monkeypatch, flag_ar
     monkeypatch.setattr(kick_cli_module.asyncio, "sleep", fake_sleep)
     monkeypatch.setattr(kick_cli_module, "_load_run_rows", lambda session, run_id: [])
     monkeypatch.setattr("tidal.cli_context.build_web3_client", lambda settings: _FakeWeb3Client())
+    monkeypatch.setattr(
+        kick_cli_module.CLIContext,
+        "resolve_execution",
+        lambda self, **kwargs: SimpleNamespace(
+            signer=SimpleNamespace(),
+            sender="0x9999999999999999999999999999999999999999",
+        ),
+    )
 
     runner = CliRunner()
-    result = runner.invoke(app, ["kick", "daemon", "--config", str(config_path), *flag_args])
+    result = runner.invoke(app, ["kick", "daemon", "--no-confirmation", "--config", str(config_path), *flag_args])
 
     assert isinstance(result.exception, _StopDaemon)
     assert captured["require_curve_quote"] is expected
+
+
+def test_kick_daemon_requires_no_confirmation(tmp_path) -> None:
+    config_path = _write_txn_config(tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["kick", "daemon", "--config", str(config_path)])
+
+    assert result.exit_code != 0
+    assert "--no-confirmation" in result.output
 
 
 def test_auction_enable_tokens_requires_rpc_url(tmp_path, monkeypatch) -> None:
@@ -294,7 +345,7 @@ def test_auction_enable_tokens_rejects_invalid_sender() -> None:
     assert "invalid address" in result.output
 
 
-def test_auction_enable_tokens_rejects_bypass_confirmation_without_broadcast() -> None:
+def test_auction_enable_tokens_json_requires_no_confirmation() -> None:
     runner = CliRunner()
     result = runner.invoke(
         app,
@@ -302,13 +353,13 @@ def test_auction_enable_tokens_rejects_bypass_confirmation_without_broadcast() -
             "auction",
             "enable-tokens",
             "0x1111111111111111111111111111111111111111",
-            "--bypass-confirmation",
+            "--json",
         ],
     )
 
     assert result.exit_code != 0
-    assert "Invalid value for --bypass-confirmation" in result.output
-    assert "--broadcast" in result.output
+    assert "Invalid value for --json" in result.output
+    assert "--no-confirmation" in result.output
 
 
 def test_auction_settle_requires_rpc_url(tmp_path, monkeypatch) -> None:
@@ -364,7 +415,7 @@ def test_auction_settle_rejects_legacy_method_option() -> None:
     assert "No such option: --method" in result.output
 
 
-def test_auction_settle_rejects_bypass_confirmation_without_broadcast() -> None:
+def test_auction_settle_json_requires_no_confirmation() -> None:
     runner = CliRunner()
     result = runner.invoke(
         app,
@@ -372,16 +423,16 @@ def test_auction_settle_rejects_bypass_confirmation_without_broadcast() -> None:
             "auction",
             "settle",
             "0x1111111111111111111111111111111111111111",
-            "--bypass-confirmation",
+            "--json",
         ],
     )
 
     assert result.exit_code != 0
-    assert "Invalid value for --bypass-confirmation" in result.output
-    assert "--broadcast" in result.output
+    assert "Invalid value for --json" in result.output
+    assert "--no-confirmation" in result.output
 
 
-def test_auction_settle_json_dry_run_uses_auto_method(tmp_path, monkeypatch) -> None:
+def test_auction_settle_json_no_confirmation_uses_auto_method(tmp_path, monkeypatch) -> None:
     config_path = _write_txn_config(tmp_path)
 
     async def fake_inspect_auction_settlement(web3_client, settings, auction_address):  # noqa: ANN001, ANN201
@@ -410,12 +461,21 @@ def test_auction_settle_json_dry_run_uses_auto_method(tmp_path, monkeypatch) -> 
             "gas_limit": None,
             "base_fee_gwei": 0.0,
             "priority_fee_gwei": 0.0,
+            "receipt_status": "CONFIRMED",
         }
 
     monkeypatch.setattr(auction_cli_module, "configure_logging", lambda *args, **kwargs: None)
     monkeypatch.setattr(auction_cli_module, "build_web3_client", lambda settings: object())
     monkeypatch.setattr(auction_cli_module, "inspect_auction_settlement", fake_inspect_auction_settlement)
     monkeypatch.setattr(auction_cli_module, "_preview_settlement_execution", fake_preview_settlement_execution)
+    monkeypatch.setattr(
+        auction_cli_module.CLIContext,
+        "resolve_execution",
+        lambda self, **kwargs: SimpleNamespace(
+            signer=SimpleNamespace(),
+            sender="0x9999999999999999999999999999999999999999",
+        ),
+    )
 
     runner = CliRunner()
     result = runner.invoke(
@@ -425,6 +485,7 @@ def test_auction_settle_json_dry_run_uses_auto_method(tmp_path, monkeypatch) -> 
             "settle",
             "0x1111111111111111111111111111111111111111",
             "--json",
+            "--no-confirmation",
             "--config",
             str(config_path),
         ],
@@ -438,7 +499,7 @@ def test_auction_settle_json_dry_run_uses_auto_method(tmp_path, monkeypatch) -> 
     assert payload["data"]["execution"]["data"] == "0xdeadbeef"
 
 
-def test_auction_settle_json_dry_run_uses_sweep_override_above_floor(tmp_path, monkeypatch) -> None:
+def test_auction_settle_json_no_confirmation_uses_sweep_override_above_floor(tmp_path, monkeypatch) -> None:
     config_path = _write_txn_config(tmp_path)
 
     async def fake_inspect_auction_settlement(web3_client, settings, auction_address):  # noqa: ANN001, ANN201
@@ -467,12 +528,21 @@ def test_auction_settle_json_dry_run_uses_sweep_override_above_floor(tmp_path, m
             "gas_limit": None,
             "base_fee_gwei": 0.0,
             "priority_fee_gwei": 0.0,
+            "receipt_status": "CONFIRMED",
         }
 
     monkeypatch.setattr(auction_cli_module, "configure_logging", lambda *args, **kwargs: None)
     monkeypatch.setattr(auction_cli_module, "build_web3_client", lambda settings: object())
     monkeypatch.setattr(auction_cli_module, "inspect_auction_settlement", fake_inspect_auction_settlement)
     monkeypatch.setattr(auction_cli_module, "_preview_settlement_execution", fake_preview_settlement_execution)
+    monkeypatch.setattr(
+        auction_cli_module.CLIContext,
+        "resolve_execution",
+        lambda self, **kwargs: SimpleNamespace(
+            signer=SimpleNamespace(),
+            sender="0x9999999999999999999999999999999999999999",
+        ),
+    )
 
     runner = CliRunner()
     result = runner.invoke(
@@ -483,6 +553,7 @@ def test_auction_settle_json_dry_run_uses_sweep_override_above_floor(tmp_path, m
             "0x1111111111111111111111111111111111111111",
             "--sweep",
             "--json",
+            "--no-confirmation",
             "--config",
             str(config_path),
         ],

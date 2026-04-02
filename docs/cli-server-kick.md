@@ -5,7 +5,7 @@
 ## Subcommands
 
 - `inspect`: explain why candidates are ready, skipped, or deferred
-- `run`: evaluate candidates once and optionally broadcast
+- `run`: evaluate candidates once and send transactions after review
 - `daemon`: loop continuously and evaluate on an interval
 
 ## Common Invocations
@@ -22,16 +22,16 @@ Run one evaluation pass with explanations:
 tidal-server kick run --explain
 ```
 
-Broadcast from the server host:
+Run interactively from the server host:
 
 ```bash
-tidal-server kick run --broadcast --sender 0xYourAddress --account wavey3
+tidal-server kick run --sender 0xYourAddress --account wavey3
 ```
 
 Run continuously:
 
 ```bash
-tidal-server kick daemon --broadcast --interval-seconds 300 --sender 0xYourAddress --account wavey3
+tidal-server kick daemon --no-confirmation --interval-seconds 300 --sender 0xYourAddress --account wavey3
 ```
 
 ## Important Flags
@@ -40,11 +40,11 @@ tidal-server kick daemon --broadcast --interval-seconds 300 --sender 0xYourAddre
 - `--source`
 - `--auction`
 - `--limit`
-- `--broadcast`
+- `--no-confirmation`
 - `--verbose`
 - `--explain`
 - `--require-curve-quote` and `--allow-missing-curve-quote`
-- `--json`
+- `--json` on `run` requires `--no-confirmation`
 
 The `run` and `daemon` subcommands also use the shared wallet flags:
 
@@ -57,7 +57,7 @@ The `run` and `daemon` subcommands also use the shared wallet flags:
 
 Use `tidal-server kick` when:
 
-- the server itself owns the broadcast wallet
+- the server itself owns the execution wallet
 - you want a server-local daemonized kicker
 - you are debugging shortlist behavior directly against the shared database
 

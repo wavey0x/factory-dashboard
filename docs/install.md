@@ -48,7 +48,7 @@ tidal init
 
 Then review:
 
-- `~/.tidal/cli/.env`: set `TIDAL_API_KEY`, plus keystore secrets if you will broadcast locally
+- `~/.tidal/cli/.env`: set `TIDAL_API_KEY`, plus keystore secrets if you will send transactions locally
 - `~/.tidal/cli/config.yaml`: confirm `tidal_api_base_url`
 
 Minimum client setup:

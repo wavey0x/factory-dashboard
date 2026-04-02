@@ -15,19 +15,19 @@ from tidal.cli_exit_codes import kick_exit_code
 from tidal.cli_options import (
     AccountOption,
     AuctionAddressOption,
-    BroadcastOption,
-    BypassConfirmationOption,
     ConfigOption,
     IntervalOption,
     JsonOption,
     KeystoreOption,
     LimitOption,
+    NoConfirmationOption,
     PasswordFileOption,
     SenderOption,
     SourceAddressOption,
     SourceTypeOption,
     VerboseOption,
 )
+from tidal.cli_validation import require_no_confirmation_for_json, require_no_confirmation_for_unattended
 from tidal.cli_renderers import (
     BroadcastRecord,
     emit_json,
@@ -112,8 +112,7 @@ def _make_execution_report_fn() -> Callable[[TransactionExecutionReport], None]:
 @app.command("run")
 def kick_run(
     config: ConfigOption = None,
-    broadcast: BroadcastOption = False,
-    bypass_confirmation: BypassConfirmationOption = False,
+    no_confirmation: NoConfirmationOption = False,
     json_output: JsonOption = False,
     source_type: SourceTypeOption = None,
     source_address: SourceAddressOption = None,
@@ -131,11 +130,10 @@ def kick_run(
         help="Override Curve quote strictness for this run.",
     ),
 ) -> None:
-    """Evaluate kick candidates and optionally send transactions."""
+    """Evaluate kick candidates and send transactions after review."""
 
     configure_logging(verbose=verbose, output_mode=OutputMode.TEXT)
-    if bypass_confirmation and not broadcast:
-        raise typer.BadParameter("--bypass-confirmation requires --broadcast", param_hint="--bypass-confirmation")
+    require_no_confirmation_for_json(json_output=json_output, no_confirmation=no_confirmation)
     cli_ctx = CLIContext(config, mode="server")
     normalized_source_type = _normalize_source_type_filter(source_type)
     normalized_source_address = normalize_cli_address(source_address, param_hint="--source")
@@ -148,8 +146,8 @@ def kick_run(
         raise typer.Exit(code=1) from exc
 
     exec_ctx = cli_ctx.resolve_execution(
-        broadcast=broadcast,
-        required_for="broadcast kick execution",
+        required=True,
+        required_for="kick execution",
         sender=normalized_sender,
         account_name=account,
         keystore_path=keystore,
@@ -168,20 +166,19 @@ def kick_run(
                 limit=limit,
             )
 
-    confirm_fn = None if bypass_confirmation or not broadcast else _make_confirm_fn()
-    execution_report_fn = _make_execution_report_fn() if broadcast and not json_output else None
+    confirm_fn = None if no_confirmation else _make_confirm_fn()
+    execution_report_fn = _make_execution_report_fn() if not json_output else None
     skip_base_fee_check = False
-    web3_client = cli_ctx.web3_client() if broadcast else None
-    if web3_client is not None:
-        base_fee_wei = asyncio.run(web3_client.get_base_fee())
-        base_fee_gwei = base_fee_wei / 1e9
-        if base_fee_gwei > cli_ctx.settings.txn_max_base_fee_gwei:
-            typer.echo(f"Warning: base fee is {base_fee_gwei:.2f} gwei (limit: {cli_ctx.settings.txn_max_base_fee_gwei} gwei)")
-            if bypass_confirmation:
-                skip_base_fee_check = True
-            else:
-                typer.confirm("Continue despite high gas?", default=False, abort=True)
-                skip_base_fee_check = True
+    web3_client = cli_ctx.web3_client()
+    base_fee_wei = asyncio.run(web3_client.get_base_fee())
+    base_fee_gwei = base_fee_wei / 1e9
+    if base_fee_gwei > cli_ctx.settings.txn_max_base_fee_gwei:
+        typer.echo(f"Warning: base fee is {base_fee_gwei:.2f} gwei (limit: {cli_ctx.settings.txn_max_base_fee_gwei} gwei)")
+        if no_confirmation:
+            skip_base_fee_check = True
+        else:
+            typer.confirm("Continue despite high gas?", default=False, abort=True)
+            skip_base_fee_check = True
 
     if not json_output:
         typer.echo(f"Evaluating {kick_scope_label(normalized_source_type, source_address=normalized_source_address, auction_address=normalized_auction_address)}...")
@@ -199,7 +196,7 @@ def kick_run(
         )
         result = asyncio.run(
             txn_service.run_once(
-                live=broadcast,
+                live=True,
                 batch=False,
                 source_type=normalized_source_type,
                 source_address=normalized_source_address,
@@ -212,12 +209,12 @@ def kick_run(
     status = "ok"
     if result.candidates_found == 0:
         status = "noop"
-    elif broadcast and result.kicks_failed and result.kicks_succeeded:
+    elif result.kicks_failed and result.kicks_succeeded:
         status = "error"
-    elif broadcast and result.kicks_failed:
+    elif result.kicks_failed:
         status = "error"
 
-    execution_sender = exec_ctx.sender if broadcast else None
+    execution_sender = exec_ctx.sender
     if json_output:
         data = {
             "run": _to_dict(result),
@@ -230,7 +227,7 @@ def kick_run(
     else:
         render_kick_run_summary(
             result=result,
-            live=broadcast,
+            live=True,
             source_type=normalized_source_type,
             source_address=normalized_source_address,
             auction_address=normalized_auction_address,
@@ -244,7 +241,7 @@ def kick_run(
             render_kick_inspect(inspection_data, show_all=True)
 
     raise typer.Exit(code=kick_exit_code(
-        live=broadcast,
+        live=True,
         status=result.status,
         candidates_found=result.candidates_found,
         kicks_failed=result.kicks_failed,
@@ -254,7 +251,7 @@ def kick_run(
 @app.command("daemon")
 def kick_daemon(
     config: ConfigOption = None,
-    broadcast: BroadcastOption = False,
+    no_confirmation: NoConfirmationOption = False,
     json_output: JsonOption = False,
     source_type: SourceTypeOption = None,
     source_address: SourceAddressOption = None,
@@ -275,6 +272,7 @@ def kick_daemon(
     """Run the kick service continuously."""
 
     configure_logging(verbose=verbose, output_mode=OutputMode.TEXT)
+    require_no_confirmation_for_unattended(no_confirmation=no_confirmation, command_name="kick daemon")
     cli_ctx = CLIContext(config, mode="server")
     try:
         cli_ctx.require_rpc()
@@ -286,14 +284,14 @@ def kick_daemon(
     normalized_source_address = normalize_cli_address(source_address, param_hint="--source")
     normalized_auction_address = normalize_cli_address(auction_address, param_hint="--auction")
     exec_ctx = cli_ctx.resolve_execution(
-        broadcast=broadcast,
-        required_for="broadcast kick daemon execution",
+        required=True,
+        required_for="kick daemon execution",
         sender=normalize_cli_address(sender, param_hint="--sender"),
         account_name=account,
         keystore_path=keystore,
         password_file=password_file,
     )
-    execution_sender = exec_ctx.sender if broadcast else None
+    execution_sender = exec_ctx.sender
     sleep_seconds = interval_seconds or 1800
 
     async def run_loop() -> None:
@@ -305,7 +303,7 @@ def kick_daemon(
             except Exception:
                 base_fee_gwei = 0.0
 
-            if broadcast and base_fee_gwei > cli_ctx.settings.txn_max_base_fee_gwei:
+            if base_fee_gwei > cli_ctx.settings.txn_max_base_fee_gwei:
                 await asyncio.sleep(sleep_seconds)
                 continue
 
@@ -316,10 +314,10 @@ def kick_daemon(
                     require_curve_quote=require_curve_quote,
                     web3_client=web3_client,
                     signer=exec_ctx.signer,
-                    skip_base_fee_check=broadcast and base_fee_gwei > cli_ctx.settings.txn_max_base_fee_gwei,
+                    skip_base_fee_check=base_fee_gwei > cli_ctx.settings.txn_max_base_fee_gwei,
                 )
                 result = await txn_service.run_once(
-                    live=broadcast,
+                    live=True,
                     batch=True,
                     source_type=normalized_source_type,
                     source_address=normalized_source_address,
@@ -336,7 +334,7 @@ def kick_daemon(
             else:
                 render_kick_run_summary(
                     result=result,
-                    live=broadcast,
+                    live=True,
                     source_type=normalized_source_type,
                     source_address=normalized_source_address,
                     auction_address=normalized_auction_address,

@@ -9,7 +9,7 @@ Documentation lives in [`docs/`](./docs/index.md). The intended hosted docs doma
 | Component | Role | Entry point |
 |---|---|---|
 | `tidal-server` | Server operator CLI for migrations, scans, kick daemons, API serving, and API key management | `tidal.server_cli:app` |
-| `tidal` | CLI client for API-backed inspection, preparation, signing, broadcast, and log inspection | `tidal.cli:app` |
+| `tidal` | CLI client for API-backed inspection, preparation, signing, sending, and log inspection | `tidal.cli:app` |
 | `ui/` | React dashboard for strategies, fee burners, logs, and CLI client actions | `ui/src/App.jsx` |
 | `contracts/` | Foundry project for the on-chain `AuctionKicker` helper contract | `contracts/src/AuctionKicker.sol` |
 
@@ -26,7 +26,7 @@ scanner -> SQLite -> FastAPI control plane -> dashboard UI
                                Ethereum
 ```
 
-The server owns the database, scans, API, and audit history. CLI clients keep private keys local: the CLI asks the API to prepare actions, signs transactions locally, broadcasts them, and reports broadcast/receipt data back to the API.
+The server owns the database, scans, API, and audit history. CLI clients keep private keys local: the CLI asks the API to prepare actions, signs and sends transactions locally, and reports broadcast/receipt data back to the API.
 
 ## Quick Start
 
@@ -58,12 +58,13 @@ export TIDAL_API_KEY=<cli-client-api-key>
 
 tidal kick inspect
 tidal kick run
-tidal kick run --broadcast --sender <address> --account <foundry-keystore-name>
+tidal kick run --sender <address> --account <foundry-keystore-name>
+tidal kick run --no-confirmation --sender <address> --account <foundry-keystore-name>
 ```
 
 For the hosted API at `https://api.tidal.wavey.info`, API keys are provided by wavey on request.
 
-Broadcasting commands use a Foundry-style wallet surface: `--sender`, `--account`, `--keystore`, and `--password-file`.
+Transaction-sending commands use a Foundry-style wallet surface: `--sender`, `--account`, `--keystore`, and `--password-file`.
 
 To upgrade an existing tool install to the latest Tidal:
 

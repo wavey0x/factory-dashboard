@@ -17,18 +17,18 @@ from tidal.cli_options import (
     ApiBaseUrlOption,
     ApiKeyOption,
     AuctionAddressOption,
-    BroadcastOption,
-    BypassConfirmationOption,
     ConfigOption,
     JsonOption,
     KeystoreOption,
     LimitOption,
+    NoConfirmationOption,
     PasswordFileOption,
     SenderOption,
     SourceAddressOption,
     SourceTypeOption,
     VerboseOption,
 )
+from tidal.cli_validation import require_no_confirmation_for_json
 from tidal.cli_renderers import emit_json, render_kick_inspect, render_kick_submission_summary, render_skip_panel
 from tidal.control_plane.client import ControlPlaneError
 from tidal.errors import ConfigurationError
@@ -359,8 +359,7 @@ def kick_run(
     config: ConfigOption = None,
     api_base_url: ApiBaseUrlOption = None,
     api_key: ApiKeyOption = None,
-    broadcast: BroadcastOption = False,
-    bypass_confirmation: BypassConfirmationOption = False,
+    no_confirmation: NoConfirmationOption = False,
     json_output: JsonOption = False,
     source_type: SourceTypeOption = None,
     source_address: SourceAddressOption = None,
@@ -374,16 +373,14 @@ def kick_run(
     require_curve_quote: bool | None = typer.Option(
         None,
         "--require-curve-quote/--allow-missing-curve-quote",
-        help="Override Curve quote strictness for prepare/broadcast.",
+        help="Override Curve quote strictness for prepare/send.",
     ),
 ) -> None:
     del verbose
-    if bypass_confirmation and not broadcast:
-        raise typer.BadParameter("--bypass-confirmation requires --broadcast", param_hint="--bypass-confirmation")
+    require_no_confirmation_for_json(json_output=json_output, no_confirmation=no_confirmation)
     cli_ctx = CLIContext(config, api_base_url=api_base_url, api_key=api_key)
     try:
-        if broadcast:
-            cli_ctx.verify_authenticated_api_access()
+        cli_ctx.verify_authenticated_api_access()
     except (ConfigurationError, ControlPlaneError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
@@ -391,8 +388,8 @@ def kick_run(
     normalized_source_address = normalize_cli_address(source_address, param_hint="--source")
     normalized_auction_address = normalize_cli_address(auction_address, param_hint="--auction")
     exec_ctx = cli_ctx.resolve_execution(
-        broadcast=broadcast,
-        required_for="broadcast kick execution",
+        required=True,
+        required_for="kick execution",
         sender=normalize_cli_address(sender, param_hint="--sender"),
         account_name=account,
         keystore_path=keystore,
@@ -406,10 +403,10 @@ def kick_run(
         "sender": exec_ctx.sender,
         "includeLiveInspection": False,
     }
-    preview_fee_context = _resolve_preview_fee_context(cli_ctx) if broadcast and not json_output else None
+    preview_fee_context = _resolve_preview_fee_context(cli_ctx) if not json_output else None
     local_warnings: list[str] = []
     try:
-        with cli_ctx.control_plane_client(auth=broadcast) as client:
+        with cli_ctx.control_plane_client(auth=True) as client:
             if json_output:
                 inspect_response = client.inspect_kicks(payload)
             else:
@@ -423,7 +420,7 @@ def kick_run(
             prepare_feedback_emitted = False
             broadcast_feedback_emitted = False
 
-            if broadcast and inspect_result.ready_count:
+            if inspect_result.ready_count:
                 total_ready = len(inspect_result.ready)
                 for index, candidate in enumerate(inspect_result.ready, start=1):
                     prepare_payload = _candidate_prepare_payload(candidate, sender=exec_ctx.sender)
@@ -485,7 +482,7 @@ def kick_run(
                                 heading=f"Prepared kick action ({index}/{total_ready})",
                             )
                         render_warnings(warnings)
-                    if not bypass_confirmation and not typer.confirm("Send this transaction?", default=False):
+                    if not no_confirmation and not typer.confirm("Send this transaction?", default=False):
                         skipped_confirmation_count += 1
                         continue
                     if _prepared_action_is_stale(
@@ -526,38 +523,27 @@ def kick_run(
         raise typer.Exit(code=1) from exc
 
     status = "ok" if inspect_result.ready_count else "noop"
-    if broadcast and not broadcast_records:
+    if not broadcast_records:
         status = "noop"
 
     if json_output:
         output: dict[str, object] = {
             "inspection": asdict(inspect_result),
+            "preparedActions": prepared_actions,
+            "broadcastRecords": broadcast_records,
         }
-        if broadcast:
-            output["preparedActions"] = prepared_actions
-            output["broadcastRecords"] = broadcast_records
         emit_json("kick.run", status=status, data=output, warnings=local_warnings)
     else:
-        if not broadcast:
-            render_kick_inspect(inspect_result, show_all=True)
-            if inspect_result.ready_count:
-                typer.echo()
-                typer.echo(
-                    "Dry run only. Candidates are ranked from cached prices; quotes are prepared just-in-time during broadcast."
-                )
-            else:
-                typer.echo("No ready kick candidates.")
+        if broadcast_records and not broadcast_feedback_emitted:
+            render_broadcast_result(broadcast_records)
+        elif inspect_result.ready_count == 0:
+            typer.echo("No ready kick candidates.")
+        elif prepared_candidate_count == 0 and prepare_feedback_emitted:
+            pass
+        elif prepared_candidate_count > 0 and skipped_confirmation_count == prepared_candidate_count:
+            typer.echo("All prepared kick transactions were skipped.")
         else:
-            if broadcast_records and not broadcast_feedback_emitted:
-                render_broadcast_result(broadcast_records)
-            elif inspect_result.ready_count == 0:
-                typer.echo("No ready kick candidates.")
-            elif prepared_candidate_count == 0 and prepare_feedback_emitted:
-                pass
-            elif prepared_candidate_count > 0 and skipped_confirmation_count == prepared_candidate_count:
-                typer.echo("All prepared kick transactions were skipped.")
-            else:
-                typer.echo("No kick transactions were sent.")
+            typer.echo("No kick transactions were sent.")
 
     if status == "noop":
         raise typer.Exit(code=2)

@@ -191,7 +191,6 @@ def test_operator_auction_enable_tokens_uses_styled_submission_flow(tmp_path, mo
             "auction",
             "enable-tokens",
             "0xe92af59d00becd5f70d2ba11ae1a74751503a185",
-            "--broadcast",
             "--config",
             str(config_path),
         ],
@@ -240,7 +239,6 @@ def test_operator_auction_enable_tokens_noop_skips_prepared_panel(tmp_path, monk
             "auction",
             "enable-tokens",
             "0xe92af59d00becd5f70d2ba11ae1a74751503a185",
-            "--broadcast",
             "--config",
             str(config_path),
         ],
@@ -385,3 +383,29 @@ def test_operator_auction_deploy_checks_api_auth_before_resolving_execution(tmp_
     assert result.exit_code == 1
     assert "TIDAL_API_KEY is invalid" in result.output
     assert call_order == ["verify"]
+
+
+def test_operator_auction_deploy_json_requires_no_confirmation(tmp_path) -> None:
+    config_path = _write_config(tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        operator_app,
+        [
+            "auction",
+            "deploy",
+            "--want",
+            "0x1111111111111111111111111111111111111111",
+            "--receiver",
+            "0x2222222222222222222222222222222222222222",
+            "--starting-price",
+            "1234",
+            "--json",
+            "--config",
+            str(config_path),
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "Invalid value for --json" in result.output
+    assert "--no-confirmation" in result.output

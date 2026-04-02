@@ -331,7 +331,7 @@ If recovery planning still cannot produce a sendable sequence:
 3. Update `config/server.yaml` with the new address.
 4. Restart API and scanner.
 5. Verify prepare output shows recovery plan for the fee burner case.
-6. Verify `tidal kick run --broadcast --source-type fee-burner` succeeds.
+6. Verify `tidal kick run --source-type fee-burner` succeeds.
 
 ## Recommendation
 

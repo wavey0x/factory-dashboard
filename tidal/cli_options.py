@@ -26,19 +26,11 @@ JsonOption = Annotated[
     ),
 ]
 
-BroadcastOption = Annotated[
+NoConfirmationOption = Annotated[
     bool,
     typer.Option(
-        "--broadcast",
-        help="Broadcast the transaction instead of running a preview.",
-    ),
-]
-
-BypassConfirmationOption = Annotated[
-    bool,
-    typer.Option(
-        "--bypass-confirmation",
-        help="Skip interactive confirmation before broadcasting.",
+        "--no-confirmation",
+        help="Skip interactive confirmation before sending.",
     ),
 ]
 
@@ -93,7 +85,7 @@ SenderOption = Annotated[
     str | None,
     typer.Option(
         "--sender",
-        help="Execution address for preview and broadcast.",
+        help="Execution address for review and sending.",
     ),
 ]
 

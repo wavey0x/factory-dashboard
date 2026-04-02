@@ -7,7 +7,7 @@
 tidal_api_base_url: https://api.tidal.wavey.info
 tidal_api_request_timeout_seconds: 30
 
-# Local execution defaults used for preview and local broadcast.
+# Local execution defaults used for review and local sending.
 chain_id: 1
 prepared_action_max_age_seconds: 300
 auction_kicker_address: "0x846475a1B97AC57861813206749c1b0f592383eF"
