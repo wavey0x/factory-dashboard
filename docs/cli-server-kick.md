@@ -24,7 +24,7 @@ tidal-server kick run --explain
 Run interactively from the server host:
 
 ```bash
-tidal-server kick run --sender 0xYourAddress --account wavey3
+tidal-server kick run
 ```
 
 ## Important Flags
@@ -41,10 +41,10 @@ tidal-server kick run --sender 0xYourAddress --account wavey3
 
 The `run` subcommand also uses the shared wallet flags:
 
-- `--sender`
-- `--account`
 - `--keystore`
 - `--password-file`
+
+If you do not pass those overrides, the signer is loaded from `TXN_KEYSTORE_PATH` and `TXN_KEYSTORE_PASSPHRASE`, and the sender is inferred from that keystore.
 
 ## When To Use This Instead Of `tidal kick`
 

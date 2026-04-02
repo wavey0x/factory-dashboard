@@ -13,7 +13,6 @@ from tidal.cli_support import (
     build_sync_web3,
     load_signer_from_options,
     resolve_sender_address,
-    validate_sender_matches_signer,
 )
 from tidal.config import Settings, load_settings
 from tidal.control_plane.client import ControlPlaneClient
@@ -105,29 +104,19 @@ class CLIContext:
         *,
         required: bool,
         required_for: str,
-        sender: str | None = None,
-        account_name: str | None = None,
         keystore_path: str | Path | None = None,
         password_file: str | Path | None = None,
     ) -> ExecutionContext:
-        """Resolve signer, validate sender, and resolve the effective sender address."""
+        """Resolve signer and infer the effective sender address from the keystore."""
         signer = load_signer_from_options(
             self.settings,
             required=required,
             required_for=required_for,
-            account_name=account_name,
             keystore_path=keystore_path,
             password_file=password_file,
         )
-        validated_sender = validate_sender_matches_signer(
-            sender=sender,
-            signer=signer,
-            required_for=required_for,
-        )
         resolved_sender = resolve_sender_address(
             self.settings,
-            sender=validated_sender,
-            account_name=account_name,
             keystore_path=keystore_path,
             signer=signer,
         )

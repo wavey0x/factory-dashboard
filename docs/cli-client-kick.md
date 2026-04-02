@@ -24,19 +24,19 @@ tidal kick inspect --source-type fee-burner
 Run interactively with confirmation:
 
 ```bash
-tidal kick run --sender 0xYourAddress --account wavey3
+tidal kick run
 ```
 
 Run unattended:
 
 ```bash
-tidal kick run --no-confirmation --sender 0xYourAddress --account wavey3
+tidal kick run --no-confirmation
 ```
 
 Allow prepares to continue when Curve quoting is unavailable:
 
 ```bash
-tidal kick run --sender 0xYourAddress --account wavey3 --allow-missing-curve-quote
+tidal kick run --allow-missing-curve-quote
 ```
 
 ## Important Flags
@@ -50,6 +50,8 @@ tidal kick run --sender 0xYourAddress --account wavey3 --allow-missing-curve-quo
 - `--verbose`: show more prepare and skip detail on `run`
 - `--require-curve-quote` and `--allow-missing-curve-quote`: tighten or relax fresh quote requirements for that run
 - `--json`: emit machine-readable output; requires `--no-confirmation` on `run`
+
+Signing defaults to `TXN_KEYSTORE_PATH` and `TXN_KEYSTORE_PASSPHRASE`. Use `--keystore` and `--password-file` only when you need a one-off override. The sender address is inferred from the resolved keystore.
 
 ## How `run` Behaves
 

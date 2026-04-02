@@ -13,7 +13,6 @@ from sqlalchemy import select
 from tidal.cli_context import CLIContext, normalize_cli_address
 from tidal.cli_exit_codes import kick_exit_code
 from tidal.cli_options import (
-    AccountOption,
     AuctionAddressOption,
     ConfigOption,
     JsonOption,
@@ -21,7 +20,6 @@ from tidal.cli_options import (
     LimitOption,
     NoConfirmationOption,
     PasswordFileOption,
-    SenderOption,
     SourceAddressOption,
     SourceTypeOption,
     VerboseOption,
@@ -117,8 +115,6 @@ def kick_run(
     source_address: SourceAddressOption = None,
     auction_address: AuctionAddressOption = None,
     limit: LimitOption = None,
-    sender: SenderOption = None,
-    account: AccountOption = None,
     keystore: KeystoreOption = None,
     password_file: PasswordFileOption = None,
     verbose: VerboseOption = False,
@@ -137,7 +133,6 @@ def kick_run(
     normalized_source_type = _normalize_source_type_filter(source_type)
     normalized_source_address = normalize_cli_address(source_address, param_hint="--source")
     normalized_auction_address = normalize_cli_address(auction_address, param_hint="--auction")
-    normalized_sender = normalize_cli_address(sender, param_hint="--sender")
     try:
         cli_ctx.require_rpc()
     except ConfigurationError as exc:
@@ -147,8 +142,6 @@ def kick_run(
     exec_ctx = cli_ctx.resolve_execution(
         required=True,
         required_for="kick execution",
-        sender=normalized_sender,
-        account_name=account,
         keystore_path=keystore,
         password_file=password_file,
     )

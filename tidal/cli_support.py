@@ -8,7 +8,6 @@ import os
 from pathlib import Path
 from typing import Any
 
-from eth_utils import to_checksum_address
 from web3 import HTTPProvider, Web3
 
 from tidal.normalizers import normalize_address
@@ -54,20 +53,10 @@ def discover_local_keystore_path(settings: Any) -> Path | None:
 def resolve_keystore_path(
     settings: Any,
     *,
-    account_name: str | None = None,
     keystore_path: str | Path | None = None,
     required: bool = False,
     required_for: str = "transaction execution",
 ) -> Path | None:
-    if account_name and keystore_path is not None:
-        raise SystemExit(f"Specify only one of --account or --keystore for {required_for}.")
-
-    if account_name:
-        resolved = foundry_keystore_dir() / account_name.strip()
-        if resolved.is_file():
-            return resolved
-        raise SystemExit(f"Account keystore not found for {required_for}: {resolved}")
-
     if keystore_path is not None:
         resolved = Path(keystore_path).expanduser()
         if resolved.is_file():
@@ -81,10 +70,14 @@ def resolve_keystore_path(
             return resolved
         raise SystemExit(f"Configured keystore file not found for {required_for}: {resolved}")
 
+    discovered = discover_local_keystore_path(settings)
+    if discovered is not None:
+        return discovered
+
     if required:
         raise SystemExit(
             f"A wallet is required for {required_for}. "
-            "Provide --account or --keystore, or configure TXN_KEYSTORE_PATH."
+            "Provide --keystore, configure TXN_KEYSTORE_PATH, or install a local Foundry keystore."
         )
 
     return None
@@ -132,14 +125,12 @@ def load_signer_from_options(
     *,
     required: bool,
     required_for: str = "transaction execution",
-    account_name: str | None = None,
     keystore_path: str | Path | None = None,
     password_file: str | Path | None = None,
     passphrase: str | None = None,
 ) -> TransactionSigner | None:
     resolved_keystore_path = resolve_keystore_path(
         settings,
-        account_name=account_name,
         keystore_path=keystore_path,
         required=required,
         required_for=required_for,
@@ -186,7 +177,6 @@ def maybe_load_signer(
     *,
     required: bool,
     required_for: str = "transaction execution",
-    account_name: str | None = None,
     keystore_path: str | Path | None = None,
     passphrase: str | None = None,
 ) -> TransactionSigner | None:
@@ -195,7 +185,6 @@ def maybe_load_signer(
             settings,
             required=required,
             required_for=required_for,
-            account_name=account_name,
             keystore_path=keystore_path,
             passphrase=passphrase,
         )
@@ -208,37 +197,14 @@ def maybe_load_signer(
 def resolve_sender_address(
     settings: Any,
     *,
-    sender: str | None = None,
-    account_name: str | None = None,
     keystore_path: str | Path | None = None,
     signer: TransactionSigner | None = None,
 ) -> str | None:
-    if sender is not None:
-        return normalize_address(sender)
     if signer is not None:
         return normalize_address(signer.address)
     resolved_keystore_path = resolve_keystore_path(
         settings,
-        account_name=account_name,
         keystore_path=keystore_path,
         required=False,
     )
     return read_keystore_address(resolved_keystore_path)
-
-
-def validate_sender_matches_signer(
-    *,
-    sender: str | None,
-    signer: TransactionSigner | None,
-    required_for: str = "transaction execution",
-) -> str | None:
-    normalized_sender = normalize_address(sender) if sender is not None else None
-    if signer is None:
-        return normalized_sender
-    signer_address = normalize_address(signer.address)
-    if normalized_sender is not None and normalized_sender != signer_address:
-        raise SystemExit(
-            f"--sender {to_checksum_address(normalized_sender)} does not match signer address "
-            f"{to_checksum_address(signer_address)} for {required_for}."
-        )
-    return normalized_sender or signer_address

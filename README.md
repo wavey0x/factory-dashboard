@@ -58,13 +58,12 @@ export TIDAL_API_KEY=<cli-client-api-key>
 
 tidal kick inspect
 tidal kick run
-tidal kick run --sender <address> --account <foundry-keystore-name>
-tidal kick run --no-confirmation --sender <address> --account <foundry-keystore-name>
+tidal kick run --no-confirmation
 ```
 
 For the hosted API at `https://api.tidal.wavey.info`, API keys are provided by wavey on request.
 
-Transaction-sending commands use a Foundry-style wallet surface: `--sender`, `--account`, `--keystore`, and `--password-file`.
+Transaction-sending commands load the wallet from `TXN_KEYSTORE_PATH` and `TXN_KEYSTORE_PASSPHRASE` by default. Use `--keystore` and `--password-file` only when you need a per-command override. The sender address is inferred from the resolved keystore.
 
 To upgrade an existing tool install to the latest Tidal:
 

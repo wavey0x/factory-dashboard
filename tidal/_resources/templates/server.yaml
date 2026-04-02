@@ -12,8 +12,10 @@ tidal_api_receipt_reconcile_threshold_seconds: 60
 tidal_api_cors_allowed_origins: []
 
 # Scanner and execution settings.
+# Keep transaction signing in the service env via TXN_KEYSTORE_PATH and
+# TXN_KEYSTORE_PASSPHRASE. CLI sender addresses are inferred from the keystore.
 scan_concurrency: 20
-auction_kicker_address: "0x846475a1B97AC57861813206749c1b0f592383eF"
+auction_kicker_address: "0x26c28bDFE5207dC6a27a8dd886D1FbE068586A2d"
 txn_usd_threshold: 100
 txn_max_base_fee_gwei: 0.5
 txn_max_priority_fee_gwei: 2

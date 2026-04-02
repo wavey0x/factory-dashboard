@@ -8,7 +8,6 @@ from tidal.cli_support import (
     load_signer_from_options,
     resolve_keystore_path,
     resolve_sender_address,
-    validate_sender_matches_signer,
 )
 
 
@@ -45,10 +44,9 @@ def wallet_fixture(tmp_path, monkeypatch):
     )
 
 
-def test_resolve_keystore_path_uses_account_name(wallet_fixture) -> None:
+def test_resolve_keystore_path_uses_discovered_foundry_keystore(wallet_fixture) -> None:
     resolved = resolve_keystore_path(
         wallet_fixture.settings,
-        account_name="ops",
         required=True,
         required_for="broadcast test",
     )
@@ -56,23 +54,11 @@ def test_resolve_keystore_path_uses_account_name(wallet_fixture) -> None:
     assert resolved == wallet_fixture.account_keystore
 
 
-def test_resolve_keystore_path_rejects_account_and_keystore_together(wallet_fixture) -> None:
-    with pytest.raises(SystemExit, match="Specify only one of --account or --keystore"):
-        resolve_keystore_path(
-            wallet_fixture.settings,
-            account_name="ops",
-            keystore_path=wallet_fixture.explicit_keystore,
-            required=True,
-            required_for="broadcast test",
-        )
-
-
 def test_load_signer_from_options_uses_password_file(wallet_fixture) -> None:
     signer = load_signer_from_options(
         wallet_fixture.settings,
         required=True,
         required_for="broadcast test",
-        account_name="ops",
         password_file=wallet_fixture.password_file,
     )
 
@@ -80,28 +66,37 @@ def test_load_signer_from_options_uses_password_file(wallet_fixture) -> None:
     assert signer.address == wallet_fixture.account.address.lower()
 
 
-def test_resolve_sender_address_prefers_explicit_sender(wallet_fixture) -> None:
-    resolved = resolve_sender_address(
-        wallet_fixture.settings,
-        sender="0x1111111111111111111111111111111111111111",
-        account_name="ops",
-    )
-
-    assert resolved == "0x1111111111111111111111111111111111111111"
-
-
-def test_validate_sender_matches_signer_rejects_mismatch(wallet_fixture) -> None:
+def test_resolve_sender_address_uses_signer_address(wallet_fixture) -> None:
     signer = load_signer_from_options(
         wallet_fixture.settings,
         required=True,
         required_for="broadcast test",
-        keystore_path=wallet_fixture.explicit_keystore,
         password_file=wallet_fixture.password_file,
     )
 
-    with pytest.raises(SystemExit, match="does not match signer address"):
-        validate_sender_matches_signer(
-            sender="0x1111111111111111111111111111111111111111",
-            signer=signer,
+    resolved = resolve_sender_address(
+        wallet_fixture.settings,
+        signer=signer,
+    )
+
+    assert resolved == wallet_fixture.account.address.lower()
+
+
+def test_resolve_sender_address_reads_explicit_keystore(wallet_fixture) -> None:
+    resolved = resolve_sender_address(
+        wallet_fixture.settings,
+        keystore_path=wallet_fixture.explicit_keystore,
+    )
+
+    assert resolved == wallet_fixture.account.address.lower()
+
+
+def test_resolve_keystore_path_requires_keystore_or_config(wallet_fixture) -> None:
+    wallet_fixture.account_keystore.unlink()
+
+    with pytest.raises(SystemExit, match="Provide --keystore, configure TXN_KEYSTORE_PATH"):
+        resolve_keystore_path(
+            wallet_fixture.settings,
+            required=True,
             required_for="broadcast test",
         )

@@ -16,12 +16,7 @@ Mutating transaction commands send transactions after review by default. Use `--
 
 ### Local signing
 
-Broadcasting commands share the same wallet surface:
-
-- `--sender`
-- `--account`
-- `--keystore`
-- `--password-file`
+Broadcasting commands resolve the signer from `TXN_KEYSTORE_PATH` and `TXN_KEYSTORE_PASSPHRASE` by default. Use `--keystore` and `--password-file` only for one-off overrides. The sender is inferred from the resolved keystore.
 
 The private key stays with the machine running the CLI.
 

@@ -339,21 +339,20 @@ def test_auction_enable_tokens_rejects_invalid_extra_token() -> None:
     assert "invalid address" in result.output
 
 
-def test_auction_enable_tokens_rejects_invalid_sender() -> None:
+def test_auction_enable_tokens_help_omits_sender_flag() -> None:
     runner = CliRunner()
     result = runner.invoke(
         app,
         [
             "auction",
             "enable-tokens",
-            "0x1111111111111111111111111111111111111111",
-            "--sender",
-            "not-an-address",
+            "--help",
         ],
     )
 
-    assert result.exit_code != 0
-    assert "invalid address" in result.output
+    assert result.exit_code == 0
+    assert "--sender" not in result.output
+    assert "--account" not in result.output
 
 
 def test_auction_enable_tokens_json_requires_no_confirmation() -> None:

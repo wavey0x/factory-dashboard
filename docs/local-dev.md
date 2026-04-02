@@ -109,12 +109,12 @@ uv run tidal logs kicks
 uv run tidal kick run
 ```
 
-For broadcast flows you also need wallet flags such as:
+For broadcast flows you also need wallet configuration:
 
-- `--sender`
-- `--account`
-- `--keystore`
-- `--password-file`
+- `TXN_KEYSTORE_PATH`
+- `TXN_KEYSTORE_PASSPHRASE`
+- optional `--keystore`
+- optional `--password-file`
 
 ## Run The Dashboard UI
 

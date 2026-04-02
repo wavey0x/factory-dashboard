@@ -6,7 +6,6 @@ import typer
 
 from tidal.cli_context import CLIContext, normalize_cli_address
 from tidal.cli_options import (
-    AccountOption,
     ApiBaseUrlOption,
     ApiKeyOption,
     ConfigOption,
@@ -14,7 +13,6 @@ from tidal.cli_options import (
     KeystoreOption,
     NoConfirmationOption,
     PasswordFileOption,
-    SenderOption,
 )
 from tidal.cli_validation import require_no_confirmation_for_json
 from tidal.cli_renderers import emit_json, format_settlement_reason_lines, render_status_panel
@@ -158,8 +156,6 @@ def deploy(
     governance: str | None = typer.Option(None, "--governance", help="Governance / trade handler address."),
     salt: str | None = typer.Option(None, "--salt", help="Optional deployment salt."),
     no_confirmation: NoConfirmationOption = False,
-    sender: SenderOption = None,
-    account: AccountOption = None,
     keystore: KeystoreOption = None,
     password_file: PasswordFileOption = None,
     json_output: JsonOption = False,
@@ -174,8 +170,6 @@ def deploy(
     exec_ctx = cli_ctx.resolve_execution(
         required=True,
         required_for="auction deployment",
-        sender=normalize_cli_address(sender, param_hint="--sender"),
-        account_name=account,
         keystore_path=keystore,
         password_file=password_file,
     )
@@ -217,8 +211,6 @@ def enable_tokens(
     api_key: ApiKeyOption = None,
     extra_token: list[str] | None = typer.Option(None, "--extra-token", help="Extra token address to probe."),
     no_confirmation: NoConfirmationOption = False,
-    sender: SenderOption = None,
-    account: AccountOption = None,
     keystore: KeystoreOption = None,
     password_file: PasswordFileOption = None,
     json_output: JsonOption = False,
@@ -233,8 +225,6 @@ def enable_tokens(
     exec_ctx = cli_ctx.resolve_execution(
         required=True,
         required_for="enable-tokens execution",
-        sender=normalize_cli_address(sender, param_hint="--sender"),
-        account_name=account,
         keystore_path=keystore,
         password_file=password_file,
     )
@@ -282,8 +272,6 @@ def settle(
         "--sweep",
         help="Force sweep-and-settle for the active lot, even if it is still above floor.",
     ),
-    sender: SenderOption = None,
-    account: AccountOption = None,
     keystore: KeystoreOption = None,
     password_file: PasswordFileOption = None,
     json_output: JsonOption = False,
@@ -298,8 +286,6 @@ def settle(
     exec_ctx = cli_ctx.resolve_execution(
         required=True,
         required_for="settlement execution",
-        sender=normalize_cli_address(sender, param_hint="--sender"),
-        account_name=account,
         keystore_path=keystore,
         password_file=password_file,
     )

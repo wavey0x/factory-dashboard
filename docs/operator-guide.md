@@ -39,13 +39,13 @@ That means:
 - edit `config/server.yaml` on the server checkout if you want shared prepare behavior to change
 - the authoritative pricing, ignore, and cooldown rules live under `kick:` in that file
 
-## Wallet Flags
+## Wallet Configuration
 
-Transaction-sending commands share the same wallet surface:
+Transaction-sending commands load the signer from keystore configuration:
 
-- `--sender`: address to review and send from
-- `--account`: Foundry keystore name under `~/.foundry/keystores`
-- `--keystore`: explicit keystore path
+- `TXN_KEYSTORE_PATH`: default keystore path
+- `TXN_KEYSTORE_PASSPHRASE`: default keystore password
+- `--keystore`: explicit keystore path override
 - `--password-file`: file containing the keystore password
 
 The keystore secrets themselves usually live in `~/.tidal/cli/.env`:
@@ -56,10 +56,10 @@ The keystore secrets themselves usually live in `~/.tidal/cli/.env`:
 Example:
 
 ```bash
-tidal kick run \
-  --sender 0xYourAddress \
-  --account wavey3
+tidal kick run
 ```
+
+The sender address is inferred from the resolved keystore.
 
 ## Read-Only Workflows
 
@@ -97,9 +97,7 @@ tidal kick inspect --show-all
 ### Run
 
 ```bash
-tidal kick run \
-  --sender 0xYourAddress \
-  --account wavey3
+tidal kick run
 ```
 
 The CLI will:
@@ -117,10 +115,7 @@ The client also enforces a local age limit for prepared transactions. If you wai
 For unattended execution:
 
 ```bash
-tidal kick run \
-  --no-confirmation \
-  --sender 0xYourAddress \
-  --account wavey3
+tidal kick run --no-confirmation
 ```
 
 Useful flags:

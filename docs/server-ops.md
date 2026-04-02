@@ -70,16 +70,16 @@ Inspect:
 tidal-server kick inspect --config config/server.yaml
 ```
 
-Run once with explicit wallet selection:
+Run once with the configured keystore:
 
 ```bash
-tidal-server kick run --config config/server.yaml --sender 0xYourAddress --account wavey3
+tidal-server kick run --config config/server.yaml
 ```
 
 Run once without an interactive confirmation step:
 
 ```bash
-tidal-server kick run --config config/server.yaml --no-confirmation --sender 0xYourAddress --account wavey3
+tidal-server kick run --config config/server.yaml --no-confirmation
 ```
 
 ## Config Notes
@@ -95,6 +95,8 @@ Set them explicitly only when you need a non-default bind.
 
 Scan auto-settle is not configured in `server.yaml`.
 Enable it explicitly with `--auto-settle` when needed.
+
+For kick and other transaction-sending commands, keep `TXN_KEYSTORE_PATH` and `TXN_KEYSTORE_PASSPHRASE` in the service environment. Use `--keystore` and `--password-file` only for one-off overrides. The sender address is inferred from the keystore.
 
 ## API Key Management
 

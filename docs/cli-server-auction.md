@@ -16,21 +16,19 @@ Deploy a new auction:
 tidal-server auction deploy \
   --want 0xWant \
   --receiver 0xReceiver \
-  --starting-price 1234 \
-  --sender 0xYourAddress \
-  --account wavey3
+  --starting-price 1234
 ```
 
 Enable tokens:
 
 ```bash
-tidal-server auction enable-tokens 0xAuction --sender 0xYourAddress --account wavey3
+tidal-server auction enable-tokens 0xAuction
 ```
 
 Settle the current lot:
 
 ```bash
-tidal-server auction settle 0xAuction --sender 0xYourAddress --account wavey3
+tidal-server auction settle 0xAuction
 ```
 
 ## Important Flags
@@ -38,8 +36,6 @@ tidal-server auction settle 0xAuction --sender 0xYourAddress --account wavey3
 Shared across these subcommands:
 
 - `--no-confirmation`
-- `--sender`
-- `--account`
 - `--keystore`
 - `--password-file`
 - `--json` which requires `--no-confirmation`
@@ -53,3 +49,4 @@ Subcommand-specific flags:
 ## Notes
 
 These commands execute locally against the configured RPC and shared database. They are operational tools for the server operator, not the normal remote-client path.
+Wallet resolution is keystore-driven: use `TXN_KEYSTORE_PATH` and `TXN_KEYSTORE_PASSPHRASE` by default, or `--keystore` and `--password-file` for a one-off override. The sender address is inferred from the keystore.

@@ -61,14 +61,6 @@ KeystoreOption = Annotated[
     ),
 ]
 
-AccountOption = Annotated[
-    str | None,
-    typer.Option(
-        "--account",
-        help="Use a keystore from ~/.foundry/keystores by filename.",
-    ),
-]
-
 PasswordFileOption = Annotated[
     Path | None,
     typer.Option(
@@ -77,14 +69,6 @@ PasswordFileOption = Annotated[
         file_okay=True,
         dir_okay=False,
         help="Path to a file containing the keystore password.",
-    ),
-]
-
-SenderOption = Annotated[
-    str | None,
-    typer.Option(
-        "--sender",
-        help="Execution address for review and sending.",
     ),
 ]
 

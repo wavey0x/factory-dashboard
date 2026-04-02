@@ -42,7 +42,7 @@ tidal auction settle 0xAuction --sweep
 Send one of those actions:
 
 ```bash
-tidal auction settle 0xAuction --sender 0xYourAddress --account wavey3
+tidal auction settle 0xAuction
 ```
 
 ## Important Flags
@@ -50,8 +50,6 @@ tidal auction settle 0xAuction --sender 0xYourAddress --account wavey3
 Shared across the mutating auction commands:
 
 - `--no-confirmation`
-- `--sender`
-- `--account`
 - `--keystore`
 - `--password-file`
 - `--json` which requires `--no-confirmation`
@@ -72,3 +70,4 @@ These commands use the same prepare and audit model as `tidal kick`:
 4. the CLI client reports the broadcast and receipt back to the API
 
 That means the API owns the action history while the CLI client keeps local control of the wallet.
+The signer comes from `TXN_KEYSTORE_PATH` and `TXN_KEYSTORE_PASSPHRASE` by default, or from `--keystore` and `--password-file` if you override them for one command. The sender address is inferred from the resolved keystore.

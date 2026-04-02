@@ -13,7 +13,6 @@ from eth_utils import to_checksum_address
 from tidal.auction_price_units import format_buffer_pct, scaled_price_to_rate
 from tidal.cli_context import CLIContext, normalize_cli_address
 from tidal.cli_options import (
-    AccountOption,
     ApiBaseUrlOption,
     ApiKeyOption,
     AuctionAddressOption,
@@ -23,7 +22,6 @@ from tidal.cli_options import (
     LimitOption,
     NoConfirmationOption,
     PasswordFileOption,
-    SenderOption,
     SourceAddressOption,
     SourceTypeOption,
     VerboseOption,
@@ -365,8 +363,6 @@ def kick_run(
     source_address: SourceAddressOption = None,
     auction_address: AuctionAddressOption = None,
     limit: LimitOption = None,
-    sender: SenderOption = None,
-    account: AccountOption = None,
     keystore: KeystoreOption = None,
     password_file: PasswordFileOption = None,
     verbose: VerboseOption = False,
@@ -390,8 +386,6 @@ def kick_run(
     exec_ctx = cli_ctx.resolve_execution(
         required=True,
         required_for="kick execution",
-        sender=normalize_cli_address(sender, param_hint="--sender"),
-        account_name=account,
         keystore_path=keystore,
         password_file=password_file,
     )
