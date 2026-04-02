@@ -36,6 +36,7 @@ from tidal.operator_cli_support import (
     render_action_preview,
     render_broadcast_result,
     render_warnings,
+    submission_progress,
 )
 from tidal.ops.kick_inspect import KickInspectEntry, KickInspectResult
 
@@ -107,6 +108,17 @@ def _candidate_prepare_payload(candidate: KickInspectEntry, *, sender: str | Non
         "sender": sender,
     }
     return payload
+
+
+def _candidate_review_queue(
+    inspect_result: KickInspectResult,
+    *,
+    include_deferred_same_auction: bool,
+) -> list[KickInspectEntry]:
+    queue = list(inspect_result.ready)
+    if include_deferred_same_auction:
+        queue.extend(inspect_result.deferred_same_auction)
+    return queue
 
 
 def _prepare_skips(data: dict[str, object], *, candidate: KickInspectEntry | None = None) -> list[dict[str, str | None]]:
@@ -406,23 +418,28 @@ def kick_run(
                 with progress_status("Loading kick candidates..."):
                     inspect_response = client.inspect_kicks(payload)
             inspect_result = _inspect_result_from_api(inspect_response["data"])
+            review_candidates = _candidate_review_queue(
+                inspect_result,
+                include_deferred_same_auction=not no_confirmation,
+            )
             broadcast_records: list[dict[str, object]] = []
             prepared_actions: list[dict[str, object]] = []
             prepared_candidate_count = 0
             skipped_confirmation_count = 0
             prepare_feedback_emitted = False
             broadcast_feedback_emitted = False
+            sent_transaction = False
 
-            if inspect_result.ready_count:
-                total_ready = len(inspect_result.ready)
-                for index, candidate in enumerate(inspect_result.ready, start=1):
+            if review_candidates:
+                total_candidates = len(review_candidates)
+                for index, candidate in enumerate(review_candidates, start=1):
                     prepare_payload = _candidate_prepare_payload(candidate, sender=exec_ctx.sender)
                     if require_curve_quote is not None:
                         prepare_payload["requireCurveQuote"] = require_curve_quote
                     if json_output:
                         prepare_response = client.prepare_kicks(prepare_payload)
                     else:
-                        with progress_status(f"Preparing kick {index} of {total_ready}..."):
+                        with progress_status(f"Preparing kick {index} of {total_candidates}..."):
                             prepare_response = client.prepare_kicks(prepare_payload)
                     prepared_at_monotonic = _current_monotonic()
                     prepared_data = prepare_response["data"]
@@ -452,7 +469,7 @@ def kick_run(
                         summary = _kick_submission_summary(
                             prepared_data,
                             candidate=candidate,
-                            single_title=f"Kick ({index} of {total_ready})",
+                            single_title=f"Kick ({index} of {total_candidates})",
                             fee_context=preview_fee_context or {
                                 "base_fee_gwei": 0.0,
                                 "priority_fee_gwei": float(cli_ctx.settings.txn_max_priority_fee_gwei),
@@ -492,20 +509,34 @@ def kick_run(
                         continue
                     if exec_ctx.signer is None or exec_ctx.sender is None:
                         raise typer.Exit(code=1)
-                    if not json_output:
+                    if json_output:
+                        action_records = execute_prepared_action_sync(
+                            settings=cli_ctx.settings,
+                            client=client,
+                            action_id=str(prepared_data["actionId"]),
+                            sender=exec_ctx.sender,
+                            signer=exec_ctx.signer,
+                            transactions=transactions,
+                        )
+                    else:
                         typer.echo()
-                    action_records = execute_prepared_action_sync(
-                        settings=cli_ctx.settings,
-                        client=client,
-                        action_id=str(prepared_data["actionId"]),
-                        sender=exec_ctx.sender,
-                        signer=exec_ctx.signer,
-                        transactions=transactions,
-                    )
+                        with submission_progress("Submitting transaction...") as update_progress:
+                            action_records = execute_prepared_action_sync(
+                                settings=cli_ctx.settings,
+                                client=client,
+                                action_id=str(prepared_data["actionId"]),
+                                sender=exec_ctx.sender,
+                                signer=exec_ctx.signer,
+                                transactions=transactions,
+                                progress_callback=update_progress,
+                            )
                     if not json_output and action_records:
                         render_broadcast_result(action_records)
                         broadcast_feedback_emitted = True
                     broadcast_records.extend(action_records)
+                    if action_records:
+                        sent_transaction = True
+                        break
     except (ConfigurationError, ControlPlaneError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
@@ -513,9 +544,7 @@ def kick_run(
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
 
-    status = "ok" if inspect_result.ready_count else "noop"
-    if not broadcast_records:
-        status = "noop"
+    status = "ok" if broadcast_records else "noop"
 
     if json_output:
         output: dict[str, object] = {
@@ -525,8 +554,11 @@ def kick_run(
         }
         emit_json("kick.run", status=status, data=output, warnings=local_warnings)
     else:
-        if broadcast_records and not broadcast_feedback_emitted:
-            render_broadcast_result(broadcast_records)
+        if broadcast_records:
+            if not broadcast_feedback_emitted:
+                render_broadcast_result(broadcast_records)
+            if sent_transaction and len(review_candidates) > 1:
+                typer.echo("Kick transaction sent. Ending run after the first submitted candidate.")
         elif inspect_result.ready_count == 0:
             typer.echo("No ready kick candidates.")
         elif prepared_candidate_count == 0 and prepare_feedback_emitted:
