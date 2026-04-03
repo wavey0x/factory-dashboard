@@ -57,6 +57,9 @@ kick:
     - auction: "0x73b2962d10e5dda7768c55dbe8f24a78149ced0c"
       token: "0x865377367054516e17014CcdED1e7d814EDC9ce4" # DOLA
       profile: stable
+    - auction: "0xe92AF59D00BecD5F70d2Ba11AE1a74751503a185"
+      token: "0xf939E0A03FB07F59A73314E73794Be0E57ac1b4E" #crvUSD
+      profile: stable
 
   usd_kick_limit:
     "0x04ACaF8D2865c0714F79da09645C13FD2888977f": 10000 # WFRAX
