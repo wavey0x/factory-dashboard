@@ -26,6 +26,7 @@ from tidal.operator_cli_support import (
     submission_progress,
     render_warnings,
 )
+from tidal.transaction_service.types import TxIntent
 
 app = typer.Typer(help="Auction operator commands", no_args_is_help=True)
 
@@ -90,6 +91,7 @@ def _handle_prepared_action(
 ) -> None:  # noqa: ANN001
     broadcast_records: list[dict[str, object]] = []
     transactions = data.get("transactions") or []
+    tx_intents = [TxIntent.from_payload(tx) for tx in transactions] if isinstance(transactions, list) else []
     if not json_output:
         if response["status"] == "ok" and isinstance(transactions, list) and transactions:
             render_action_preview(data, heading="Prepared action")
@@ -110,7 +112,7 @@ def _handle_prepared_action(
                         action_id=str(data["actionId"]),
                         sender=exec_ctx.sender,
                         signer=exec_ctx.signer,
-                        transactions=list(transactions),
+                        transactions=tx_intents,
                         progress_callback=update_progress,
                     )
     except RuntimeError as exc:

@@ -6,6 +6,7 @@ from eth_utils import to_checksum_address
 from typer.testing import CliRunner
 
 from tidal.cli import app as operator_app
+from tidal.transaction_service.types import TxIntent
 import tidal.kick_cli as operator_kick_cli_module
 
 
@@ -84,6 +85,20 @@ def _inspect_payload(
         "cooldown_skips": [],
         "deferred_same_auction": deferred,
         "limited": [],
+    }
+
+
+def _broadcast_record(*, transactions: list[TxIntent], sender: str, tx_hash: str) -> dict[str, object]:
+    tx = transactions[0]
+    assert isinstance(tx, TxIntent)
+    return {
+        "operation": tx.operation,
+        "sender": sender,
+        "txHash": tx_hash,
+        "broadcastAt": "2026-03-29T00:00:00+00:00",
+        "chainId": 1,
+        "gasEstimate": tx.gas_estimate,
+        "receiptStatus": "CONFIRMED",
     }
 
 
@@ -376,7 +391,7 @@ def test_operator_kick_run_threads_curve_quote_override(tmp_path, monkeypatch, f
 def test_operator_kick_run_continues_across_distinct_auctions_in_interactive_mode(tmp_path, monkeypatch) -> None:
     config_path = _write_config(tmp_path)
     client = _BroadcastClient()
-    prepared_actions: list[tuple[str, list[dict[str, object]]]] = []
+    prepared_actions: list[tuple[str, list[TxIntent]]] = []
 
     monkeypatch.setattr(
         operator_kick_cli_module.CLIContext,
@@ -400,17 +415,7 @@ def test_operator_kick_run_continues_across_distinct_auctions_in_interactive_mod
 
     def fake_execute_prepared_action_sync(**kwargs):  # noqa: ANN003
         prepared_actions.append((kwargs["action_id"], kwargs["transactions"]))
-        return [
-            {
-                "operation": kwargs["transactions"][0]["operation"],
-                "sender": kwargs["sender"],
-                "txHash": f"0x{len(prepared_actions):064x}",
-                "broadcastAt": "2026-03-29T00:00:00+00:00",
-                "chainId": 1,
-                "gasEstimate": kwargs["transactions"][0]["gasEstimate"],
-                "receiptStatus": "CONFIRMED",
-            }
-        ]
+        return [_broadcast_record(transactions=kwargs["transactions"], sender=kwargs["sender"], tx_hash=f"0x{len(prepared_actions):064x}")]
 
     monkeypatch.setattr(
         operator_kick_cli_module,
@@ -456,7 +461,7 @@ def test_operator_kick_run_continues_across_distinct_auctions_in_interactive_mod
 def test_operator_kick_run_no_confirmation_stops_after_first_successful_broadcast(tmp_path, monkeypatch) -> None:
     config_path = _write_config(tmp_path)
     client = _BroadcastClient()
-    prepared_actions: list[tuple[str, list[dict[str, object]]]] = []
+    prepared_actions: list[tuple[str, list[TxIntent]]] = []
 
     monkeypatch.setattr(
         operator_kick_cli_module.CLIContext,
@@ -474,17 +479,7 @@ def test_operator_kick_run_no_confirmation_stops_after_first_successful_broadcas
 
     def fake_execute_prepared_action_sync(**kwargs):  # noqa: ANN003
         prepared_actions.append((kwargs["action_id"], kwargs["transactions"]))
-        return [
-            {
-                "operation": kwargs["transactions"][0]["operation"],
-                "sender": kwargs["sender"],
-                "txHash": "0x" + "1" * 64,
-                "broadcastAt": "2026-03-29T00:00:00+00:00",
-                "chainId": 1,
-                "gasEstimate": kwargs["transactions"][0]["gasEstimate"],
-                "receiptStatus": "CONFIRMED",
-            }
-        ]
+        return [_broadcast_record(transactions=kwargs["transactions"], sender=kwargs["sender"], tx_hash="0x" + "1" * 64)]
 
     monkeypatch.setattr(
         operator_kick_cli_module,
@@ -522,7 +517,7 @@ def test_operator_kick_run_queues_deferred_same_auction_candidates_for_review(tm
         ],
     )
     confirm_answers = iter([False, True])
-    prepared_actions: list[tuple[str, list[dict[str, object]]]] = []
+    prepared_actions: list[tuple[str, list[TxIntent]]] = []
 
     monkeypatch.setattr(
         operator_kick_cli_module.CLIContext,
@@ -546,17 +541,7 @@ def test_operator_kick_run_queues_deferred_same_auction_candidates_for_review(tm
 
     def fake_execute_prepared_action_sync(**kwargs):  # noqa: ANN003
         prepared_actions.append((kwargs["action_id"], kwargs["transactions"]))
-        return [
-            {
-                "operation": kwargs["transactions"][0]["operation"],
-                "sender": kwargs["sender"],
-                "txHash": "0x" + "1" * 64,
-                "broadcastAt": "2026-03-29T00:00:00+00:00",
-                "chainId": 1,
-                "gasEstimate": kwargs["transactions"][0]["gasEstimate"],
-                "receiptStatus": "CONFIRMED",
-            }
-        ]
+        return [_broadcast_record(transactions=kwargs["transactions"], sender=kwargs["sender"], tx_hash="0x" + "1" * 64)]
 
     monkeypatch.setattr(
         operator_kick_cli_module,
@@ -736,17 +721,7 @@ def test_operator_kick_run_fee_burner_active_auction_skip_continues_to_distinct_
 
     def fake_execute_prepared_action_sync(**kwargs):  # noqa: ANN003
         prepared_actions.append(kwargs["action_id"])
-        return [
-            {
-                "operation": kwargs["transactions"][0]["operation"],
-                "sender": kwargs["sender"],
-                "txHash": "0x" + "2" * 64,
-                "broadcastAt": "2026-03-29T00:00:00+00:00",
-                "chainId": 1,
-                "gasEstimate": kwargs["transactions"][0]["gasEstimate"],
-                "receiptStatus": "CONFIRMED",
-            }
-        ]
+        return [_broadcast_record(transactions=kwargs["transactions"], sender=kwargs["sender"], tx_hash="0x" + "2" * 64)]
 
     monkeypatch.setattr(client, "prepare_kicks", prepare_with_first_skip)
     monkeypatch.setattr(

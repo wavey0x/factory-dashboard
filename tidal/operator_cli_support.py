@@ -123,12 +123,6 @@ def _send_action_report(
             pass
 
 
-def _coerce_tx_intent(tx: TxIntent | dict[str, Any]) -> TxIntent:
-    if isinstance(tx, TxIntent):
-        return tx
-    return TxIntent.from_payload(tx)
-
-
 async def broadcast_prepared_action(
     *,
     settings,
@@ -136,11 +130,13 @@ async def broadcast_prepared_action(
     action_id: str,
     sender: str,
     signer,
-    transactions: list[TxIntent | dict[str, Any]],
+    transactions: list[TxIntent],
     receipt_timeout_seconds: int = 120,
     outbox: ActionReportOutbox | None = None,
     progress_callback: Callable[[str], None] | None = None,
 ) -> list[dict[str, Any]]:  # noqa: ANN001
+    if any(not isinstance(tx, TxIntent) for tx in transactions):
+        raise TypeError("transactions must be TxIntent instances")
     report_outbox = outbox or ActionReportOutbox()
     try:
         report_outbox.flush_pending(client)
@@ -166,8 +162,7 @@ async def broadcast_prepared_action(
         )
 
         results: list[dict[str, Any]] = []
-        intents = [_coerce_tx_intent(tx) for tx in transactions]
-        for tx_index, tx in enumerate(intents):
+        for tx_index, tx in enumerate(transactions):
             tx_sender = str(tx.sender or sender)
             if tx_sender.lower() != sender.lower():
                 raise RuntimeError(f"prepared sender {tx_sender} does not match local sender {sender}")
@@ -295,7 +290,7 @@ def execute_prepared_action_sync(
     action_id: str,
     sender: str,
     signer,
-    transactions: list[TxIntent | dict[str, Any]],
+    transactions: list[TxIntent],
     outbox: ActionReportOutbox | None = None,
     progress_callback: Callable[[str], None] | None = None,
 ) -> list[dict[str, Any]]:  # noqa: ANN001

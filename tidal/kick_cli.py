@@ -39,6 +39,7 @@ from tidal.operator_cli_support import (
     submission_progress,
 )
 from tidal.ops.kick_inspect import KickInspectEntry, KickInspectResult
+from tidal.transaction_service.types import TxIntent
 
 app = typer.Typer(help="Kick auction lots", no_args_is_help=True)
 
@@ -507,6 +508,7 @@ def kick_run(
                     prepared_actions.append(prepared_data)
                     warnings = list(prepare_response.get("warnings") or [])
                     transactions = list(prepared_data.get("transactions") or [])
+                    tx_intents = [TxIntent.from_payload(tx) for tx in transactions]
 
                     if prepare_response["status"] == "noop" or not transactions:
                         if not json_output:
@@ -583,14 +585,14 @@ def kick_run(
                     if exec_ctx.signer is None or exec_ctx.sender is None:
                         raise typer.Exit(code=1)
                     if json_output:
-                            action_records = execute_prepared_action_sync(
-                                settings=cli_ctx.settings,
-                                client=client,
-                                action_id=str(prepared_data["actionId"]),
-                                sender=exec_ctx.sender,
-                                signer=exec_ctx.signer,
-                                transactions=transactions,
-                            )
+                        action_records = execute_prepared_action_sync(
+                            settings=cli_ctx.settings,
+                            client=client,
+                            action_id=str(prepared_data["actionId"]),
+                            sender=exec_ctx.sender,
+                            signer=exec_ctx.signer,
+                            transactions=tx_intents,
+                        )
                     else:
                         typer.echo()
                         with submission_progress("Submitting transaction...") as update_progress:
@@ -600,7 +602,7 @@ def kick_run(
                                 action_id=str(prepared_data["actionId"]),
                                 sender=exec_ctx.sender,
                                 signer=exec_ctx.signer,
-                                transactions=transactions,
+                                transactions=tx_intents,
                                 progress_callback=update_progress,
                             )
                     if not json_output and action_records:

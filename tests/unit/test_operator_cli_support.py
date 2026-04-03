@@ -6,6 +6,7 @@ from eth_utils import to_checksum_address
 from tidal.control_plane.client import ControlPlaneError
 from tidal.control_plane.outbox import ActionReportOutbox
 from tidal.operator_cli_support import broadcast_prepared_action
+from tidal.transaction_service.types import TxIntent
 
 
 class _FakeWeb3Client:
@@ -67,6 +68,19 @@ class _CapturingSigner:
         return b"signed"
 
 
+def _kick_tx_intent(*, sender: str, to: str = "0x846475a1b97ac57861813206749c1b0f592383ef") -> TxIntent:
+    return TxIntent(
+        operation="kick",
+        to=to,
+        data="0xdeadbeef",
+        value="0x0",
+        chain_id=1,
+        sender=sender,
+        gas_estimate=210000,
+        gas_limit=252000,
+    )
+
+
 @pytest.mark.asyncio
 async def test_broadcast_prepared_action_checksums_to_and_closes_client(monkeypatch, tmp_path) -> None:
     web3_client = _FakeWeb3Client()
@@ -89,18 +103,7 @@ async def test_broadcast_prepared_action_checksums_to_and_closes_client(monkeypa
         sender=sender,
         signer=signer,
         outbox=outbox,
-        transactions=[
-            {
-                "operation": "kick",
-                "to": to_address,
-                "data": "0xdeadbeef",
-                "value": "0x0",
-                "chainId": 1,
-                "sender": sender,
-                "gasEstimate": 210000,
-                "gasLimit": 252000,
-            }
-        ],
+        transactions=[_kick_tx_intent(sender=sender, to=to_address)],
     )
 
     assert signer.seen_txs
@@ -131,18 +134,7 @@ async def test_broadcast_prepared_action_queues_reports_for_retry(monkeypatch, t
         sender=sender,
         signer=signer,
         outbox=outbox,
-        transactions=[
-            {
-                "operation": "kick",
-                "to": "0x846475a1b97ac57861813206749c1b0f592383ef",
-                "data": "0xdeadbeef",
-                "value": "0x0",
-                "chainId": 1,
-                "sender": sender,
-                "gasEstimate": 210000,
-                "gasLimit": 252000,
-            }
-        ],
+        transactions=[_kick_tx_intent(sender=sender)],
     )
 
     assert records[0]["txHash"] == "0xabc"
@@ -180,18 +172,24 @@ async def test_broadcast_prepared_action_emits_confirmation_progress(monkeypatch
         signer=signer,
         outbox=outbox,
         progress_callback=progress_messages.append,
-        transactions=[
-            {
-                "operation": "kick",
-                "to": "0x846475a1b97ac57861813206749c1b0f592383ef",
-                "data": "0xdeadbeef",
-                "value": "0x0",
-                "chainId": 1,
-                "sender": sender,
-                "gasEstimate": 210000,
-                "gasLimit": 252000,
-            }
-        ],
+        transactions=[_kick_tx_intent(sender=sender)],
     )
 
     assert progress_messages == ["Awaiting confirmation 0xabc...0xabc"]
+
+
+@pytest.mark.asyncio
+async def test_broadcast_prepared_action_requires_typed_intents() -> None:
+    with pytest.raises(TypeError, match="TxIntent"):
+        await broadcast_prepared_action(
+            settings=SimpleNamespace(
+                txn_max_priority_fee_gwei=2,
+                txn_max_base_fee_gwei=0.5,
+                chain_id=1,
+            ),
+            client=_FakeClient(),
+            action_id="action-1",
+            sender="0x9999999999999999999999999999999999999999",
+            signer=_CapturingSigner(),
+            transactions=[{"operation": "kick"}],
+        )

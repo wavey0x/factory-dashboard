@@ -5,6 +5,7 @@ from typer.testing import CliRunner
 
 from tidal.cli import app as operator_app
 from tidal.control_plane.client import ControlPlaneError
+from tidal.transaction_service.types import TxIntent
 import tidal.auction_cli as operator_auction_cli_module
 
 
@@ -166,14 +167,16 @@ def test_operator_auction_enable_tokens_uses_styled_submission_flow(tmp_path, mo
     monkeypatch.setattr(operator_auction_cli_module.typer, "confirm", lambda *args, **kwargs: True)
 
     def fake_execute_prepared_action_sync(**kwargs):  # noqa: ANN003
+        tx = kwargs["transactions"][0]
+        assert isinstance(tx, TxIntent)
         return [
             {
-                "operation": kwargs["transactions"][0]["operation"],
+                "operation": tx.operation,
                 "sender": kwargs["sender"],
                 "txHash": "0x" + "1" * 64,
                 "broadcastAt": "2026-03-29T00:00:00+00:00",
                 "chainId": 1,
-                "gasEstimate": kwargs["transactions"][0]["gasEstimate"],
+                "gasEstimate": tx.gas_estimate,
                 "receiptStatus": "CONFIRMED",
                 "blockNumber": 12345,
                 "gasUsed": 210000,
