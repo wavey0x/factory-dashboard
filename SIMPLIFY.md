@@ -239,7 +239,8 @@ Make `TxnService` depend only on the real split boundary.
 In `service.py`:
 
 - require `preparer` and `executor` in the constructor for production usage
-- keep `kicker` only if temporarily required for test migration, but stop using it internally
+- if `kicker` is temporarily accepted for migration, treat it as constructor-only input used to derive `preparer`, `executor`, and `tx_builder`
+- after `__init__`, internal logic must never branch on `kicker`
 - replace:
   - `self.preparer or self.kicker`
   - `self.executor or self.kicker`
@@ -295,6 +296,9 @@ Update planner tests to provide explicit fake:
 - preparer
 - tx builder
 - web3 client or estimate function
+
+Direct-contract fakes are acceptable in tests.
+The rule is only that production code must stop supporting kicker-shaped fallback behavior.
 
 ### Verification
 
