@@ -13,7 +13,7 @@ from web3 import Web3
 
 from tidal.chain.contracts.abis import AUCTION_ABI, AUCTION_FACTORY_ABI, ERC20_ABI, MULTICALL3_ABI
 from tidal.constants import YEARN_AUCTION_REQUIRED_GOVERNANCE_ADDRESS
-from tidal.normalizers import normalize_address, short_address
+from tidal.normalizers import normalize_address
 from tidal.time import utcnow_iso
 from tidal.transaction_service.signer import TransactionSigner
 
@@ -263,15 +263,6 @@ def default_governance_address() -> str:
     return normalize_address(YEARN_AUCTION_REQUIRED_GOVERNANCE_ADDRESS)
 
 
-def resolve_starting_price(*, provided: int | None, matches: list[ExistingAuctionMatch]) -> int:
-    if provided is not None:
-        return provided
-    for match in matches:
-        if match.starting_price is not None:
-            return int(match.starting_price)
-    raise ValueError("starting price is required when no matching auction provides a default")
-
-
 def preview_deployment(
     w3: Web3,
     settings: Any,
@@ -386,17 +377,3 @@ def send_live_deployment(
         block_number=receipt.get("blockNumber"),
         gas_used=receipt.get("gasUsed"),
     )
-
-
-def summarize_matches(matches: list[ExistingAuctionMatch]) -> list[str]:
-    if not matches:
-        return ["No existing auction match found in the selected factory."]
-    return [
-        (
-            f"auction={short_address(match.auction_address)} "
-            f"factory={short_address(match.factory_address)} "
-            f"startingPrice={match.starting_price if match.starting_price is not None else 'unknown'} "
-            f"version={match.version or 'unknown'}"
-        )
-        for match in matches
-    ]

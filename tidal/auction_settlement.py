@@ -44,12 +44,6 @@ def normalize_settlement_method(value: str) -> SettlementMethod:
     raise ValueError("expected 'auto', 'settle', or 'sweep-and-settle'")
 
 
-def format_operation_type(operation_type: SettlementOperationType | None) -> str:
-    if operation_type is None:
-        return "-"
-    return operation_type.replace("_", "-")
-
-
 async def inspect_auction_settlement(web3_client, settings, auction_address: str) -> AuctionInspection:  # noqa: ANN001
     normalized_auction = normalize_address(auction_address)
     multicall_client = MulticallClient(

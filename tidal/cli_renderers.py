@@ -168,24 +168,6 @@ def emit_json(command: str, *, status: str, data: Any, warnings: list[str] | Non
     )
 
 
-def kick_scope_label(
-    source_type: SourceType | None,
-    *,
-    source_address: str | None = None,
-    auction_address: str | None = None,
-) -> str:
-    type_label = source_type.replace("_", "-") if source_type else ""
-    scope = f"{type_label} candidates" if type_label else "candidates"
-    filters: list[str] = []
-    if source_address:
-        filters.append(f"source {short_address(source_address)}")
-    if auction_address:
-        filters.append(f"auction {short_address(auction_address)}")
-    if not filters:
-        return scope
-    return f"{scope} for {' and '.join(filters)}"
-
-
 def _display_address(address: Any) -> str:
     if address is None:
         return "-"
