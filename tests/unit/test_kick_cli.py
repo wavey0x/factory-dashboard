@@ -373,7 +373,7 @@ def test_operator_kick_run_threads_curve_quote_override(tmp_path, monkeypatch, f
         assert all(call["requireCurveQuote"] is expected for call in client.prepare_calls)
 
 
-def test_operator_kick_run_stops_after_first_successful_broadcast(tmp_path, monkeypatch) -> None:
+def test_operator_kick_run_continues_across_distinct_auctions_in_interactive_mode(tmp_path, monkeypatch) -> None:
     config_path = _write_config(tmp_path)
     client = _BroadcastClient()
     prepared_actions: list[tuple[str, list[dict[str, object]]]] = []
@@ -426,11 +426,13 @@ def test_operator_kick_run_stops_after_first_successful_broadcast(tmp_path, monk
     assert client.inspect_calls[0]["includeLiveInspection"] is False
     assert [call["tokenAddress"] for call in client.prepare_calls] == [
         "0x3333333333333333333333333333333333333333",
+        "0x4444444444444444444444444444444444444444",
     ]
     assert all(call["limit"] == 1 for call in client.prepare_calls)
     assert all(call["sender"] == "0x9999999999999999999999999999999999999999" for call in client.prepare_calls)
-    assert [action_id for action_id, _ in prepared_actions] == ["action-1"]
+    assert [action_id for action_id, _ in prepared_actions] == ["action-1", "action-2"]
     assert "Kick (1 of 2)" in result.output
+    assert "Kick (2 of 2)" in result.output
     assert "Auction details" in result.output
     assert "Send details" in result.output
     assert f"Auction:     {to_checksum_address('0x2222222222222222222222222222222222222222')}" in result.output
@@ -442,13 +444,63 @@ def test_operator_kick_run_stops_after_first_successful_broadcast(tmp_path, monk
     assert "Confirmed" in result.output
     assert "Gas limit:   252,000" in result.output
     assert "max 2.50 gwei" in result.output
-    assert "Kick transaction sent. Ending run after the first submitted candidate." in result.output
-    assert "Kick (2 of 2)" not in result.output
+    assert result.output.count("Confirmed") == 2
+    assert "Kick transaction sent. Ending run after the first submitted candidate." not in result.output
     assert "No kick transactions were sent." not in result.output
     assert "Explorer:" not in result.output
     assert "Block:" not in result.output
     assert "Gas used:" not in result.output
     assert "Gas estimate:" not in result.output
+
+
+def test_operator_kick_run_no_confirmation_stops_after_first_successful_broadcast(tmp_path, monkeypatch) -> None:
+    config_path = _write_config(tmp_path)
+    client = _BroadcastClient()
+    prepared_actions: list[tuple[str, list[dict[str, object]]]] = []
+
+    monkeypatch.setattr(
+        operator_kick_cli_module.CLIContext,
+        "control_plane_client",
+        lambda self, auth=True: client,
+    )
+    monkeypatch.setattr(
+        operator_kick_cli_module.CLIContext,
+        "resolve_execution",
+        lambda self, **kwargs: SimpleNamespace(
+            signer=SimpleNamespace(),
+            sender="0x9999999999999999999999999999999999999999",
+        ),
+    )
+
+    def fake_execute_prepared_action_sync(**kwargs):  # noqa: ANN003
+        prepared_actions.append((kwargs["action_id"], kwargs["transactions"]))
+        return [
+            {
+                "operation": kwargs["transactions"][0]["operation"],
+                "sender": kwargs["sender"],
+                "txHash": "0x" + "1" * 64,
+                "broadcastAt": "2026-03-29T00:00:00+00:00",
+                "chainId": 1,
+                "gasEstimate": kwargs["transactions"][0]["gasEstimate"],
+                "receiptStatus": "CONFIRMED",
+            }
+        ]
+
+    monkeypatch.setattr(
+        operator_kick_cli_module,
+        "execute_prepared_action_sync",
+        fake_execute_prepared_action_sync,
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(operator_app, ["kick", "run", "--no-confirmation", "--config", str(config_path)])
+
+    assert result.exit_code == 0
+    assert [call["tokenAddress"] for call in client.prepare_calls] == [
+        "0x3333333333333333333333333333333333333333",
+    ]
+    assert [action_id for action_id, _ in prepared_actions] == ["action-1"]
+    assert "Kick transaction sent. Ending run after the first submitted candidate." in result.output
 
 
 def test_operator_kick_run_queues_deferred_same_auction_candidates_for_review(tmp_path, monkeypatch) -> None:
@@ -527,7 +579,7 @@ def test_operator_kick_run_queues_deferred_same_auction_candidates_for_review(tm
     assert "Kick (1 of 2)" in result.output
     assert "Kick (2 of 2)" in result.output
     assert "Confirmed" in result.output
-    assert "Kick transaction sent. Ending run after the first submitted candidate." in result.output
+    assert "Kick transaction sent. Ending run after the first submitted candidate." not in result.output
 
 
 def test_operator_kick_run_prepare_noop_does_not_repeat_generic_footer(tmp_path, monkeypatch) -> None:
@@ -609,6 +661,115 @@ def test_operator_kick_run_fee_burner_active_auction_skip_stops_after_first_cand
     assert "Auction is still active above minimumPrice. Ending review" not in result.output
     assert "Kick (2 of 2)" not in result.output
     assert "No kick transactions were sent." not in result.output
+
+
+def test_operator_kick_run_fee_burner_active_auction_skip_continues_to_distinct_auction(tmp_path, monkeypatch) -> None:
+    config_path = _write_config(tmp_path)
+    client = _BroadcastClient(
+        ready_entries=[
+            _entry(
+                token_address="0x3333333333333333333333333333333333333333",
+                source_address="0x1111111111111111111111111111111111111111",
+                auction_address="0x2222222222222222222222222222222222222222",
+                state="ready",
+                source_type="fee_burner",
+            ),
+            _entry(
+                token_address="0x5555555555555555555555555555555555555555",
+                source_address="0x6666666666666666666666666666666666666666",
+                auction_address="0x7777777777777777777777777777777777777777",
+                state="ready",
+                source_type="fee_burner",
+            ),
+        ],
+        deferred_entries=[
+            _deferred_entry(
+                token_address="0x4444444444444444444444444444444444444444",
+                source_address="0x1111111111111111111111111111111111111111",
+                auction_address="0x2222222222222222222222222222222222222222",
+            )
+        ],
+    )
+    confirm_answers = iter([True])
+    prepared_actions: list[str] = []
+
+    monkeypatch.setattr(
+        operator_kick_cli_module.CLIContext,
+        "control_plane_client",
+        lambda self, auth=True: client,
+    )
+    monkeypatch.setattr(
+        operator_kick_cli_module.CLIContext,
+        "resolve_execution",
+        lambda self, **kwargs: SimpleNamespace(
+            signer=SimpleNamespace(),
+            sender="0x9999999999999999999999999999999999999999",
+        ),
+    )
+    monkeypatch.setattr(operator_kick_cli_module.typer, "confirm", lambda *args, **kwargs: next(confirm_answers))
+
+    original_prepare = client.prepare_kicks
+
+    def prepare_with_first_skip(body: dict[str, object]) -> dict[str, object]:
+        if body["tokenAddress"] == "0x3333333333333333333333333333333333333333":
+            client.prepare_calls.append(body)
+            return {
+                "status": "noop",
+                "warnings": [],
+                "data": {
+                    "preview": {
+                        "skippedDuringPrepare": [
+                            {
+                                "sourceName": "yCRV Fee Burner",
+                                "sourceAddress": "0x1111111111111111111111111111111111111111",
+                                "auctionAddress": "0x2222222222222222222222222222222222222222",
+                                "tokenSymbol": "CRV",
+                                "wantSymbol": "USDC",
+                                "reason": "auction still active above minimumPrice",
+                            }
+                        ]
+                    },
+                    "transactions": [],
+                },
+            }
+        return original_prepare(body)
+
+    def fake_execute_prepared_action_sync(**kwargs):  # noqa: ANN003
+        prepared_actions.append(kwargs["action_id"])
+        return [
+            {
+                "operation": kwargs["transactions"][0]["operation"],
+                "sender": kwargs["sender"],
+                "txHash": "0x" + "2" * 64,
+                "broadcastAt": "2026-03-29T00:00:00+00:00",
+                "chainId": 1,
+                "gasEstimate": kwargs["transactions"][0]["gasEstimate"],
+                "receiptStatus": "CONFIRMED",
+            }
+        ]
+
+    monkeypatch.setattr(client, "prepare_kicks", prepare_with_first_skip)
+    monkeypatch.setattr(
+        operator_kick_cli_module,
+        "execute_prepared_action_sync",
+        fake_execute_prepared_action_sync,
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        operator_app,
+        ["kick", "run", "--source-type", "fee-burner", "--config", str(config_path)],
+    )
+
+    assert result.exit_code == 0
+    assert [call["tokenAddress"] for call in client.prepare_calls] == [
+        "0x3333333333333333333333333333333333333333",
+        "0x5555555555555555555555555555555555555555",
+    ]
+    assert prepared_actions == ["action-2"]
+    assert "Ending review for the remaining same-auction candidates." in result.output
+    assert "Kick (2 of 3)" in result.output
+    assert "Kick (3 of 3)" not in result.output
 
 
 def test_operator_kick_run_declined_confirmations_reports_skipped_summary(tmp_path, monkeypatch) -> None:

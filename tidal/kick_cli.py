@@ -121,20 +121,32 @@ def _candidate_review_queue(
     return queue
 
 
+def _should_include_deferred_same_auction(
+    *,
+    no_confirmation: bool,
+    source_type: str | None,
+    source_address: str | None,
+    auction_address: str | None,
+) -> bool:
+    if no_confirmation:
+        return False
+    return source_type == "fee_burner" or source_address is not None or auction_address is not None
+
+
 def _is_active_above_minimum_price_skip(reason: str | None) -> bool:
     if not reason:
         return False
     return "active above minimumprice" in reason.lower()
 
 
-def _should_stop_after_same_auction_skip(
+def _terminal_same_auction_from_skip(
     *,
     candidate: KickInspectEntry,
     skip_entries: list[dict[str, str | None]],
-    remaining_candidates: list[KickInspectEntry],
-) -> bool:
-    if not skip_entries or not remaining_candidates:
-        return False
+    remaining_candidates: list[KickInspectEntry] | None = None,
+) -> str | None:
+    if not skip_entries:
+        return None
 
     candidate_auction = candidate.auction_address.lower()
     if not all(
@@ -142,12 +154,16 @@ def _should_stop_after_same_auction_skip(
         and _is_active_above_minimum_price_skip(entry.get("reason"))
         for entry in skip_entries
     ):
-        return False
+        return None
 
-    return any(
+    if remaining_candidates is None:
+        return candidate_auction
+
+    has_remaining_same_auction = any(
         next_candidate.auction_address.lower() == candidate_auction
         for next_candidate in remaining_candidates
     )
+    return candidate_auction if has_remaining_same_auction else None
 
 
 def _prepare_skips(data: dict[str, object], *, candidate: KickInspectEntry | None = None) -> list[dict[str, str | None]]:
@@ -457,7 +473,12 @@ def kick_run(
             inspect_result = _inspect_result_from_api(inspect_response["data"])
             review_candidates = _candidate_review_queue(
                 inspect_result,
-                include_deferred_same_auction=not no_confirmation,
+                include_deferred_same_auction=_should_include_deferred_same_auction(
+                    no_confirmation=no_confirmation,
+                    source_type=normalized_source_type,
+                    source_address=normalized_source_address,
+                    auction_address=normalized_auction_address,
+                ),
             )
             broadcast_records: list[dict[str, object]] = []
             prepared_actions: list[dict[str, object]] = []
@@ -465,12 +486,14 @@ def kick_run(
             skipped_confirmation_count = 0
             prepare_feedback_emitted = False
             broadcast_feedback_emitted = False
-            sent_transaction = False
-            short_circuit_same_auction_feedback_emitted = False
+            terminal_auction_addresses: set[str] = set()
 
             if review_candidates:
                 total_candidates = len(review_candidates)
                 for index, candidate in enumerate(review_candidates, start=1):
+                    candidate_auction = candidate.auction_address.lower()
+                    if candidate_auction in terminal_auction_addresses:
+                        continue
                     prepare_payload = _candidate_prepare_payload(candidate, sender=exec_ctx.sender)
                     if require_curve_quote is not None:
                         prepare_payload["requireCurveQuote"] = require_curve_quote
@@ -501,17 +524,14 @@ def kick_run(
                                 )
                             render_warnings(warnings)
                             remaining_candidates = review_candidates[index:]
-                            if (
-                                normalized_source_type == "fee_burner"
-                                and _should_stop_after_same_auction_skip(
-                                    candidate=candidate,
-                                    skip_entries=skip_entries,
-                                    remaining_candidates=remaining_candidates,
-                                )
-                            ):
+                            terminal_auction = _terminal_same_auction_from_skip(
+                                candidate=candidate,
+                                skip_entries=skip_entries,
+                                remaining_candidates=remaining_candidates,
+                            )
+                            if terminal_auction is not None:
+                                terminal_auction_addresses.add(terminal_auction)
                                 typer.echo("Ending review for the remaining same-auction candidates.")
-                                short_circuit_same_auction_feedback_emitted = True
-                                break
                         continue
 
                     prepared_candidate_count += 1
@@ -588,8 +608,9 @@ def kick_run(
                         broadcast_feedback_emitted = True
                     broadcast_records.extend(action_records)
                     if action_records:
-                        sent_transaction = True
-                        break
+                        terminal_auction_addresses.add(candidate_auction)
+                        if no_confirmation:
+                            break
     except (ConfigurationError, ControlPlaneError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
@@ -610,12 +631,10 @@ def kick_run(
         if broadcast_records:
             if not broadcast_feedback_emitted:
                 render_broadcast_result(broadcast_records)
-            if sent_transaction and len(review_candidates) > 1:
+            if no_confirmation and len(review_candidates) > 1:
                 typer.echo("Kick transaction sent. Ending run after the first submitted candidate.")
         elif inspect_result.ready_count == 0:
             typer.echo("No ready kick candidates.")
-        elif short_circuit_same_auction_feedback_emitted:
-            pass
         elif prepared_candidate_count == 0 and prepare_feedback_emitted:
             pass
         elif prepared_candidate_count > 0 and skipped_confirmation_count == prepared_candidate_count:
