@@ -60,6 +60,9 @@ kick:
     - auction: "0xe92AF59D00BecD5F70d2Ba11AE1a74751503a185"
       token: "0xf939E0A03FB07F59A73314E73794Be0E57ac1b4E" #crvUSD
       profile: stable
+    - auction: "0xA00E6b35C23442fa9D5149Cba5dd94623fFE6693"
+      token: "0x1cfa5641c01406aB8AC350dEd7d735ec41298372" #CJPY
+      profile: stable
 
   usd_kick_limit:
     "0x04ACaF8D2865c0714F79da09645C13FD2888977f": 10000 # WFRAX
