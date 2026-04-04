@@ -3,6 +3,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 from tidal.alerts.base import NullAlertSink
+from tidal.auctionscan import AuctionScanEnrichmentResult
 from tidal.config import MonitoredFeeBurner
 from tidal.constants import ADDITIONAL_DISCOVERY_VAULTS, CORE_REWARD_TOKENS
 from tidal.persistence import models
@@ -177,6 +178,24 @@ class FakeFeeBurnerTokenResolver:
         )
 
 
+class FakeAuctionScanService:
+    def __init__(
+        self,
+        *,
+        result: AuctionScanEnrichmentResult | None = None,
+        error: Exception | None = None,
+    ) -> None:
+        self.result = result or AuctionScanEnrichmentResult()
+        self.error = error
+        self.calls: list[int] = []
+
+    async def enrich_pending_kicks(self, *, limit: int) -> AuctionScanEnrichmentResult:
+        self.calls.append(limit)
+        if self.error is not None:
+            raise self.error
+        return self.result
+
+
 class FakeStrategyAuctionMapper:
     def __init__(self, *, fail_refresh: bool = False) -> None:
         self.fail_refresh = fail_refresh
@@ -288,6 +307,8 @@ async def test_scanner_persists_lowercase_and_zero_balances() -> None:
             auction_enabled_token_scan_repository=auction_enabled_token_scan_repo,
             scan_run_repository=scan_run_repo,
             scan_item_error_repository=scan_item_error_repo,
+            auctionscan_service=None,
+            auctionscan_enrichment_batch_size=0,
             alert_sink=NullAlertSink(),
         )
 
@@ -418,6 +439,8 @@ async def test_scanner_persists_fee_burner_rows_and_balances() -> None:
             auction_enabled_token_scan_repository=auction_enabled_token_scan_repo,
             scan_run_repository=scan_run_repo,
             scan_item_error_repository=scan_item_error_repo,
+            auctionscan_service=None,
+            auctionscan_enrichment_batch_size=0,
             alert_sink=NullAlertSink(),
         )
 
@@ -515,6 +538,8 @@ async def test_scanner_uses_cached_auction_mapping_when_refresh_fails() -> None:
             auction_enabled_token_scan_repository=auction_enabled_token_scan_repo,
             scan_run_repository=scan_run_repo,
             scan_item_error_repository=scan_item_error_repo,
+            auctionscan_service=None,
+            auctionscan_enrichment_batch_size=0,
             alert_sink=NullAlertSink(),
         )
 
@@ -549,6 +574,8 @@ async def test_scanner_uses_cached_auction_mapping_when_refresh_fails() -> None:
             auction_enabled_token_scan_repository=auction_enabled_token_scan_repo,
             scan_run_repository=scan_run_repo,
             scan_item_error_repository=scan_item_error_repo,
+            auctionscan_service=None,
+            auctionscan_enrichment_batch_size=0,
             alert_sink=NullAlertSink(),
         )
 
@@ -582,3 +609,154 @@ async def test_scanner_uses_cached_auction_mapping_when_refresh_fails() -> None:
         assert enabled_scan_rows[0]["auction_address"] == "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         assert enabled_scan_rows[0]["status"] == "FAILED"
         assert enabled_scan_rows[0]["error_message"] == "enabled-token rpc failed"
+
+
+@pytest.mark.asyncio
+async def test_scanner_runs_auctionscan_enrichment_at_end() -> None:
+    engine = create_engine("sqlite:///:memory:", future=True)
+    models.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        vault_repo = VaultRepository(session)
+        strategy_repo = StrategyRepository(session)
+        fee_burner_repo = FeeBurnerRepository(session)
+        token_repo = TokenRepository(session)
+        strategy_token_repo = StrategyTokenRepository(session)
+        fee_burner_token_repo = FeeBurnerTokenRepository(session)
+        balance_repo = BalanceRepository(session)
+        fee_burner_balance_repo = FeeBurnerTokenBalanceRepository(session)
+        auction_enabled_token_repo = AuctionEnabledTokenRepository(session)
+        auction_enabled_token_scan_repo = AuctionEnabledTokenScanRepository(session)
+        scan_run_repo = ScanRunRepository(session)
+        scan_item_error_repo = ScanItemErrorRepository(session)
+
+        fake_erc20 = FakeERC20Reader()
+        token_metadata_service = TokenMetadataService(
+            chain_id=1,
+            token_repository=token_repo,
+            erc20_reader=fake_erc20,
+        )
+        fake_auctionscan = FakeAuctionScanService(
+            result=AuctionScanEnrichmentResult(
+                candidates_seen=3,
+                kicks_checked=3,
+                kicks_resolved=2,
+                kicks_unresolved=1,
+                kicks_failed=0,
+            )
+        )
+
+        scanner = ScannerService(
+            session=session,
+            chain_id=1,
+            concurrency=5,
+            multicall_enabled=True,
+            web3_client=FakeWeb3Client(),
+            strategy_auction_mapper=FakeStrategyAuctionMapper(),
+            strategy_discovery_service=FakeDiscoveryService(),
+            reward_token_resolver=FakeRewardTokenResolver(),
+            token_metadata_service=token_metadata_service,
+            token_price_refresh_service=FakeTokenPriceRefreshService(),
+            balance_reader=FakeBalanceReader(),
+            auction_settler=None,
+            monitored_fee_burners=[],
+            fee_burner_token_resolver=FakeFeeBurnerTokenResolver(),
+            name_reader=FakeNameReader(),
+            vault_repository=vault_repo,
+            strategy_repository=strategy_repo,
+            fee_burner_repository=fee_burner_repo,
+            strategy_token_repository=strategy_token_repo,
+            fee_burner_token_repository=fee_burner_token_repo,
+            balance_repository=balance_repo,
+            fee_burner_balance_repository=fee_burner_balance_repo,
+            auction_state_reader=FakeAuctionStateReader(
+                values_by_auction={"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": ["0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"]}
+            ),
+            auction_enabled_token_repository=auction_enabled_token_repo,
+            auction_enabled_token_scan_repository=auction_enabled_token_scan_repo,
+            scan_run_repository=scan_run_repo,
+            scan_item_error_repository=scan_item_error_repo,
+            auctionscan_service=fake_auctionscan,
+            auctionscan_enrichment_batch_size=7,
+            alert_sink=NullAlertSink(),
+        )
+
+        result = await scanner.scan_once()
+
+        assert result.status == "SUCCESS"
+        assert fake_auctionscan.calls == [7]
+        error_rows = session.execute(select(models.scan_item_errors)).mappings().all()
+        assert not any(row["stage"] == "AUCTIONSCAN_ENRICHMENT" for row in error_rows)
+
+
+@pytest.mark.asyncio
+async def test_scanner_keeps_scan_success_when_auctionscan_enrichment_fails() -> None:
+    engine = create_engine("sqlite:///:memory:", future=True)
+    models.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        vault_repo = VaultRepository(session)
+        strategy_repo = StrategyRepository(session)
+        fee_burner_repo = FeeBurnerRepository(session)
+        token_repo = TokenRepository(session)
+        strategy_token_repo = StrategyTokenRepository(session)
+        fee_burner_token_repo = FeeBurnerTokenRepository(session)
+        balance_repo = BalanceRepository(session)
+        fee_burner_balance_repo = FeeBurnerTokenBalanceRepository(session)
+        auction_enabled_token_repo = AuctionEnabledTokenRepository(session)
+        auction_enabled_token_scan_repo = AuctionEnabledTokenScanRepository(session)
+        scan_run_repo = ScanRunRepository(session)
+        scan_item_error_repo = ScanItemErrorRepository(session)
+
+        fake_erc20 = FakeERC20Reader()
+        token_metadata_service = TokenMetadataService(
+            chain_id=1,
+            token_repository=token_repo,
+            erc20_reader=fake_erc20,
+        )
+
+        scanner = ScannerService(
+            session=session,
+            chain_id=1,
+            concurrency=5,
+            multicall_enabled=True,
+            web3_client=FakeWeb3Client(),
+            strategy_auction_mapper=FakeStrategyAuctionMapper(),
+            strategy_discovery_service=FakeDiscoveryService(),
+            reward_token_resolver=FakeRewardTokenResolver(),
+            token_metadata_service=token_metadata_service,
+            token_price_refresh_service=FakeTokenPriceRefreshService(),
+            balance_reader=FakeBalanceReader(),
+            auction_settler=None,
+            monitored_fee_burners=[],
+            fee_burner_token_resolver=FakeFeeBurnerTokenResolver(),
+            name_reader=FakeNameReader(),
+            vault_repository=vault_repo,
+            strategy_repository=strategy_repo,
+            fee_burner_repository=fee_burner_repo,
+            strategy_token_repository=strategy_token_repo,
+            fee_burner_token_repository=fee_burner_token_repo,
+            balance_repository=balance_repo,
+            fee_burner_balance_repository=fee_burner_balance_repo,
+            auction_state_reader=FakeAuctionStateReader(
+                values_by_auction={"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": ["0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"]}
+            ),
+            auction_enabled_token_repository=auction_enabled_token_repo,
+            auction_enabled_token_scan_repository=auction_enabled_token_scan_repo,
+            scan_run_repository=scan_run_repo,
+            scan_item_error_repository=scan_item_error_repo,
+            auctionscan_service=FakeAuctionScanService(error=RuntimeError("auctionscan unavailable")),
+            auctionscan_enrichment_batch_size=5,
+            alert_sink=NullAlertSink(),
+        )
+
+        result = await scanner.scan_once()
+
+        assert result.status == "SUCCESS"
+        error_rows = session.execute(select(models.scan_item_errors)).mappings().all()
+        assert any(
+            row["stage"] == "AUCTIONSCAN_ENRICHMENT"
+            and row["error_code"] == "auctionscan_enrichment_failed"
+            and row["error_message"] == "auctionscan unavailable"
+            for row in error_rows
+        )

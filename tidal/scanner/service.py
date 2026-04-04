@@ -72,6 +72,8 @@ class ScannerService:
         auction_enabled_token_scan_repository,
         scan_run_repository,
         scan_item_error_repository,
+        auctionscan_service=None,
+        auctionscan_enrichment_batch_size: int = 0,
         alert_sink: AlertSink,
     ):
         del concurrency
@@ -101,10 +103,12 @@ class ScannerService:
         self.auction_enabled_token_scan_repository = auction_enabled_token_scan_repository
         self.scan_run_repository = scan_run_repository
         self.scan_item_error_repository = scan_item_error_repository
+        self.auctionscan_service = auctionscan_service
+        self.auctionscan_enrichment_batch_size = auctionscan_enrichment_batch_size
         self.alert_sink = alert_sink
 
     async def scan_once(self, on_progress: ProgressCallback | None = None) -> ScanRunResult:
-        _TOTAL_STEPS = 9
+        _TOTAL_STEPS = 10
 
         def _progress(step: int, label: str, detail: str = "") -> None:
             if on_progress is not None:
@@ -182,6 +186,13 @@ class ScannerService:
             "source": "none",
         }
         stage_h_stats = asdict(AuctionSettlementStats())
+        stage_i_stats = {
+            "candidates_seen": 0,
+            "kicks_checked": 0,
+            "kicks_resolved": 0,
+            "kicks_unresolved": 0,
+            "kicks_failed": 0,
+        }
 
         _progress(1, "Discovering strategies")
         try:
@@ -635,6 +646,18 @@ class ScannerService:
         errors.extend(price_errors)
         _progress(9, "Refreshing prices", f"{stage_d_stats['tokens_succeeded']}/{stage_d_stats['tokens_seen']} tokens, {price_tokens_skipped} skipped")
 
+        _progress(10, "Enriching AuctionScan")
+        stage_i_stats = await self._enrich_auctionscan_rounds(errors=errors)
+        _progress(
+            10,
+            "Enriching AuctionScan",
+            (
+                f"{stage_i_stats['kicks_checked']} checked, "
+                f"{stage_i_stats['kicks_resolved']} resolved, "
+                f"{stage_i_stats['kicks_failed']} failed"
+            ),
+        )
+
         status = determine_scan_status(pairs_seen=pairs_seen, pairs_failed=pairs_failed)
         finished_at = utcnow_iso()
         error_summary = f"{len(errors)} errors" if errors else None
@@ -722,6 +745,11 @@ class ScannerService:
             settlement_failed=stage_h_stats["settlements_failed"],
             settlement_submitted=stage_h_stats["settlements_submitted"],
             settlement_skipped_high_base_fee=stage_h_stats["skipped_high_base_fee"],
+            auctionscan_candidates_seen=stage_i_stats["candidates_seen"],
+            auctionscan_kicks_checked=stage_i_stats["kicks_checked"],
+            auctionscan_kicks_resolved=stage_i_stats["kicks_resolved"],
+            auctionscan_kicks_unresolved=stage_i_stats["kicks_unresolved"],
+            auctionscan_kicks_failed=stage_i_stats["kicks_failed"],
         )
 
         return ScanRunResult(
@@ -733,6 +761,49 @@ class ScannerService:
             pairs_succeeded=pairs_succeeded,
             pairs_failed=pairs_failed,
         )
+
+    async def _enrich_auctionscan_rounds(self, *, errors: list[ScanItemError]) -> dict[str, int]:
+        stats = {
+            "candidates_seen": 0,
+            "kicks_checked": 0,
+            "kicks_resolved": 0,
+            "kicks_unresolved": 0,
+            "kicks_failed": 0,
+        }
+        if self.auctionscan_service is None or self.auctionscan_enrichment_batch_size <= 0:
+            return stats
+
+        try:
+            result = await self.auctionscan_service.enrich_pending_kicks(
+                limit=self.auctionscan_enrichment_batch_size,
+            )
+        except Exception as exc:  # noqa: BLE001
+            errors.append(
+                ScanItemError(
+                    stage="AUCTIONSCAN_ENRICHMENT",
+                    error_code="auctionscan_enrichment_failed",
+                    error_message=str(exc),
+                )
+            )
+            stats["kicks_failed"] = 1
+            return stats
+
+        stats["candidates_seen"] = int(getattr(result, "candidates_seen", 0))
+        stats["kicks_checked"] = int(getattr(result, "kicks_checked", 0))
+        stats["kicks_resolved"] = int(getattr(result, "kicks_resolved", 0))
+        stats["kicks_unresolved"] = int(getattr(result, "kicks_unresolved", 0))
+        stats["kicks_failed"] = int(getattr(result, "kicks_failed", 0))
+
+        for message in getattr(result, "error_messages", []):
+            errors.append(
+                ScanItemError(
+                    stage="AUCTIONSCAN_ENRICHMENT",
+                    error_code="auctionscan_lookup_failed",
+                    error_message=str(message),
+                )
+            )
+
+        return stats
 
     async def _alert_repeated_errors(self, run_id: str, errors: list[ScanItemError]) -> None:
         if not errors:

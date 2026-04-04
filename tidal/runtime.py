@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from tidal.alerts.base import NullAlertSink
+from tidal.auctionscan import AuctionScanService
 from tidal.chain.contracts.fee_burner import FeeBurnerReader
 from tidal.chain.contracts.erc20 import ERC20Reader
 from tidal.chain.contracts.multicall import MulticallClient
@@ -193,6 +194,8 @@ def build_scanner_service(settings: Settings, session, *, auto_settle: bool = Fa
         auction_enabled_token_scan_repository=auction_enabled_token_scan_repository,
         scan_run_repository=scan_run_repository,
         scan_item_error_repository=scan_item_error_repository,
+        auctionscan_service=AuctionScanService(session, settings),
+        auctionscan_enrichment_batch_size=settings.auctionscan_enrichment_batch_size,
         alert_sink=alert_sink,
     )
 

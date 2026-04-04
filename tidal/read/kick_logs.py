@@ -238,6 +238,49 @@ class KickLogReadService:
             "eligible": eligible,
         }
 
+    def list_pending_auctionscan_kick_ids(self, *, limit: int, checked_before: str | None = None) -> list[int]:
+        features = self._get_schema_features()
+        if not features["kick_txs"] or not features["kick_txs.auctionscan_round_id"]:
+            return []
+
+        resolved_limit = max(0, int(limit))
+        if resolved_limit == 0:
+            return []
+
+        operation_type_expr = "COALESCE(k.operation_type, 'kick')" if features["kick_txs.operation_type"] else "'kick'"
+        clauses = [
+            f"{operation_type_expr} = 'kick'",
+            "k.status = 'CONFIRMED'",
+            "COALESCE(k.auction_address, '') != ''",
+            "COALESCE(k.token_address, '') != ''",
+            "COALESCE(k.tx_hash, '') != ''",
+            "k.auctionscan_round_id IS NULL",
+        ]
+        params: dict[str, object] = {"limit": resolved_limit}
+        if checked_before is not None and features["kick_txs.auctionscan_last_checked_at"]:
+            clauses.append(
+                "("
+                "k.auctionscan_last_checked_at IS NULL OR "
+                "k.auctionscan_last_checked_at = '' OR "
+                "k.auctionscan_last_checked_at <= :checked_before"
+                ")"
+            )
+            params["checked_before"] = checked_before
+
+        rows = self.session.execute(
+            text(
+                f"""
+                SELECT k.id
+                FROM kick_txs k
+                WHERE {' AND '.join(clauses)}
+                ORDER BY k.created_at DESC, k.id DESC
+                LIMIT :limit
+                """
+            ),
+            params,
+        ).mappings().all()
+        return [int(row["id"]) for row in rows]
+
     def persist_auctionscan_match(self, kick_id: int, *, round_id: int, checked_at: str, matched_at: str) -> None:
         self.session.execute(
             text(

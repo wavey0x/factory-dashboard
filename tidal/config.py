@@ -105,6 +105,7 @@ class Settings(BaseSettings):
         alias="AUCTIONSCAN_API_BASE_URL",
     )
     auctionscan_recheck_seconds: int = Field(default=90, alias="AUCTIONSCAN_RECHECK_SECONDS")
+    auctionscan_enrichment_batch_size: int = Field(default=10, alias="AUCTIONSCAN_ENRICHMENT_BATCH_SIZE")
 
     auction_kicker_address: str = Field(
         default="0x2a76c6ad151af2edbe16755fc3bff67176f01071",
