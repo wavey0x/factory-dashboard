@@ -453,6 +453,10 @@ tbody tr:hover td {
   max-width: 212px;
 }
 
+.strategies-table .history-cell {
+  padding-right: 16px;
+}
+
 .history-col {
   width: 212px;
   min-width: 212px;
@@ -663,6 +667,10 @@ tbody tr:hover td {
   max-width: 214px;
 }
 
+.strategies-table .balances-cell {
+  padding-left: 16px;
+}
+
 .token-stack {
   display: flex;
   flex-direction: column;
@@ -680,6 +688,11 @@ tbody tr:hover td {
   white-space: nowrap;
   width: max-content;
   max-width: 100%;
+}
+
+.strategies-table .token-item {
+  grid-template-columns: var(--token-icon-size) minmax(44px, max-content) 82px;
+  column-gap: 6px;
 }
 
 .token-item.is-auction-disabled .token-symbol,
@@ -727,6 +740,11 @@ tbody tr:hover td {
   min-width: 86px;
   padding-left: 0;
   color: var(--text-primary);
+}
+
+.strategies-table .token-balance {
+  width: 82px;
+  min-width: 82px;
 }
 
 .token-balance-button {
@@ -1818,11 +1836,18 @@ tbody tr:hover td {
   .strategies-table .auction-cell,
   .strategies-table .history-col,
   .strategies-table .history-cell,
+  .strategies-table .balances-cell,
   .strategies-table .auction-value-slot,
   .strategies-table .token-cell {
     width: auto;
     min-width: 0;
     max-width: none;
+  }
+
+  .strategies-table .history-cell,
+  .strategies-table .balances-cell {
+    padding-left: 0;
+    padding-right: 0;
   }
 
   .strategy-skeleton {

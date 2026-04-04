@@ -3091,7 +3091,7 @@ export default function App() {
                           fallbackAuctionAddress={row.auctionAddress}
                         />
                       </td>
-                      <td data-label="Balances">
+                      <td className="balances-cell" data-label="Balances">
                         <TokenBalances
                           balances={row.balances}
                           displayMode={displayMode}
