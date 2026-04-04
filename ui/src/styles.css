@@ -691,7 +691,8 @@ tbody tr:hover td {
 }
 
 .strategies-table .token-item {
-  grid-template-columns: var(--token-icon-size) minmax(44px, max-content) 82px;
+  width: 100%;
+  grid-template-columns: var(--token-icon-size) minmax(0, 1fr) 80px;
   column-gap: 6px;
 }
 
@@ -743,8 +744,8 @@ tbody tr:hover td {
 }
 
 .strategies-table .token-balance {
-  width: 82px;
-  min-width: 82px;
+  width: 80px;
+  min-width: 80px;
 }
 
 .token-balance-button {
