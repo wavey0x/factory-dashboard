@@ -454,7 +454,7 @@ tbody tr:hover td {
 }
 
 .strategies-table .history-cell {
-  padding-right: 16px;
+  padding-right: 14px;
 }
 
 .history-col {
@@ -668,7 +668,14 @@ tbody tr:hover td {
 }
 
 .strategies-table .balances-cell {
-  padding-left: 16px;
+  padding-left: 12px;
+}
+
+.strategies-table .token-col,
+.strategies-table .token-cell {
+  width: 206px;
+  min-width: 206px;
+  max-width: 206px;
 }
 
 .token-stack {
@@ -692,8 +699,8 @@ tbody tr:hover td {
 
 .strategies-table .token-item {
   width: 100%;
-  grid-template-columns: var(--token-icon-size) minmax(0, 1fr) 80px;
-  column-gap: 6px;
+  grid-template-columns: var(--token-icon-size) minmax(0, 1fr) 86px;
+  column-gap: 5px;
 }
 
 .token-item.is-auction-disabled .token-symbol,
@@ -744,8 +751,8 @@ tbody tr:hover td {
 }
 
 .strategies-table .token-balance {
-  width: 80px;
-  min-width: 80px;
+  width: 86px;
+  min-width: 86px;
 }
 
 .token-balance-button {
