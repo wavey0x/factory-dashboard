@@ -2030,6 +2030,7 @@ function TokenBalances({
   displayMode,
   onToggleMode,
 }) {
+  const alignedSymbolMaxChars = 6;
   return (
     <div className="token-cell">
       <div className="token-stack">
@@ -2039,13 +2040,19 @@ function TokenBalances({
             ? "Click to show token amounts"
             : "Click to show USD values";
           const title = auctionTooltip ? `${auctionTooltip}\n${balanceTitle}` : balanceTitle;
-          const itemClassName = balance.auctionSellTokenStatus === "disabled"
-            ? "token-item is-auction-disabled"
-            : "token-item";
+          const tokenSymbol = balance.tokenSymbol || "UNKNOWN";
+          const itemClassNames = ["token-item"];
+          if (balance.auctionSellTokenStatus === "disabled") {
+            itemClassNames.push("is-auction-disabled");
+          }
+          if (tokenSymbol.length > alignedSymbolMaxChars) {
+            itemClassNames.push("is-compact-balance");
+          }
+          const itemClassName = itemClassNames.join(" ");
 
           return (
             <div
-              key={`${balance.tokenAddress}-${balance.tokenSymbol}`}
+              key={`${balance.tokenAddress}-${tokenSymbol}`}
               className={itemClassName}
               title={auctionTooltip || undefined}
             >
@@ -2064,12 +2071,12 @@ function TokenBalances({
               ) : <span className="token-logo-placeholder" />}
               <span className="token-symbol-wrap">
                 <span className="mono token-symbol" title={auctionTooltip || undefined}>
-                  {balance.tokenSymbol || "UNKNOWN"}
+                  {tokenSymbol}
                 </span>
                 <CopyIconButton
                   valueToCopy={checksumAddress(balance.tokenAddress)}
                   title={`Copy token address ${checksumAddress(balance.tokenAddress)}`}
-                  ariaLabel={`Copy token address for ${balance.tokenSymbol || "token"}`}
+                  ariaLabel={`Copy token address for ${tokenSymbol || "token"}`}
                 />
               </span>
               <button

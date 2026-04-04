@@ -705,14 +705,24 @@ tbody tr:hover td {
 .strategies-table .token-item {
   display: flex;
   align-items: center;
-  gap: 5px;
-  width: 100%;
+  gap: 4px;
+  width: max-content;
   max-width: 100%;
 }
 
 .strategies-table .token-symbol-wrap {
-  flex: 1 1 auto;
+  flex: 0 0 calc(6ch + 18px);
+  width: calc(6ch + 18px);
+}
+
+.strategies-table .token-item.is-compact-balance {
+  gap: 3px;
+}
+
+.strategies-table .token-item.is-compact-balance .token-symbol-wrap {
+  flex: 0 1 auto;
   width: auto;
+  max-width: calc(100% - 46px);
 }
 
 .strategies-table .token-logo,
