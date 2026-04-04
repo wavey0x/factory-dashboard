@@ -24,16 +24,22 @@ React dashboard for the monorepo Tidal control-plane API.
    ```
 3. Open `http://localhost:5173`
 
-Configure the dashboard API with either:
+By default, local development reads from the production API:
+
+```bash
+VITE_TIDAL_API_BASE_URL=https://api.tidal.wavey.info/api/v1/tidal
+```
+
+Override the dashboard API explicitly when needed:
 
 ```bash
 VITE_TIDAL_API_BASE_URL=https://api.tidal.wavey.info/api/v1/tidal npm run dev
 ```
 
-or by keeping the default `/api/v1/tidal` base path and proxying locally:
+Or point the dev server at a local API proxy:
 
 ```bash
-TIDAL_API_PROXY_TARGET=http://localhost:8787 npm run dev
+VITE_TIDAL_API_BASE_URL=/api/v1/tidal TIDAL_API_PROXY_TARGET=http://localhost:8787 npm run dev
 ```
 
 Dashboard and log reads are public. To call authenticated endpoints (prepare/broadcast), set:

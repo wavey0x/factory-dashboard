@@ -121,15 +121,27 @@ For broadcast flows you also need wallet configuration:
 ```bash
 cd ui
 npm install
-TIDAL_API_PROXY_TARGET=http://127.0.0.1:8787 npm run dev
+npm run dev
 ```
 
 Then open `http://localhost:5173`.
 
-You can also point directly at a deployed API:
+The dev UI now defaults to the production API:
 
 ```bash
-VITE_TIDAL_API_BASE_URL=https://api.tidal.wavey.info/api/v1/tidal npm run dev
+VITE_TIDAL_API_BASE_URL=https://api.tidal.wavey.info/api/v1/tidal
+```
+
+To point at a local API instead:
+
+```bash
+VITE_TIDAL_API_BASE_URL=http://127.0.0.1:8787/api/v1/tidal npm run dev
+```
+
+Or keep the relative `/api/v1/tidal` path and proxy locally:
+
+```bash
+VITE_TIDAL_API_BASE_URL=/api/v1/tidal TIDAL_API_PROXY_TARGET=http://127.0.0.1:8787 npm run dev
 ```
 
 If you want authenticated UI actions locally:
