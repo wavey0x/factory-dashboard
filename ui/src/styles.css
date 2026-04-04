@@ -478,6 +478,13 @@ tbody tr:hover td {
   margin-top: 4px;
 }
 
+.auction-secondary-prefix {
+  color: var(--text-faint);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  margin-right: 6px;
+}
+
 .auction-missing-state {
   display: inline-flex;
   flex-direction: column;
@@ -1276,12 +1283,13 @@ tbody tr:hover td {
 .fee-burner-meta-row {
   display: grid;
   grid-template-columns:
-    minmax(92px, 0.65fr)
-    minmax(170px, 1.35fr)
-    minmax(170px, 1.1fr)
-    minmax(188px, 1.18fr);
-  gap: 12px;
+    120px
+    minmax(220px, max-content)
+    minmax(220px, max-content)
+    minmax(280px, max-content);
+  gap: 10px 16px;
   align-items: start;
+  justify-content: start;
 }
 
 .fee-burner-top-item {
@@ -1309,6 +1317,16 @@ tbody tr:hover td {
 
 .fee-burner-history {
   min-width: 0;
+}
+
+.fee-burner-card .kick-row-inner {
+  width: max-content;
+  max-width: 100%;
+  grid-template-columns: 92px max-content 62px max-content;
+}
+
+.fee-burner-card .kick-history-auctionscan {
+  justify-self: start;
 }
 
 .fee-burner-balance-panel {

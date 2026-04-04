@@ -937,7 +937,14 @@ function DeployConfirmModal({ payload, onConfirm, onCancel }) {
   );
 }
 
-function AuctionAddressCell({ address, version, wantAddress, wantSymbol, emptyContent = null }) {
+function AuctionAddressCell({
+  address,
+  version,
+  wantAddress,
+  wantSymbol,
+  emptyContent = null,
+  wantLabel = null,
+}) {
   return (
     <div className="auction-value-slot">
       {address ? (
@@ -949,6 +956,7 @@ function AuctionAddressCell({ address, version, wantAddress, wantSymbol, emptyCo
       {!address ? (emptyContent || <span className="row-secondary mono">—</span>) : null}
       {address && wantAddress ? (
         <span className="auction-secondary-row">
+          {wantLabel ? <span className="auction-secondary-prefix">{wantLabel}</span> : null}
           <WantTokenValue address={wantAddress} symbol={wantSymbol} />
         </span>
       ) : null}
@@ -2293,6 +2301,7 @@ function FeeBurnerPage({
                       version={row.auctionVersion}
                       wantAddress={row.wantAddress}
                       wantSymbol={row.wantSymbol}
+                      wantLabel="want:"
                     />
                   </div>
                 </div>
