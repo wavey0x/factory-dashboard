@@ -696,7 +696,15 @@ function getAuctionScanHref(kick) {
   if (!isAuctionScanLinkableKick(kick)) {
     return null;
   }
-  return kick.auctionScanRoundUrl || kick.auctionScanAuctionUrl || null;
+
+  const chainId = normalizeChainIdValue(kick.chainId);
+  return (
+    kick.auctionScanRoundUrl
+    || buildAuctionScanRoundUrl(chainId, kick.auctionAddress, kick.auctionScanRoundId)
+    || kick.auctionScanAuctionUrl
+    || buildAuctionScanAuctionUrl(chainId, kick.auctionAddress)
+    || null
+  );
 }
 
 function getAuctionScanTargetLabel(kick) {
@@ -958,6 +966,7 @@ function KickHistoryCell({
   isExpanded,
   onToggleExpand,
   isMobile = false,
+  fallbackAuctionAddress = null,
   emptyContent = null,
 }) {
   const hasKicks = kicks && kicks.length > 0;
@@ -983,13 +992,23 @@ function KickHistoryCell({
             ▶
           </button>
         ) : null}
-        <KickRow kick={kicks[0]} nowMs={nowMs} />
+        <KickRow
+          kick={kicks[0].auctionAddress || !fallbackAuctionAddress
+            ? kicks[0]
+            : { ...kicks[0], auctionAddress: fallbackAuctionAddress }}
+          nowMs={nowMs}
+        />
       </div>
       {hasChevron && isExpanded && kicks.length > 1 ? (
         <div className="kick-expanded">
           {kicks.slice(1, 5).map((kick, i) => (
             <div key={kick.txHash || i} className="kick-row">
-              <KickRow kick={kick} nowMs={nowMs} />
+              <KickRow
+                kick={kick.auctionAddress || !fallbackAuctionAddress
+                  ? kick
+                  : { ...kick, auctionAddress: fallbackAuctionAddress }}
+                nowMs={nowMs}
+              />
             </div>
           ))}
         </div>
@@ -1007,6 +1026,7 @@ function AuctionWithHistoryCell({ address, version, kicks, nowMs, isExpanded, on
         nowMs={nowMs}
         isExpanded={isExpanded}
         onToggleExpand={onToggleExpand}
+        fallbackAuctionAddress={address}
         emptyContent={null}
       />
     </div>
@@ -2162,6 +2182,7 @@ function StrategyDetailContent({
             nowMs={nowMs}
             isExpanded={historyExpanded}
             onToggleExpand={onToggleHistory}
+            fallbackAuctionAddress={row.auctionAddress}
           />
         </div>
       </div>
@@ -3087,6 +3108,7 @@ export default function App() {
                           isExpanded={expandedKickRows.has(row.sourceAddress)}
                           onToggleExpand={() => toggleKickExpand(row.sourceAddress)}
                           isMobile={isMobile}
+                          fallbackAuctionAddress={row.auctionAddress}
                         />
                       </td>
                       <td data-label="Balances">

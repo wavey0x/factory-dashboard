@@ -851,8 +851,8 @@ tbody tr:hover td {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  margin-left: 1px;
-  opacity: 0.58;
+  margin-left: 2px;
+  opacity: 0.8;
   text-decoration: none;
 }
 
@@ -861,8 +861,8 @@ tbody tr:hover td {
 }
 
 .kick-history-auctionscan-icon {
-  width: 9px;
-  height: 9px;
+  width: 10px;
+  height: 10px;
 }
 
 .kick-time {
