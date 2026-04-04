@@ -678,7 +678,7 @@ function EntityIdentity({ primary, secondary, address }) {
   );
 }
 
-function EtherscanTxLink({ txHash }) {
+function EtherscanTxLink({ txHash, compact = false }) {
   const normalized = txHash.startsWith("0x") ? txHash : `0x${txHash}`;
   return (
     <a
@@ -688,7 +688,7 @@ function EtherscanTxLink({ txHash }) {
       target="_blank"
       rel="noopener noreferrer"
     >
-      {`${normalized.slice(0, 6)}...${normalized.slice(-4)}`}
+      {compact ? `${normalized.slice(0, 6)}...` : `${normalized.slice(0, 6)}...${normalized.slice(-4)}`}
     </a>
   );
 }
@@ -1039,7 +1039,7 @@ function KickRow({ kick, nowMs }) {
     <span className="kick-row-inner">
       <span className="kick-time mono">{formatRelativeTimestamp(kick.createdAt, nowMs)}</span>
       <span className="kick-separator mono">·</span>
-      <EtherscanTxLink txHash={kick.txHash} />
+      <EtherscanTxLink txHash={kick.txHash} compact />
       <KickHistoryAuctionScanLink kick={kick} />
     </span>
   );
