@@ -96,7 +96,7 @@ SELECT
     {source_type_expr} AS source_type,
     {source_address_expr} AS source_address,
     k.strategy_address,
-    k.chain_id,
+    {kick_chain_id_column} AS chain_id,
     k.auction_address,
     k.tx_hash,
     k.status,
@@ -292,6 +292,7 @@ class DashboardReadService:
             "kick_txs.source_type": self._has_column("kick_txs", "source_type"),
             "kick_txs.source_address": self._has_column("kick_txs", "source_address"),
             "kick_txs.token_symbol": self._has_column("kick_txs", "token_symbol"),
+            "kick_txs.chain_id": self._has_column("kick_txs", "chain_id"),
             "kick_txs.auctionscan_round_id": self._has_column("kick_txs", "auctionscan_round_id"),
             "fee_burners": self._has_table("fee_burners"),
             "fee_burners.auction_address": self._has_column("fee_burners", "auction_address"),
@@ -413,6 +414,7 @@ class DashboardReadService:
         )
         source_address_expr = "COALESCE(k.source_address, k.strategy_address)" if features["kick_txs.source_address"] else "k.strategy_address"
         kick_token_symbol_column = "COALESCE(k.token_symbol, t.symbol)" if features["kick_txs.token_symbol"] else "t.symbol"
+        kick_chain_id_column = "k.chain_id" if features["kick_txs.chain_id"] else "NULL"
         kick_auctionscan_round_id_column = (
             "k.auctionscan_round_id" if features["kick_txs.auctionscan_round_id"] else "NULL"
         )
@@ -421,6 +423,7 @@ class DashboardReadService:
             source_type_expr=source_type_expr,
             source_address_expr=source_address_expr,
             kick_token_symbol_column=kick_token_symbol_column,
+            kick_chain_id_column=kick_chain_id_column,
             kick_auctionscan_round_id_column=kick_auctionscan_round_id_column,
         )
 

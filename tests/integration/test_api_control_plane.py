@@ -190,6 +190,26 @@ def test_dashboard_endpoint_returns_rows(tmp_path: Path) -> None:
     assert payload["data"]["rows"][0]["sourceName"] == "Test Strategy"
 
 
+def test_dashboard_endpoint_returns_rows_with_kick_history_without_chain_id_column(tmp_path: Path) -> None:
+    settings = _make_settings(tmp_path)
+    _init_db(settings)
+    _seed_dashboard_data(settings)
+    _seed_kick_log_rows(settings)
+    client = TestClient(create_app(settings))
+
+    response = client.get(
+        "/api/v1/tidal/dashboard",
+        headers={"Authorization": "Bearer secret-token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert len(payload["data"]["rows"]) == 1
+    assert len(payload["data"]["rows"][0]["kicks"]) == 3
+    assert payload["data"]["rows"][0]["kicks"][0]["chainId"] is None
+
+
 def test_public_run_detail_redacts_secret_like_error_messages(tmp_path: Path) -> None:
     settings = _make_settings(tmp_path)
     _init_db(settings)
