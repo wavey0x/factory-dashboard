@@ -19,6 +19,7 @@ const ETHERSCAN_ADDRESS_URL = "https://etherscan.io/address/";
 const COW_EXPLORER_URL = "https://explorer.cow.fi/address/";
 const AUCTIONSCAN_BASE_URL = "https://auctionscan.info";
 const AUCTIONSCAN_ICON_SRC = "/auctionscan-favicon.svg";
+const DEFAULT_CHAIN_ID = 1;
 const FAILED_STATUSES = new Set(["REVERTED", "ERROR", "ESTIMATE_FAILED"]);
 const FAINT_STATUSES = new Set(["DRY_RUN", "SUBMITTED", "USER_SKIPPED", "SKIP"]);
 const KICK_LOG_PAGE_SIZE = 25;
@@ -321,7 +322,7 @@ function formatDeployError(error) {
 }
 
 function normalizeKick(kick) {
-  const chainId = normalizeChainIdValue(kick.chainId);
+  const chainId = normalizeChainIdValue(kick.chainId) ?? DEFAULT_CHAIN_ID;
   const auctionAddress = kick.auctionAddress || null;
   const auctionScanRoundId = kick.auctionScanRoundId ?? null;
   const auctionScanLinkable = isAuctionScanLinkableKick(kick, chainId);
