@@ -248,6 +248,57 @@ async def test_kick_planner_skips_live_funded_auction_without_force(monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_kick_planner_can_preview_without_sender_or_gas_estimation(monkeypatch) -> None:
+    candidate = _candidate(token_address="0x2222222222222222222222222222222222222222", usd_value=2500.0)
+    shortlist = SimpleNamespace(
+        selected_candidates=[candidate],
+        eligible_candidates=[candidate],
+        ignored_skips=[],
+        cooldown_skips=[],
+        deferred_same_auction_count=0,
+        limited_candidates=[],
+    )
+    deps = _FakeKickDeps(prepared_by_token={candidate.token_address: _prepared(candidate)})
+    clean_inspection = _inspection()
+    estimate_transaction_fn = AsyncMock(return_value=(210000, 252000, None))
+
+    monkeypatch.setattr(
+        planner_module,
+        "inspect_auction_settlements",
+        AsyncMock(return_value={candidate.auction_address: clean_inspection}),
+    )
+
+    planner = KickPlanner(
+        session=object(),
+        settings=_settings(),
+        preparer=deps,
+        tx_builder=deps,
+        kick_tx_repository=object(),  # type: ignore[arg-type]
+        shortlist_builder=lambda *args, **kwargs: shortlist,
+        candidate_sorter=lambda candidates: list(candidates),
+        estimate_transaction_fn=estimate_transaction_fn,
+    )
+
+    plan = await planner.plan(
+        source_type="strategy",
+        source_address=candidate.source_address,
+        auction_address=candidate.auction_address,
+        token_address=None,
+        limit=1,
+        sender=None,
+        run_id="run-dry",
+        batch=True,
+        estimate_transactions=False,
+    )
+
+    assert len(plan.kick_operations) == 1
+    assert len(plan.tx_intents) == 1
+    assert plan.tx_intents[0].sender is None
+    assert plan.warnings == []
+    estimate_transaction_fn.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_kick_planner_falls_back_from_batch_to_individual_intents(monkeypatch) -> None:
     candidate_a = _candidate(token_address="0x1111111111111111111111111111111111111111", usd_value=3000.0)
     candidate_b = _candidate(token_address="0x2222222222222222222222222222222222222222", usd_value=2000.0)

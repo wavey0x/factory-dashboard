@@ -21,6 +21,7 @@ from tidal.transaction_service.types import (
     KickResult,
     KickStatus,
     PreparedKick,
+    PreparedResolveAuction,
     SourceType,
     TransactionExecutionReport,
     TxnRunResult,
@@ -137,6 +138,64 @@ class TxnService:
             return address
         return None
 
+    def _insert_dry_run_kick_row(self, run_id: str, prepared_kick: PreparedKick, *, now_iso: str) -> None:
+        candidate = prepared_kick.candidate
+        row: dict[str, object] = {
+            "run_id": run_id,
+            "operation_type": "kick",
+            "source_type": candidate.source_type,
+            "source_address": candidate.source_address,
+            "token_address": candidate.token_address,
+            "auction_address": candidate.auction_address,
+            "price_usd": candidate.price_usd,
+            "usd_value": prepared_kick.usd_value_str,
+            "status": "DRY_RUN",
+            "created_at": now_iso,
+            "want_address": candidate.want_address,
+            "want_symbol": candidate.want_symbol,
+            "token_symbol": candidate.token_symbol,
+            "sell_amount": prepared_kick.sell_amount_str,
+            "starting_price": prepared_kick.starting_price_str,
+            "minimum_price": prepared_kick.minimum_price_str,
+            "minimum_quote": prepared_kick.minimum_quote_str,
+            "quote_amount": prepared_kick.quote_amount_str,
+            "quote_response_json": prepared_kick.quote_response_json,
+            "start_price_buffer_bps": prepared_kick.start_price_buffer_bps,
+            "min_price_buffer_bps": prepared_kick.min_price_buffer_bps,
+            "step_decay_rate_bps": prepared_kick.step_decay_rate_bps,
+            "normalized_balance": prepared_kick.normalized_balance,
+        }
+        if candidate.source_type == "strategy":
+            row["strategy_address"] = candidate.source_address
+        self.kick_tx_repository.insert(row)
+
+    def _insert_dry_run_resolve_row(self, run_id: str, prepared_operation: PreparedResolveAuction, *, now_iso: str) -> None:
+        candidate = prepared_operation.candidate
+        row: dict[str, object] = {
+            "run_id": run_id,
+            "operation_type": "resolve_auction",
+            "source_type": candidate.source_type,
+            "source_address": candidate.source_address,
+            "token_address": prepared_operation.sell_token,
+            "auction_address": candidate.auction_address,
+            "status": "DRY_RUN",
+            "created_at": now_iso,
+            "want_address": candidate.want_address,
+            "want_symbol": candidate.want_symbol,
+            "token_symbol": prepared_operation.token_symbol if prepared_operation.token_symbol is not None else candidate.token_symbol,
+            "stuck_abort_reason": prepared_operation.reason,
+            "normalized_balance": prepared_operation.normalized_balance,
+        }
+        if prepared_operation.balance_raw:
+            row["sell_amount"] = str(prepared_operation.balance_raw)
+        if prepared_operation.sell_token.lower() == candidate.token_address.lower():
+            row["price_usd"] = candidate.price_usd
+            if prepared_operation.normalized_balance is not None:
+                row["usd_value"] = str(candidate.usd_value)
+        if candidate.source_type == "strategy":
+            row["strategy_address"] = candidate.source_address
+        self.kick_tx_repository.insert(row)
+
     async def run_once(
         self,
         *,
@@ -203,7 +262,7 @@ class TxnService:
             "live": 1 if live else 0,
         })
 
-        if live and self.planner is not None:
+        if self.planner is not None:
             executor = self.executor
             plan = await self.planner.plan(
                 source_type=source_type,
@@ -211,9 +270,10 @@ class TxnService:
                 auction_address=auction_address,
                 token_address=None,
                 limit=limit,
-                sender=self._planner_sender(),
+                sender=self._planner_sender() if live else None,
                 run_id=run_id,
                 batch=batch,
+                estimate_transactions=live,
             )
 
             logger.info(
@@ -248,6 +308,8 @@ class TxnService:
             for skipped in plan.skipped_during_prepare:
                 if skipped.result is None:
                     continue
+                if skipped.result.status == KickStatus.SKIP:
+                    continue
                 attempt_delta, failure_delta = self._apply_prepare_result(
                     run_id=run_id,
                     candidate=skipped.candidate,
@@ -257,47 +319,56 @@ class TxnService:
                 kicks_attempted += attempt_delta
                 kicks_failed += failure_delta
 
-            for prepared_operation in plan.resolve_operations:
-                exec_result = await executor.execute_resolve_auction(prepared_operation, run_id)
-                self._emit_execution_report(exec_result)
-                if exec_result.status == KickStatus.CONFIRMED:
-                    kicks_succeeded += 1
-                elif exec_result.status in (KickStatus.REVERTED, KickStatus.ERROR, KickStatus.ESTIMATE_FAILED):
-                    kicks_failed += 1
-                    if exec_result.error_message:
-                        failed_messages.append(exec_result.error_message)
-                elif exec_result.status == KickStatus.USER_SKIPPED:
-                    kicks_attempted -= 1
+            if live:
+                for prepared_operation in plan.resolve_operations:
+                    exec_result = await executor.execute_resolve_auction(prepared_operation, run_id)
+                    self._emit_execution_report(exec_result)
+                    if exec_result.status == KickStatus.CONFIRMED:
+                        kicks_succeeded += 1
+                    elif exec_result.status in (KickStatus.REVERTED, KickStatus.ERROR, KickStatus.ESTIMATE_FAILED):
+                        kicks_failed += 1
+                        if exec_result.error_message:
+                            failed_messages.append(exec_result.error_message)
+                    elif exec_result.status == KickStatus.USER_SKIPPED:
+                        kicks_attempted -= 1
 
-            kick_intents = [intent for intent in plan.tx_intents if intent.operation == "kick"]
-            if plan.kick_operations:
-                if not batch or len(plan.kick_operations) == 1 or len(kick_intents) != 1:
-                    for prepared_kick in plan.kick_operations:
-                        exec_result = await executor.execute_single(prepared_kick, run_id)
-                        self._emit_execution_report(exec_result)
-                        if exec_result.status == KickStatus.CONFIRMED:
-                            kicks_succeeded += 1
-                        elif exec_result.status in (KickStatus.REVERTED, KickStatus.ERROR, KickStatus.ESTIMATE_FAILED):
-                            kicks_failed += 1
-                            if exec_result.error_message:
-                                failed_messages.append(exec_result.error_message)
-                        elif exec_result.status == KickStatus.USER_SKIPPED:
-                            kicks_attempted -= 1
-                else:
-                    exec_results = await executor.execute_batch(plan.kick_operations, run_id)
-                    for exec_result in exec_results:
-                        self._emit_execution_report(exec_result)
-                        if exec_result.status == KickStatus.CONFIRMED:
-                            kicks_succeeded += 1
-                        elif exec_result.status in (KickStatus.REVERTED, KickStatus.ERROR, KickStatus.ESTIMATE_FAILED):
-                            kicks_failed += 1
-                            if exec_result.error_message:
-                                failed_messages.append(exec_result.error_message)
-                        elif exec_result.status == KickStatus.USER_SKIPPED:
-                            kicks_attempted -= 1
+                kick_intents = [intent for intent in plan.tx_intents if intent.operation == "kick"]
+                if plan.kick_operations:
+                    if not batch or len(plan.kick_operations) == 1 or len(kick_intents) != 1:
+                        for prepared_kick in plan.kick_operations:
+                            exec_result = await executor.execute_single(prepared_kick, run_id)
+                            self._emit_execution_report(exec_result)
+                            if exec_result.status == KickStatus.CONFIRMED:
+                                kicks_succeeded += 1
+                            elif exec_result.status in (KickStatus.REVERTED, KickStatus.ERROR, KickStatus.ESTIMATE_FAILED):
+                                kicks_failed += 1
+                                if exec_result.error_message:
+                                    failed_messages.append(exec_result.error_message)
+                            elif exec_result.status == KickStatus.USER_SKIPPED:
+                                kicks_attempted -= 1
+                    else:
+                        exec_results = await executor.execute_batch(plan.kick_operations, run_id)
+                        for exec_result in exec_results:
+                            self._emit_execution_report(exec_result)
+                            if exec_result.status == KickStatus.CONFIRMED:
+                                kicks_succeeded += 1
+                            elif exec_result.status in (KickStatus.REVERTED, KickStatus.ERROR, KickStatus.ESTIMATE_FAILED):
+                                kicks_failed += 1
+                                if exec_result.error_message:
+                                    failed_messages.append(exec_result.error_message)
+                            elif exec_result.status == KickStatus.USER_SKIPPED:
+                                kicks_attempted -= 1
+            else:
+                now_iso = utcnow_iso()
+                for prepared_operation in plan.resolve_operations:
+                    self._insert_dry_run_resolve_row(run_id, prepared_operation, now_iso=now_iso)
+                for prepared_kick in plan.kick_operations:
+                    self._insert_dry_run_kick_row(run_id, prepared_kick, now_iso=now_iso)
 
             candidates_found = len(plan.ranked_candidates)
-            if kicks_failed > 0 and kicks_succeeded == 0:
+            if not live:
+                status = "DRY_RUN"
+            elif kicks_failed > 0 and kicks_succeeded == 0:
                 status = "FAILED"
             elif kicks_failed > 0:
                 status = "PARTIAL_SUCCESS"

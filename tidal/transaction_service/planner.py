@@ -121,6 +121,7 @@ class KickPlanner:
         sender: str | None,
         run_id: str,
         batch: bool = True,
+        estimate_transactions: bool = True,
     ) -> KickPlan:
         kick_config = self.settings.kick_config
         shortlist = self.shortlist_builder(
@@ -202,10 +203,11 @@ class KickPlanner:
                         normalized_balance=normalized_balance,
                     )
                     intent = self.tx_builder.build_resolve_auction_intent(prepared_operation, sender=sender)
-                    gas_warning = await self._estimate_intent(intent, gas_cap=self.settings.txn_max_gas_limit)
-                    if gas_warning:
-                        plan.warnings.append(gas_warning)
-                        continue
+                    if estimate_transactions:
+                        gas_warning = await self._estimate_intent(intent, gas_cap=self.settings.txn_max_gas_limit)
+                        if gas_warning:
+                            plan.warnings.append(gas_warning)
+                            continue
                     plan.resolve_operations.append(prepared_operation)
                     plan.tx_intents.append(intent)
                 for candidate in auction_group:
@@ -246,7 +248,11 @@ class KickPlanner:
 
         if not batch:
             for prepared_kick in prepared_kicks:
-                recovered_kick, tx_intent, warning = await self._prepare_single_kick_intent(prepared_kick, sender=sender)
+                recovered_kick, tx_intent, warning = await self._prepare_single_kick_intent(
+                    prepared_kick,
+                    sender=sender,
+                    estimate_transactions=estimate_transactions,
+                )
                 if warning is not None:
                     plan.warnings.append(warning)
                     plan.skipped_during_prepare.append(_prepared_estimate_failure(prepared_kick, warning))
@@ -258,7 +264,11 @@ class KickPlanner:
             return plan
 
         if len(prepared_kicks) == 1:
-            prepared_kick, tx_intent, warning = await self._prepare_single_kick_intent(prepared_kicks[0], sender=sender)
+            prepared_kick, tx_intent, warning = await self._prepare_single_kick_intent(
+                prepared_kicks[0],
+                sender=sender,
+                estimate_transactions=estimate_transactions,
+            )
             if warning is not None:
                 plan.warnings.append(warning)
                 plan.skipped_during_prepare.append(_prepared_estimate_failure(prepared_kicks[0], warning))
@@ -267,6 +277,13 @@ class KickPlanner:
             assert prepared_kick is not None and tx_intent is not None
             plan.kick_operations.append(prepared_kick)
             plan.tx_intents.append(tx_intent)
+            plan.ready_count = len(plan.resolve_operations) + len(plan.kick_operations)
+            return plan
+
+        if not estimate_transactions:
+            batch_intent = self._build_batch_kick_intent(prepared_kicks, sender=sender)
+            plan.kick_operations.extend(prepared_kicks)
+            plan.tx_intents.append(batch_intent)
             plan.ready_count = len(plan.resolve_operations) + len(plan.kick_operations)
             return plan
 
@@ -295,7 +312,11 @@ class KickPlanner:
         successful_intents: list[TxIntent] = []
         individual_skips: list[SkippedPreparedCandidate] = []
         for prepared in prepared_kicks:
-            recovered_kick, tx_intent, warning = await self._prepare_single_kick_intent(prepared, sender=sender)
+            recovered_kick, tx_intent, warning = await self._prepare_single_kick_intent(
+                prepared,
+                sender=sender,
+                estimate_transactions=estimate_transactions,
+            )
             if warning is not None:
                 individual_warnings.append(warning)
                 individual_skips.append(_prepared_estimate_failure(prepared, warning))
@@ -325,8 +346,11 @@ class KickPlanner:
         prepared: PreparedKick,
         *,
         sender: str | None,
+        estimate_transactions: bool = True,
     ) -> tuple[PreparedKick | None, TxIntent | None, str | None]:
         standard_intent = self._build_single_kick_intent(prepared, sender=sender)
+        if not estimate_transactions:
+            return prepared, standard_intent, None
         gas_warning = await self._estimate_intent(standard_intent, gas_cap=self.settings.txn_max_gas_limit)
         if gas_warning is None:
             return prepared, standard_intent, None
@@ -370,4 +394,3 @@ class KickPlanner:
         intent.gas_estimate = gas_estimate
         intent.gas_limit = min(int(gas_estimate * _GAS_ESTIMATE_BUFFER), gas_cap)
         return None
-

@@ -21,6 +21,7 @@ from tidal.transaction_service.types import (
     KickResult,
     KickStatus,
     PreparedKick,
+    PreparedResolveAuction,
     SkippedPreparedCandidate,
     TransactionExecutionReport,
 )
@@ -577,6 +578,92 @@ async def test_multiple_candidates_dry_run(session):
     kick_txs = session.execute(select(models.kick_txs)).mappings().all()
     assert len(kick_txs) == 2
     assert all(row["status"] == "DRY_RUN" for row in kick_txs)
+
+
+@pytest.mark.asyncio
+async def test_dry_run_planner_persists_resolve_and_kick_rows(session):
+    _seed_candidate(session)
+    txn_run_repo = TxnRunRepository(session)
+    kick_tx_repo = KickTxRepository(session)
+    candidate = KickCandidate(
+        source_type="strategy",
+        source_address="0xstrategy1",
+        token_address="0xtoken1",
+        auction_address="0xauction1",
+        normalized_balance="1000",
+        price_usd="2.5",
+        want_address="0xwant1",
+        usd_value=2500.0,
+        decimals=18,
+        token_symbol="CRV",
+        want_symbol="USDC",
+    )
+    prepared_kick = _make_prepared_kick(candidate)
+    prepared_resolve = PreparedResolveAuction(
+        candidate=candidate,
+        sell_token="0xstaletoken1",
+        path=5,
+        reason="inactive kicked lot with stranded inventory",
+        balance_raw=123,
+        requires_force=False,
+        receiver="0xreceiver1",
+        token_symbol="YFI",
+        normalized_balance="123",
+    )
+    planner = AsyncMock()
+    planner.plan = AsyncMock(
+        return_value=KickPlan(
+            source_type=None,
+            source_address=None,
+            auction_address=None,
+            token_address=None,
+            limit=None,
+            eligible_count=1,
+            selected_count=1,
+            ready_count=2,
+            ranked_candidates=[candidate],
+            resolve_operations=[prepared_resolve],
+            kick_operations=[prepared_kick],
+        )
+    )
+    executor = MagicMock()
+    executor.record_prepare_failure = MagicMock()
+
+    service = TxnService(
+        session=session,
+        preparer=MagicMock(),
+        executor=executor,
+        planner=planner,
+        txn_run_repository=txn_run_repo,
+        kick_tx_repository=kick_tx_repo,
+        usd_threshold=100.0,
+        max_data_age_seconds=600,
+        cooldown_policy=CooldownPolicy(default_minutes=60, auction_token_overrides_minutes={}),
+        ignore_policy=IgnorePolicy(
+            ignored_sources=frozenset(),
+            ignored_auctions=frozenset(),
+            ignored_auction_tokens=frozenset(),
+        ),
+        lock_path=Path(f"/tmp/test_txn_daemon_{uuid.uuid4().hex}.lock"),
+    )
+
+    result = await service.run_once(live=False)
+
+    assert result.status == "DRY_RUN"
+    assert result.candidates_found == 1
+    assert result.kicks_attempted == 2
+    assert result.kicks_succeeded == 0
+    assert result.kicks_failed == 0
+
+    rows = session.execute(select(models.kick_txs).order_by(models.kick_txs.c.operation_type)).mappings().all()
+    assert len(rows) == 2
+    assert rows[0]["operation_type"] == "kick"
+    assert rows[0]["status"] == "DRY_RUN"
+    assert rows[0]["sell_amount"] == prepared_kick.sell_amount_str
+    assert rows[1]["operation_type"] == "resolve_auction"
+    assert rows[1]["status"] == "DRY_RUN"
+    assert rows[1]["stuck_abort_reason"] == "inactive kicked lot with stranded inventory"
+    assert rows[1]["sell_amount"] == "123"
 
 
 @pytest.mark.asyncio
