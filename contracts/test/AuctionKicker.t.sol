@@ -351,6 +351,13 @@ contract AuctionKickerTest is Test {
         kicker.kick(STRATEGY, ALT_AUCTION, CRV, 1e18, strategyWant, 1e18, 0, 50, address(0));
     }
 
+    function test_revert_governanceMismatch() public {
+        ResolveAuctionMock auction = new ResolveAuctionMock(makeAddr("other-governance"), STRATEGY);
+
+        vm.expectRevert("governance mismatch");
+        kicker.kick(STRATEGY, address(auction), CRV, 1e18, address(0), 1e18, 0, 50, address(0));
+    }
+
     function test_minimumPrice_zeroAllowed() public {
         uint256 amount = 100e18;
         uint256 startingPrice = 2e18;

@@ -182,6 +182,26 @@ def decide_auction_settlement(
             reason="auction isAnActiveAuction() read failed",
         )
 
+    requested_token = normalize_address(token_address) if token_address is not None else None
+    if requested_token is not None and requested_token not in inspection.candidate_tokens and inspection.candidate_tokens:
+        if len(inspection.candidate_tokens) == 1:
+            resolved_token = normalize_address(inspection.candidate_tokens[0])
+            return AuctionSettlementDecision(
+                status="error",
+                operation_type=None,
+                token_address=resolved_token,
+                reason=(
+                    f"requested token {to_checksum_address(requested_token)} does not match "
+                    f"resolved token {to_checksum_address(resolved_token)}"
+                ),
+            )
+        return AuctionSettlementDecision(
+            status="error",
+            operation_type=None,
+            token_address=None,
+            reason=f"requested token {to_checksum_address(requested_token)} is not a candidate token for this auction",
+        )
+
     if inspection.selected_token is None:
         if len(inspection.candidate_tokens) > 1:
             return AuctionSettlementDecision(
@@ -206,13 +226,13 @@ def decide_auction_settlement(
     balance_raw = inspection.selected_token_balance_raw or 0
     kicked_at = inspection.selected_token_kicked_at or 0
 
-    if token_address is not None and normalize_address(token_address) != normalized_token:
+    if requested_token is not None and requested_token != normalized_token:
         return AuctionSettlementDecision(
             status="error",
             operation_type=None,
             token_address=normalized_token,
             reason=(
-                f"requested token {to_checksum_address(normalize_address(token_address))} does not match "
+                f"requested token {to_checksum_address(requested_token)} does not match "
                 f"resolved token {to_checksum_address(normalized_token)}"
             ),
         )

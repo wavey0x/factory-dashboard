@@ -89,6 +89,30 @@ def test_decide_auction_settlement_multiple_candidates_requires_token() -> None:
     assert decision.reason == "multiple candidate tokens detected for auction; pass --token"
 
 
+def test_decide_auction_settlement_requested_token_mismatch_is_error() -> None:
+    decision = decide_auction_settlement(
+        _make_inspection(
+            is_active_auction=False,
+            active_tokens=(),
+            active_token=None,
+            candidate_tokens=("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",),
+            selected_token="0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            selected_token_active=False,
+            selected_token_balance_raw=0,
+            selected_token_kicked_at=0,
+        ),
+        token_address="0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    )
+
+    assert decision.status == "error"
+    assert decision.token_address == "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    assert (
+        decision.reason
+        == "requested token 0xbBbBBBBbbBBBbbbBbbBbbbbBBbBbbbbBbBbbBBbB does not match "
+        "resolved token 0xaAaAaAaaAaAaAaaAaAAAAAAAAaaaAaAaAaaAaaAa"
+    )
+
+
 def test_decide_auction_settlement_active_sold_out_selects_resolver() -> None:
     decision = decide_auction_settlement(_make_inspection(selected_token_balance_raw=0))
 

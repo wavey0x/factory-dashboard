@@ -180,6 +180,7 @@ contract AuctionKicker {
         view
     {
         require(startingPrice != 0, "starting price zero");
+        require(IAuction(auction).governance() == tradeHandler, "governance mismatch");
         require(IAuction(auction).want() == wantToken, "want mismatch");
         require(sellToken != wantToken, "sell token is want");
         require(IAuction(auction).receiver() == source, "receiver mismatch");
