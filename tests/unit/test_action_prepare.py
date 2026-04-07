@@ -1,4 +1,3 @@
-from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -12,8 +11,9 @@ from tidal.api.services.action_prepare import (
     prepare_kick_action,
 )
 from tidal.ops.auction_enable import AuctionInspection, SourceResolution, TokenDiscovery, TokenProbe
+from tidal.auction_settlement import AuctionSettlementInspection
 from tidal.transaction_service.planner import KickPlanner
-from tidal.transaction_service.types import KickCandidate, PreparedKick, TxIntent
+from tidal.transaction_service.types import KickCandidate, KickPlan, PreparedKick, PreparedResolveAuction, TxIntent
 
 
 class _FailingWeb3Client:
@@ -38,6 +38,9 @@ def _kick_settings() -> SimpleNamespace:
         txn_max_gas_limit=500000,
         auction_kicker_address="0x5555555555555555555555555555555555555555",
         chain_id=1,
+        multicall_address="0x6666666666666666666666666666666666666666",
+        multicall_enabled=True,
+        multicall_auction_batch_calls=100,
     )
 
 
@@ -47,25 +50,20 @@ class _FakeKickDeps:
         *,
         candidate: KickCandidate,
         prepared: PreparedKick,
-        recovered: PreparedKick | None = None,
         single_data: str = "0xdeadbeef",
         batch_data: str = "0xdeadbeef",
-        extended_data: str = "0xfeedface",
     ) -> None:
         inspection_key = (candidate.auction_address, candidate.token_address)
         self.inspect_candidates = AsyncMock(return_value={inspection_key: None})
         self.prepare_kick = AsyncMock(return_value=prepared)
-        self.plan_recovery = AsyncMock(return_value=recovered)
         self.single_data = single_data
         self.batch_data = batch_data
-        self.extended_data = extended_data
 
     def build_single_kick_intent(self, prepared_kick: PreparedKick, *, sender: str | None) -> TxIntent:
-        data = self.extended_data if prepared_kick.recovery_plan is not None else self.single_data
         return TxIntent(
             operation="kick",
             to="0x5555555555555555555555555555555555555555",
-            data=data,
+            data=self.single_data,
             value="0x0",
             chain_id=1,
             sender=sender,
@@ -95,9 +93,20 @@ def _build_kick_planner(
         preparer=deps,
         tx_builder=deps,
         kick_tx_repository=object(),  # type: ignore[arg-type]
+        web3_client=object(),
         shortlist_builder=lambda *args, **kwargs: shortlist,
         candidate_sorter=lambda candidates: list(candidates),
         estimate_transaction_fn=estimate_transaction_fn,
+    )
+
+
+def _clean_auction_inspection(auction_address: str) -> AuctionSettlementInspection:
+    return AuctionSettlementInspection(
+        auction_address=auction_address,
+        is_active_auction=False,
+        enabled_tokens=(),
+        requested_token=None,
+        lot_previews=(),
     )
 
 
@@ -151,7 +160,6 @@ async def test_prepare_kick_action_threads_curve_quote_override(monkeypatch) -> 
         min_price_buffer_bps=50,
         step_decay_rate_bps=50,
         pricing_profile_name="stable",
-        settle_token=None,
     )
 
     shortlist = SimpleNamespace(
@@ -163,6 +171,10 @@ async def test_prepare_kick_action_threads_curve_quote_override(monkeypatch) -> 
         limited_candidates=[],
     )
     deps = _FakeKickDeps(candidate=candidate, prepared=prepared)
+    monkeypatch.setattr(
+        "tidal.transaction_service.planner.inspect_auction_settlements",
+        AsyncMock(return_value={candidate.auction_address: _clean_auction_inspection(candidate.auction_address)}),
+    )
 
     captured: dict[str, object] = {}
 
@@ -236,7 +248,6 @@ async def test_prepare_kick_action_skips_unsendable_batch_kick_when_gas_estimate
         min_price_buffer_bps=500,
         step_decay_rate_bps=25,
         pricing_profile_name="volatile",
-        settle_token=None,
     )
 
     shortlist = SimpleNamespace(
@@ -250,6 +261,10 @@ async def test_prepare_kick_action_skips_unsendable_batch_kick_when_gas_estimate
     deps = _FakeKickDeps(candidate=candidate, prepared=prepared)
     estimate_mock = AsyncMock(
         return_value=(None, None, "Gas estimate failed: call to 0x3333…3333 failed: active auction")
+    )
+    monkeypatch.setattr(
+        "tidal.transaction_service.planner.inspect_auction_settlements",
+        AsyncMock(return_value={candidate.auction_address: _clean_auction_inspection(candidate.auction_address)}),
     )
 
     monkeypatch.setattr(
@@ -422,7 +437,7 @@ async def test_prepare_enable_tokens_action_returns_error_on_governance_mismatch
 
 
 @pytest.mark.asyncio
-async def test_prepare_kick_action_falls_back_to_extended_kick_for_active_auction(monkeypatch) -> None:
+async def test_prepare_kick_action_threads_resolve_operations_from_planner(monkeypatch) -> None:
     candidate = KickCandidate(
         source_type="fee_burner",
         source_address="0x1111111111111111111111111111111111111111",
@@ -437,70 +452,46 @@ async def test_prepare_kick_action_falls_back_to_extended_kick_for_active_auctio
         token_symbol="CRV",
         want_symbol="crvUSD",
     )
-    prepared = PreparedKick(
+    resolve_operation = PreparedResolveAuction(
         candidate=candidate,
-        sell_amount=10**21,
-        starting_price_unscaled=1100,
-        minimum_price_scaled_1e18=950_000_000_000_000_000,
-        minimum_quote_unscaled=950,
-        sell_amount_str="1000",
-        starting_price_unscaled_str="1100",
-        minimum_price_scaled_1e18_str="950000000000000000",
-        minimum_quote_unscaled_str="950",
-        usd_value_str="1000",
-        live_balance_raw=10**21,
+        sell_token="0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        path=5,
+        reason="inactive kicked lot with stranded inventory",
+        balance_raw=10**18,
+        requires_force=False,
+        receiver="0x5555555555555555555555555555555555555555",
+        token_symbol="CRV",
         normalized_balance="1000",
-        quote_amount_str="1000",
-        start_price_buffer_bps=1000,
-        min_price_buffer_bps=500,
-        step_decay_rate_bps=25,
-        pricing_profile_name="volatile",
-        settle_token=None,
     )
-    recovered = replace(
-        prepared,
-        recovery_plan=SimpleNamespace(
-            is_empty=False,
-            settle_after_start=("0x5555555555555555555555555555555555555555",),
-            settle_after_min=(),
-            settle_after_decay=(),
-        ),
-    )
-
-    shortlist = SimpleNamespace(
-        selected_candidates=[candidate],
-        eligible_candidates=[candidate],
-        ignored_skips=[],
-        cooldown_skips=[],
-        deferred_same_auction_count=0,
-        limited_candidates=[],
-    )
-    deps = _FakeKickDeps(
-        candidate=candidate,
-        prepared=prepared,
-        recovered=recovered,
-        single_data="0xdeadbeef",
-        batch_data="0xdeadbeef",
-        extended_data="0xfeedface",
+    plan = KickPlan(
+        source_type="fee_burner",
+        source_address=candidate.source_address,
+        auction_address=candidate.auction_address,
+        token_address=None,
+        limit=1,
+        eligible_count=1,
+        selected_count=1,
+        ready_count=1,
+        ranked_candidates=[candidate],
+        resolve_operations=[resolve_operation],
+        tx_intents=[
+            TxIntent(
+                operation="resolve-auction",
+                to="0x5555555555555555555555555555555555555555",
+                data="0xfeedface",
+                value="0x0",
+                chain_id=1,
+                sender="0x6666666666666666666666666666666666666666",
+                gas_estimate=210000,
+                gas_limit=252000,
+            )
+        ],
     )
 
     monkeypatch.setattr(
         "tidal.api.services.action_prepare.build_txn_service",
-        lambda settings, session, **kwargs: SimpleNamespace(
-            planner=_build_kick_planner(
-                shortlist=shortlist,
-                deps=deps,
-                estimate_transaction_fn=estimate_mock,
-            )
-        ),
+        lambda settings, session, **kwargs: SimpleNamespace(planner=SimpleNamespace(plan=AsyncMock(return_value=plan))),
     )
-    estimate_mock = AsyncMock(
-        side_effect=[
-            (None, None, "Gas estimate failed: call to 0x3333…3333 failed: active auction"),
-            (210000, 252000, None),
-        ]
-    )
-    monkeypatch.setattr("tidal.api.services.action_prepare._estimate_transaction", estimate_mock)
     monkeypatch.setattr("tidal.api.services.action_prepare.create_prepared_action", lambda *args, **kwargs: "action-1")
 
     status, warnings, data = await prepare_kick_action(
@@ -519,11 +510,8 @@ async def test_prepare_kick_action_falls_back_to_extended_kick_for_active_auctio
     assert status == "ok"
     assert warnings == []
     assert data["transactions"][0]["data"] == "0xfeedface"
-    assert data["preview"]["preparedOperations"][0]["recoveryPlan"] == {
-        "settleAfterStart": ["0x5555555555555555555555555555555555555555"],
-        "settleAfterMin": [],
-        "settleAfterDecay": [],
-    }
+    assert data["preview"]["preparedOperations"][0]["operation"] == "resolve-auction"
+    assert data["preview"]["preparedOperations"][0]["reason"] == "inactive kicked lot with stranded inventory"
 
 
 @pytest.mark.asyncio

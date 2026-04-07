@@ -110,6 +110,6 @@ async def post_settle_prepare(
         auction_address=auction,
         sender=payload.sender,
         token_address=payload.token_address,
-        sweep=payload.sweep,
+        force=payload.force,
     )
     return {"status": status, "warnings": redact_sensitive_data(warnings), "data": redact_sensitive_data(data)}

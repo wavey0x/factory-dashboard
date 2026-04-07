@@ -122,17 +122,16 @@ class _NoopSettleClient:
                 "preview": {
                     "decision": {
                         "status": "noop",
-                        "operation_type": None,
-                        "token_address": "0xd533a949740bb3306d119cc777fa900ba034cd52",
-                        "reason": "auction still active with sell balance",
+                        "operations": [],
+                        "reason": "auction is progressing normally",
                     },
                     "inspection": {
                         "auction_address": auction_address,
                         "is_active_auction": True,
-                        "active_token": "0xd533a949740bb3306d119cc777fa900ba034cd52",
-                        "active_tokens": ["0xd533a949740bb3306d119cc777fa900ba034cd52"],
-                        "active_available_raw": 984634876557164,
+                        "enabled_tokens": ["0xd533a949740bb3306d119cc777fa900ba034cd52"],
                     },
+                    "requestedForce": False,
+                    "preparedOperations": [],
                 },
                 "transactions": [],
             },
@@ -157,19 +156,37 @@ class _PreparedResolveSettleClient:
                 "preview": {
                     "decision": {
                         "status": "actionable",
-                        "operation_type": "resolve_auction",
-                        "token_address": "0x1cfa5641c01406ab8ac350ded7d735ec41298372",
-                        "reason": "inactive kicked lot has stranded sell balance",
+                        "operations": [
+                            {
+                                "operation_type": "resolve_auction",
+                                "token_address": "0x1cfa5641c01406ab8ac350ded7d735ec41298372",
+                                "path": 5,
+                                "reason": "inactive kicked lot with stranded inventory",
+                                "balance_raw": 117240663299393522411314,
+                                "requires_force": False,
+                                "receiver": "0x3333333333333333333333333333333333333333",
+                            }
+                        ],
+                        "reason": "inactive kicked lot with stranded inventory",
                     },
                     "inspection": {
                         "auction_address": auction_address,
                         "is_active_auction": False,
-                        "active_token": None,
-                        "active_tokens": [],
-                        "inactive_token": "0x1cfa5641c01406ab8ac350ded7d735ec41298372",
-                        "inactive_token_balance_raw": 117240663299393522411314,
-                        "inactive_token_kicked_at": 1775330567,
+                        "enabled_tokens": ["0x1cfa5641c01406ab8ac350ded7d735ec41298372"],
                     },
+                    "requestedForce": False,
+                    "preparedOperations": [
+                        {
+                            "operation": "resolve-auction",
+                            "auctionAddress": auction_address,
+                            "tokenAddress": "0x1cfa5641c01406ab8ac350ded7d735ec41298372",
+                            "reason": "inactive kicked lot with stranded inventory",
+                            "path": 5,
+                            "requiresForce": False,
+                            "balanceRaw": "117240663299393522411314",
+                            "receiver": "0x3333333333333333333333333333333333333333",
+                        }
+                    ],
                 },
                 "transactions": [
                     {
@@ -393,14 +410,10 @@ def test_operator_auction_settle_noop_shows_reason_and_price_state(tmp_path, mon
     assert result.exit_code == 2
     assert "No Transaction Prepared" in result.output
     assert "No transaction was prepared." in result.output
-    assert "Reason:        auction still active with sell balance" in result.output
-    assert "Settlement state" in result.output
-    assert "Active token:" in result.output
-    assert "0xd533a949740bb3306d119cc777fa900ba034cd52" in result.output
-    assert "Available:     984634876557164" in result.output
+    assert "Reason:        auction is progressing normally" in result.output
 
 
-def test_operator_auction_settle_sweep_threads_payload(tmp_path, monkeypatch) -> None:
+def test_operator_auction_settle_force_threads_payload(tmp_path, monkeypatch) -> None:
     config_path = _write_config(tmp_path)
     client = _NoopSettleClient()
 
@@ -427,7 +440,9 @@ def test_operator_auction_settle_sweep_threads_payload(tmp_path, monkeypatch) ->
             "auction",
             "settle",
             "0xeb3746f59befef1f5834239fb65a2a4d88fdb251",
-            "--sweep",
+            "--token",
+            "0xd533a949740bb3306d119cc777fa900ba034cd52",
+            "--force",
             "--config",
             str(config_path),
         ],
@@ -439,8 +454,8 @@ def test_operator_auction_settle_sweep_threads_payload(tmp_path, monkeypatch) ->
             "0xeb3746f59befef1f5834239fb65a2a4d88fdb251",
             {
                 "sender": None,
-                "tokenAddress": None,
-                "sweep": True,
+                "tokenAddress": "0xd533a949740bb3306d119cc777fa900ba034cd52",
+                "force": True,
             },
         )
     ]
@@ -480,9 +495,9 @@ def test_operator_auction_settle_preview_renders_inactive_balance_state(tmp_path
 
     assert result.exit_code == 2
     assert "Prepared action" in result.output
-    assert "Operation:   resolve-auction" in result.output
-    assert "inactive kicked lot has stranded sell balance" in result.output
-    assert "Token:" in result.output
+    assert "Operations:  1" in result.output
+    assert "inactive kicked lot with stranded inventory" in result.output
+    assert "1. Token:" in result.output
     assert "Send this transaction?" not in result.output
 
 

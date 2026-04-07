@@ -18,6 +18,16 @@ _GAS_ESTIMATE_BUFFER = 1.2
 _DEFAULT_PRIORITY_FEE_GWEI = 0.1
 _DEFAULT_STEP_DECAY_RATE_BPS = 50
 
+
+async def resolve_priority_fee_wei(web3_client, max_priority_fee_gwei: int | float) -> int:
+    cap_wei = max_priority_fee_gwei * 10**9
+    try:
+        suggested_wei = await web3_client.get_max_priority_fee()
+    except Exception:  # noqa: BLE001
+        fallback_wei = int(_DEFAULT_PRIORITY_FEE_GWEI * 10**9)
+        return min(fallback_wei, cap_wei)
+    return min(suggested_wei, cap_wei)
+
 _ERROR_STRING_SELECTOR = keccak(text="Error(string)")[:4]
 _PANIC_SELECTOR = keccak(text="Panic(uint256)")[:4]
 _EXECUTION_FAILED_SELECTOR = keccak(text="ExecutionFailed(uint256,address,string)")[:4]

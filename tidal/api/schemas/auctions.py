@@ -27,6 +27,6 @@ class AuctionEnableTokensPrepareRequest(BaseModel):
 class AuctionSettlePrepareRequest(BaseModel):
     sender: str | None = None
     token_address: str | None = Field(default=None, alias="tokenAddress")
-    sweep: bool = False
+    force: bool = False
 
     model_config = {"populate_by_name": True}

@@ -149,7 +149,6 @@ def _make_prepared_kick(candidate: KickCandidate) -> PreparedKick:
         min_price_buffer_bps=500,
         step_decay_rate_bps=50,
         pricing_profile_name="volatile",
-        settle_token=None,
     )
 
 
@@ -167,8 +166,8 @@ def _build_txn_service(session, *, preparer=None, executor=None, planner=None, l
         executor = MagicMock()
     if not isinstance(getattr(preparer, "inspect_candidates", None), AsyncMock):
         preparer.inspect_candidates = AsyncMock(return_value={})
-    if not isinstance(getattr(executor, "execute_sweep_and_settle", None), AsyncMock):
-        executor.execute_sweep_and_settle = AsyncMock()
+    if not isinstance(getattr(executor, "execute_resolve_auction", None), AsyncMock):
+        executor.execute_resolve_auction = AsyncMock()
 
     if lock_path is None:
         lock_path = Path(f"/tmp/test_txn_daemon_{uuid.uuid4().hex}.lock")
@@ -443,7 +442,7 @@ async def test_live_planner_prepare_error_counts_as_failure_and_persists(session
     result = await service.run_once(live=True)
 
     assert result.status == "FAILED"
-    assert result.kicks_attempted == 1
+    assert result.kicks_attempted == 0
     assert result.kicks_failed == 1
     executor.record_prepare_failure.assert_called_once()
     rows = session.execute(select(models.kick_txs)).mappings().all()

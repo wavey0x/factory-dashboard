@@ -139,10 +139,6 @@ def build_scanner_service(settings: Settings, session, *, auto_settle: bool = Fa
         )
         auction_settler = AuctionSettlementService(
             web3_client=web3_client,
-            multicall_client=multicall_client,
-            multicall_enabled=settings.multicall_enabled,
-            multicall_auction_batch_calls=settings.multicall_auction_batch_calls,
-            erc20_reader=erc20_reader,
             signer=signer,
             kick_tx_repository=kick_tx_repository,
             token_metadata_service=token_metadata_service,
@@ -150,6 +146,7 @@ def build_scanner_service(settings: Settings, session, *, auto_settle: bool = Fa
             max_priority_fee_gwei=settings.txn_max_priority_fee_gwei,
             max_gas_limit=settings.txn_max_gas_limit,
             chain_id=settings.chain_id,
+            settings=settings,
         )
 
     return ScannerService(

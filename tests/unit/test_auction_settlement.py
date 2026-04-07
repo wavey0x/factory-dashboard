@@ -2,208 +2,107 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from tidal.auction_settlement import (
+    AuctionLotPreview,
     AuctionSettlementDecision,
-    build_auction_settlement_call,
+    AuctionSettlementInspection,
+    AuctionSettlementOperation,
+    build_auction_settlement_calls,
     decide_auction_settlement,
-    normalize_settlement_method,
 )
-from tidal.transaction_service.types import AuctionInspection
 
 
-def _make_inspection(**overrides) -> AuctionInspection:
-    defaults = {
-        "auction_address": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-        "is_active_auction": True,
-        "active_tokens": ("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",),
-        "active_token": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "candidate_tokens": ("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",),
-        "selected_token": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "selected_token_active": True,
-        "selected_token_balance_raw": 10**18,
-        "selected_token_kicked_at": 123,
-    }
-    defaults.update(overrides)
-    return AuctionInspection(**defaults)
+def _inspection(*previews: AuctionLotPreview, requested_token: str | None = None) -> AuctionSettlementInspection:
+    return AuctionSettlementInspection(
+        auction_address="0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        is_active_auction=True,
+        enabled_tokens=tuple(preview.token_address for preview in previews),
+        requested_token=requested_token,
+        lot_previews=previews,
+    )
 
 
-def test_normalize_settlement_method_accepts_dash_form() -> None:
-    assert normalize_settlement_method("sweep-and-settle") == "sweep_and_settle"
+def _preview(
+    *,
+    token: str = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    path: int = 0,
+    active: bool = False,
+    kicked_at: int = 0,
+    balance_raw: int = 0,
+    requires_force: bool = False,
+    read_ok: bool = True,
+    error_message: str | None = None,
+) -> AuctionLotPreview:
+    return AuctionLotPreview(
+        token_address=token,
+        path=path if read_ok else None,
+        active=active if read_ok else None,
+        kicked_at=kicked_at if read_ok else None,
+        balance_raw=balance_raw if read_ok else None,
+        requires_force=requires_force if read_ok else None,
+        receiver="0xcccccccccccccccccccccccccccccccccccccccc" if read_ok else None,
+        read_ok=read_ok,
+        error_message=error_message,
+    )
 
 
-def test_decide_auction_settlement_no_candidate_is_noop_in_auto_mode() -> None:
+def test_decide_auction_settlement_noops_on_live_funded_lot_by_default() -> None:
     decision = decide_auction_settlement(
-        _make_inspection(
-            is_active_auction=False,
-            active_tokens=(),
-            active_token=None,
-            candidate_tokens=(),
-            selected_token=None,
-            selected_token_active=None,
-            selected_token_balance_raw=None,
-            selected_token_kicked_at=None,
-        )
+        _inspection(_preview(path=3, active=True, balance_raw=10**18, requires_force=True))
     )
 
     assert decision.status == "noop"
-    assert decision.operation_type is None
-    assert decision.reason == "auction has nothing to resolve"
+    assert decision.operations == ()
+    assert decision.reason == "auction is progressing normally"
 
 
-def test_decide_auction_settlement_no_candidate_is_error_for_forced_method() -> None:
+def test_decide_auction_settlement_requires_force_for_targeted_live_lot() -> None:
+    token = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     decision = decide_auction_settlement(
-        _make_inspection(
-            is_active_auction=False,
-            active_tokens=(),
-            active_token=None,
-            candidate_tokens=(),
-            selected_token=None,
-            selected_token_active=None,
-            selected_token_balance_raw=None,
-            selected_token_kicked_at=None,
-        ),
-        method="settle",
+        _inspection(_preview(token=token, path=3, active=True, balance_raw=10**18, requires_force=True)),
+        token_address=token,
+        force=True,
     )
 
-    assert decision.status == "error"
-    assert decision.reason == "requested settlement method is not applicable: auction has nothing to resolve"
+    assert decision.status == "actionable"
+    assert len(decision.operations) == 1
+    assert decision.operations[0].token_address == token
+    assert decision.operations[0].requires_force is True
+    assert decision.reason == "live funded lot"
 
 
-def test_decide_auction_settlement_multiple_candidates_requires_token() -> None:
+def test_decide_auction_settlement_prepares_all_default_actionable_lots() -> None:
+    first = _preview(path=1, active=True, balance_raw=0)
+    second = _preview(
+        token="0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        path=5,
+        active=False,
+        kicked_at=123,
+        balance_raw=99,
+    )
+    decision = decide_auction_settlement(_inspection(first, second))
+
+    assert decision.status == "actionable"
+    assert [operation.path for operation in decision.operations] == [1, 5]
+    assert decision.reason == "prepared 2 resolvable lot(s)"
+
+
+def test_decide_auction_settlement_errors_on_failed_auction_wide_preview() -> None:
     decision = decide_auction_settlement(
-        _make_inspection(
-            is_active_auction=False,
-            active_tokens=(),
-            active_token=None,
-            candidate_tokens=(
-                "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        _inspection(
+            _preview(path=1, active=True, balance_raw=0),
+            _preview(
+                token="0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                read_ok=False,
+                error_message="multicall preview failed",
             ),
-            selected_token=None,
-            selected_token_active=None,
-            selected_token_balance_raw=None,
-            selected_token_kicked_at=None,
         )
     )
 
     assert decision.status == "error"
-    assert decision.reason == "multiple candidate tokens detected for auction; pass --token"
+    assert decision.reason == "one or more enabled lot previews failed; retry or pass --token"
 
 
-def test_decide_auction_settlement_requested_token_mismatch_is_error() -> None:
-    decision = decide_auction_settlement(
-        _make_inspection(
-            is_active_auction=False,
-            active_tokens=(),
-            active_token=None,
-            candidate_tokens=("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",),
-            selected_token="0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            selected_token_active=False,
-            selected_token_balance_raw=0,
-            selected_token_kicked_at=0,
-        ),
-        token_address="0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-    )
-
-    assert decision.status == "error"
-    assert decision.token_address == "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    assert (
-        decision.reason
-        == "requested token 0xbBbBBBBbbBBBbbbBbbBbbbbBBbBbbbbBbBbbBBbB does not match "
-        "resolved token 0xaAaAaAaaAaAaAaaAaAAAAAAAAaaaAaAaAaaAaaAa"
-    )
-
-
-def test_decide_auction_settlement_active_sold_out_selects_resolver() -> None:
-    decision = decide_auction_settlement(_make_inspection(selected_token_balance_raw=0))
-
-    assert decision.status == "actionable"
-    assert decision.operation_type == "resolve_auction"
-    assert decision.token_address == "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    assert decision.reason == "active lot is sold out"
-
-
-def test_decide_auction_settlement_active_with_balance_is_noop_in_auto_mode() -> None:
-    decision = decide_auction_settlement(_make_inspection(selected_token_balance_raw=10**18))
-
-    assert decision.status == "noop"
-    assert decision.operation_type is None
-    assert decision.reason == "auction still active with sell balance"
-
-
-def test_decide_auction_settlement_active_with_balance_is_error_for_settle() -> None:
-    decision = decide_auction_settlement(
-        _make_inspection(selected_token_balance_raw=10**18),
-        method="settle",
-    )
-
-    assert decision.status == "error"
-    assert decision.reason == "settle is not applicable: active lot still has sell balance"
-
-
-def test_decide_auction_settlement_active_with_balance_forced_sweep_is_actionable() -> None:
-    decision = decide_auction_settlement(
-        _make_inspection(selected_token_balance_raw=10**18),
-        method="sweep_and_settle",
-        allow_above_floor=True,
-    )
-
-    assert decision.status == "actionable"
-    assert decision.operation_type == "resolve_auction"
-    assert decision.reason == "forced sweep requested while auction is still active with sell balance"
-
-
-def test_decide_auction_settlement_inactive_kicked_with_balance_selects_resolver() -> None:
-    decision = decide_auction_settlement(
-        _make_inspection(
-            is_active_auction=False,
-            active_tokens=(),
-            active_token=None,
-            selected_token_active=False,
-            selected_token_balance_raw=10**18,
-            selected_token_kicked_at=123,
-        )
-    )
-
-    assert decision.status == "actionable"
-    assert decision.operation_type == "resolve_auction"
-    assert decision.reason == "inactive kicked lot has stranded sell balance"
-
-
-def test_decide_auction_settlement_inactive_kicked_empty_selects_resolver() -> None:
-    decision = decide_auction_settlement(
-        _make_inspection(
-            is_active_auction=False,
-            active_tokens=(),
-            active_token=None,
-            selected_token_active=False,
-            selected_token_balance_raw=0,
-            selected_token_kicked_at=123,
-        )
-    )
-
-    assert decision.status == "actionable"
-    assert decision.operation_type == "resolve_auction"
-    assert decision.reason == "inactive kicked lot is stale and empty"
-
-
-def test_decide_auction_settlement_inactive_clean_with_balance_selects_resolver() -> None:
-    decision = decide_auction_settlement(
-        _make_inspection(
-            is_active_auction=False,
-            active_tokens=(),
-            active_token=None,
-            selected_token_active=False,
-            selected_token_balance_raw=10**18,
-            selected_token_kicked_at=0,
-        )
-    )
-
-    assert decision.status == "actionable"
-    assert decision.operation_type == "resolve_auction"
-    assert decision.reason == "inactive lot holds sell balance"
-
-
-def test_build_auction_settlement_call_targets_kicker_resolver() -> None:
+def test_build_auction_settlement_calls_targets_resolver_with_force_flag() -> None:
     mock_contract = MagicMock()
     mock_resolve = MagicMock()
     mock_resolve._encode_transaction_data.return_value = "0xfeedface"
@@ -212,18 +111,30 @@ def test_build_auction_settlement_call_targets_kicker_resolver() -> None:
     web3_client = MagicMock()
     web3_client.contract.return_value = mock_contract
 
-    call = build_auction_settlement_call(
+    decision = AuctionSettlementDecision(
+        status="actionable",
+        operations=(
+            AuctionSettlementOperation(
+                operation_type="resolve_auction",
+                token_address="0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                path=3,
+                reason="live funded lot",
+                balance_raw=10**18,
+                requires_force=True,
+                receiver="0xcccccccccccccccccccccccccccccccccccccccc",
+            ),
+        ),
+        reason="live funded lot",
+    )
+
+    calls = build_auction_settlement_calls(
         settings=SimpleNamespace(auction_kicker_address="0x9999999999999999999999999999999999999999"),
         web3_client=web3_client,
         auction_address="0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-        decision=AuctionSettlementDecision(
-            status="actionable",
-            operation_type="resolve_auction",
-            token_address="0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            reason="inactive kicked lot has stranded sell balance",
-        ),
+        decision=decision,
     )
 
-    assert call.operation_type == "resolve_auction"
-    assert call.target_address == "0x9999999999999999999999999999999999999999"
-    assert call.data == "0xfeedface"
+    assert len(calls) == 1
+    assert calls[0].force_live is True
+    assert calls[0].data == "0xfeedface"
+    mock_contract.functions.resolveAuction.assert_called_once()

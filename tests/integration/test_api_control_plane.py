@@ -300,14 +300,14 @@ def test_kick_prepare_route_threads_curve_quote_override(tmp_path: Path, monkeyp
     assert captured["require_curve_quote"] is False
 
 
-def test_auction_settle_prepare_route_threads_sweep_override(tmp_path: Path, monkeypatch) -> None:
+def test_auction_settle_prepare_route_threads_force_override(tmp_path: Path, monkeypatch) -> None:
     settings = _make_settings(tmp_path)
     _init_db(settings)
     captured: dict[str, object] = {}
 
     async def fake_prepare_settle_action(settings, session, **kwargs):  # noqa: ANN001, ANN003
         del settings, session
-        captured["sweep"] = kwargs.get("sweep")
+        captured["force"] = kwargs.get("force")
         return "noop", [], {"preview": {}, "transactions": []}
 
     monkeypatch.setattr("tidal.api.routes.auctions.prepare_settle_action", fake_prepare_settle_action)
@@ -318,12 +318,12 @@ def test_auction_settle_prepare_route_threads_sweep_override(tmp_path: Path, mon
         headers={"Authorization": f"Bearer {_TEST_API_KEY}"},
         json={
             "sender": "0x6000000000000000000000000000000000000006",
-            "sweep": True,
+            "force": True,
         },
     )
 
     assert response.status_code == 200
-    assert captured["sweep"] is True
+    assert captured["force"] is True
 
 
 def test_public_browser_deploy_prepare_route_is_unauthenticated(tmp_path: Path, monkeypatch) -> None:
@@ -726,7 +726,6 @@ def test_kick_action_broadcast_and_receipt_materialize_kick_logs(tmp_path: Path)
                         "bufferBps": 1000,
                         "minBufferBps": 500,
                         "stepDecayRateBps": 50,
-                        "settleToken": None,
                     }
                 ]
             },
@@ -801,32 +800,47 @@ def test_settle_action_broadcast_and_receipt_materialize_kick_logs(tmp_path: Pat
             operator_id="tester",
             action_type="settle",
             sender="0x6000000000000000000000000000000000000006",
-            request_payload={
-                "auctionAddress": "0x3000000000000000000000000000000000000003",
-                "sender": "0x6000000000000000000000000000000000000006",
-                "tokenAddress": "0x5000000000000000000000000000000000000005",
-                "sweep": True,
-            },
-            preview_payload={
-                "inspection": {
-                    "auction_address": "0x3000000000000000000000000000000000000003",
-                    "is_active_auction": True,
-                    "active_tokens": ["0x5000000000000000000000000000000000000005"],
-                    "active_token": "0x5000000000000000000000000000000000000005",
-                    "active_available_raw": 1000000000000000000,
-                    "selected_token": "0x5000000000000000000000000000000000000005",
-                    "selected_token_active": True,
-                    "selected_token_balance_raw": 1000000000000000000,
-                    "selected_token_kicked_at": 123,
+                request_payload={
+                    "auctionAddress": "0x3000000000000000000000000000000000000003",
+                    "sender": "0x6000000000000000000000000000000000000006",
+                    "tokenAddress": "0x5000000000000000000000000000000000000005",
+                    "force": True,
                 },
-                "decision": {
-                    "status": "actionable",
-                    "operation_type": "resolve_auction",
-                    "token_address": "0x5000000000000000000000000000000000000005",
-                    "reason": "forced sweep requested while auction is still active with sell balance",
+                preview_payload={
+                    "inspection": {
+                        "auction_address": "0x3000000000000000000000000000000000000003",
+                        "is_active_auction": True,
+                        "enabled_tokens": ["0x5000000000000000000000000000000000000005"],
+                    },
+                    "decision": {
+                        "status": "actionable",
+                        "operations": [
+                            {
+                                "operation_type": "resolve_auction",
+                                "token_address": "0x5000000000000000000000000000000000000005",
+                                "path": 3,
+                                "reason": "live funded lot",
+                                "balance_raw": 1000000000000000000,
+                                "requires_force": True,
+                                "receiver": "0x1000000000000000000000000000000000000001",
+                            }
+                        ],
+                        "reason": "live funded lot",
+                    },
+                    "requestedForce": True,
+                    "preparedOperations": [
+                        {
+                            "operation": "resolve-auction",
+                            "auctionAddress": "0x3000000000000000000000000000000000000003",
+                            "tokenAddress": "0x5000000000000000000000000000000000000005",
+                            "reason": "live funded lot",
+                            "path": 3,
+                            "requiresForce": True,
+                            "balanceRaw": "1000000000000000000",
+                            "receiver": "0x1000000000000000000000000000000000000001",
+                        }
+                    ],
                 },
-                "requestedSweep": True,
-            },
             transactions=[
                 {
                     "operation": "resolve-auction",
@@ -884,9 +898,7 @@ def test_settle_action_broadcast_and_receipt_materialize_kick_logs(tmp_path: Pat
     assert payload["data"]["kicks"][0]["tokenSymbol"] == "CRV"
     assert payload["data"]["kicks"][0]["wantSymbol"] == "USDC"
     assert payload["data"]["kicks"][0]["sourceName"] == "Test Strategy"
-    assert payload["data"]["kicks"][0]["stuckAbortReason"] == (
-        "forced sweep requested while auction is still active with sell balance"
-    )
+    assert payload["data"]["kicks"][0]["stuckAbortReason"] == "live funded lot"
 
 
 def test_kick_logs_endpoint_supports_pagination_and_search(tmp_path: Path) -> None:

@@ -3,8 +3,17 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+
 from eth_utils import to_checksum_address
+
+from tidal.auction_settlement import (
+    default_actionable_previews,
+    inspect_auction_settlements,
+    live_funded_previews,
+    path_reason,
+)
 from tidal.config import Settings
+from tidal.normalizers import to_decimal_string
 from tidal.persistence.repositories import KickTxRepository
 from tidal.transaction_service.evaluator import build_shortlist, sort_candidates
 from tidal.transaction_service.kick_shared import (
@@ -19,7 +28,7 @@ from tidal.transaction_service.types import (
     KickResult,
     KickStatus,
     PreparedKick,
-    PreparedSweepAndSettle,
+    PreparedResolveAuction,
     SkippedPreparedCandidate,
     SourceType,
     TxIntent,
@@ -147,10 +156,77 @@ class KickPlanner:
         if not candidates_to_prepare:
             return plan
 
-        inspections = await self.preparer.inspect_candidates(candidates_to_prepare)
+        auction_candidates: dict[str, list[KickCandidate]] = {}
+        for candidate in candidates_to_prepare:
+            auction_candidates.setdefault(_candidate_key(candidate)[0], []).append(candidate)
+
+        resolve_inspections = await inspect_auction_settlements(
+            self.web3_client,
+            self.settings,
+            sorted(auction_candidates),
+        )
+        clean_candidates: list[KickCandidate] = []
+        resolved_tokens: set[tuple[str, str]] = set()
+        for auction_key, auction_group in auction_candidates.items():
+            inspection = resolve_inspections[auction_key]
+            anchor_candidate = auction_group[0]
+            if inspection.preview_failures:
+                reason = "auction resolution preview failed"
+                for candidate in auction_group:
+                    plan.skipped_during_prepare.append(
+                        SkippedPreparedCandidate(candidate=candidate, reason=reason)
+                    )
+                continue
+
+            actionable_previews = default_actionable_previews(inspection)
+            if actionable_previews:
+                for preview in actionable_previews:
+                    token_key = (auction_key, preview.token_address)
+                    if token_key in resolved_tokens:
+                        continue
+                    resolved_tokens.add(token_key)
+                    normalized_balance = None
+                    token_symbol = None
+                    if preview.balance_raw is not None and preview.token_address == anchor_candidate.token_address:
+                        normalized_balance = to_decimal_string(preview.balance_raw, anchor_candidate.decimals)
+                        token_symbol = anchor_candidate.token_symbol
+                    prepared_operation = PreparedResolveAuction(
+                        candidate=anchor_candidate,
+                        sell_token=preview.token_address,
+                        path=int(preview.path or 0),
+                        reason=path_reason(int(preview.path or 0)),
+                        balance_raw=int(preview.balance_raw or 0),
+                        requires_force=bool(preview.requires_force),
+                        receiver=preview.receiver,
+                        token_symbol=token_symbol,
+                        normalized_balance=normalized_balance,
+                    )
+                    intent = self.tx_builder.build_resolve_auction_intent(prepared_operation, sender=sender)
+                    gas_warning = await self._estimate_intent(intent, gas_cap=self.settings.txn_max_gas_limit)
+                    if gas_warning:
+                        plan.warnings.append(gas_warning)
+                        continue
+                    plan.resolve_operations.append(prepared_operation)
+                    plan.tx_intents.append(intent)
+                for candidate in auction_group:
+                    plan.skipped_during_prepare.append(
+                        SkippedPreparedCandidate(candidate=candidate, reason="auction requires settlement before kick")
+                    )
+                continue
+
+            if live_funded_previews(inspection):
+                for candidate in auction_group:
+                    plan.skipped_during_prepare.append(
+                        SkippedPreparedCandidate(candidate=candidate, reason="auction still active with live sell balance")
+                    )
+                continue
+
+            clean_candidates.extend(auction_group)
+
+        inspections = await self.preparer.inspect_candidates(clean_candidates)
         prepared_kicks: list[PreparedKick] = []
 
-        for candidate in candidates_to_prepare:
+        for candidate in clean_candidates:
             result = await self.preparer.prepare_kick(
                 candidate,
                 run_id=run_id,
@@ -162,17 +238,10 @@ class KickPlanner:
                     SkippedPreparedCandidate(candidate=candidate, reason=reason, result=result)
                 )
                 continue
-            if isinstance(result, PreparedSweepAndSettle):
-                intent = self._build_sweep_and_settle_intent(result, sender=sender)
-                gas_warning = await self._estimate_intent(intent, gas_cap=self.settings.txn_max_gas_limit)
-                if gas_warning:
-                    plan.warnings.append(gas_warning)
-                plan.sweep_operations.append(result)
-                plan.tx_intents.append(intent)
-                continue
             prepared_kicks.append(result)
 
         if not prepared_kicks:
+            plan.ready_count = len(plan.resolve_operations)
             return plan
 
         if not batch:
@@ -185,6 +254,7 @@ class KickPlanner:
                 assert recovered_kick is not None and tx_intent is not None
                 plan.kick_operations.append(recovered_kick)
                 plan.tx_intents.append(tx_intent)
+            plan.ready_count = len(plan.resolve_operations) + len(plan.kick_operations)
             return plan
 
         if len(prepared_kicks) == 1:
@@ -192,10 +262,12 @@ class KickPlanner:
             if warning is not None:
                 plan.warnings.append(warning)
                 plan.skipped_during_prepare.append(_prepared_estimate_failure(prepared_kicks[0], warning))
+                plan.ready_count = len(plan.resolve_operations)
                 return plan
             assert prepared_kick is not None and tx_intent is not None
             plan.kick_operations.append(prepared_kick)
             plan.tx_intents.append(tx_intent)
+            plan.ready_count = len(plan.resolve_operations) + len(plan.kick_operations)
             return plan
 
         batch_intent = self._build_batch_kick_intent(prepared_kicks, sender=sender)
@@ -206,6 +278,7 @@ class KickPlanner:
         if batch_warning is None:
             plan.kick_operations.extend(prepared_kicks)
             plan.tx_intents.append(batch_intent)
+            plan.ready_count = len(plan.resolve_operations) + len(plan.kick_operations)
             return plan
 
         if not _is_active_auction_error(batch_warning):
@@ -214,6 +287,7 @@ class KickPlanner:
                 _prepared_estimate_failure(prepared, batch_warning)
                 for prepared in prepared_kicks
             )
+            plan.ready_count = len(plan.resolve_operations)
             return plan
 
         individual_warnings: list[str] = []
@@ -236,12 +310,14 @@ class KickPlanner:
                 _prepared_estimate_failure(prepared, batch_warning)
                 for prepared in prepared_kicks
             )
+            plan.ready_count = len(plan.resolve_operations)
             return plan
 
         plan.kick_operations.extend(successful_prepared)
         plan.tx_intents.extend(successful_intents)
         plan.warnings.extend(individual_warnings)
         plan.skipped_during_prepare.extend(individual_skips)
+        plan.ready_count = len(plan.resolve_operations) + len(plan.kick_operations)
         return plan
 
     async def _prepare_single_kick_intent(
@@ -254,33 +330,13 @@ class KickPlanner:
         gas_warning = await self._estimate_intent(standard_intent, gas_cap=self.settings.txn_max_gas_limit)
         if gas_warning is None:
             return prepared, standard_intent, None
-
-        if not _is_active_auction_error(gas_warning):
-            return None, None, gas_warning
-
-        recovered = await self.preparer.plan_recovery(prepared)
-        if recovered is None:
-            return None, None, gas_warning
-
-        extended_intent = self._build_single_kick_intent(recovered, sender=sender)
-        extended_warning = await self._estimate_intent(extended_intent, gas_cap=self.settings.txn_max_gas_limit)
-        if extended_warning is not None:
-            return None, None, extended_warning
-        return recovered, extended_intent, None
+        return None, None, gas_warning
 
     def _build_single_kick_intent(self, prepared: PreparedKick, *, sender: str | None) -> TxIntent:
         return self.tx_builder.build_single_kick_intent(prepared, sender=sender)
 
     def _build_batch_kick_intent(self, prepared_kicks: list[PreparedKick], *, sender: str | None) -> TxIntent:
         return self.tx_builder.build_batch_kick_intent(prepared_kicks, sender=sender)
-
-    def _build_sweep_and_settle_intent(
-        self,
-        prepared_operation: PreparedSweepAndSettle,
-        *,
-        sender: str | None,
-    ) -> TxIntent:
-        return self.tx_builder.build_sweep_and_settle_intent(prepared_operation, sender=sender)
 
     async def _estimate_intent(self, intent: TxIntent, *, gas_cap: int) -> str | None:
         if self.estimate_transaction_fn is not None:
@@ -314,3 +370,4 @@ class KickPlanner:
         intent.gas_estimate = gas_estimate
         intent.gas_limit = min(int(gas_estimate * _GAS_ESTIMATE_BUFFER), gas_cap)
         return None
+

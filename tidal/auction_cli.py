@@ -46,56 +46,19 @@ def _noop_status_lines(*, command_name: str, data: dict[str, object]) -> list[st
     if command_name != "auction.settle":
         return lines
 
-    inspection = preview.get("inspection")
-    if not isinstance(inspection, dict):
-        return lines
-
-    active_token = inspection.get("active_token")
-    active_available_raw = inspection.get("active_available_raw")
-    active_price_public_raw = inspection.get("active_price_public_raw")
-    minimum_price_public_raw = inspection.get("minimum_price_public_raw")
-    minimum_price_scaled_1e18 = inspection.get("minimum_price_scaled_1e18")
-    inactive_token = inspection.get("inactive_token")
-    inactive_token_balance_raw = inspection.get("inactive_token_balance_raw")
-    inactive_token_kickable_raw = inspection.get("inactive_token_kickable_raw")
-    inactive_token_kicked_at = inspection.get("inactive_token_kicked_at")
-    auction_length_seconds = inspection.get("auction_length_seconds")
-    if (
-        active_token is None
-        and active_available_raw is None
-        and active_price_public_raw is None
-        and minimum_price_public_raw is None
-        and minimum_price_scaled_1e18 is None
-        and inactive_token is None
-        and inactive_token_balance_raw is None
-        and inactive_token_kickable_raw is None
-        and inactive_token_kicked_at is None
-        and auction_length_seconds is None
-    ):
-        return lines
-
-    lines.append("")
-    lines.append("Settlement state")
-    if active_token is not None:
-        lines.append(f"  Active token:  {normalize_cli_address(str(active_token), param_hint='token')}")
-    if active_available_raw is not None:
-        lines.append(f"  Available:     {active_available_raw}")
-    if active_price_public_raw is not None:
-        lines.append(f"  Live price:    {active_price_public_raw}")
-    if minimum_price_public_raw is not None:
-        lines.append(f"  Floor price:   {minimum_price_public_raw}")
-    if minimum_price_scaled_1e18 is not None:
-        lines.append(f"  Min price:     {minimum_price_scaled_1e18} (scaled 1e18)")
-    if inactive_token is not None:
-        lines.append(f"  Inactive token:{normalize_cli_address(str(inactive_token), param_hint='token')}")
-    if inactive_token_balance_raw is not None:
-        lines.append(f"  Auction bal:   {inactive_token_balance_raw}")
-    if inactive_token_kickable_raw is not None:
-        lines.append(f"  Kickable:      {inactive_token_kickable_raw}")
-    if inactive_token_kicked_at is not None:
-        lines.append(f"  Kicked at:     {inactive_token_kicked_at}")
-    if auction_length_seconds is not None:
-        lines.append(f"  Auction len:   {auction_length_seconds}s")
+    prepared_operations = preview.get("preparedOperations")
+    if isinstance(prepared_operations, list) and prepared_operations:
+        lines.append("")
+        lines.append("Prepared operations")
+        for operation in prepared_operations:
+            if not isinstance(operation, dict):
+                continue
+            token = operation.get("tokenAddress")
+            reason = operation.get("reason")
+            if token is not None:
+                lines.append(f"  Token:        {normalize_cli_address(str(token), param_hint='token')}")
+            if reason:
+                lines.extend(format_settlement_reason_lines(str(reason), prefix="  Reason:      "))
     return lines
 
 
@@ -290,10 +253,10 @@ def settle(
     api_base_url: ApiBaseUrlOption = None,
     api_key: ApiKeyOption = None,
     no_confirmation: NoConfirmationOption = False,
-    token_address: str | None = typer.Option(None, "--token", help="Expected active token address."),
-    sweep: bool = typer.Option(
+    token_address: str | None = typer.Option(None, "--token", help="Restrict settlement to a specific sell token."),
+    force: bool = typer.Option(
         False,
-        "--sweep",
+        "--force",
         help="Allow resolving a live lot that still has sell balance.",
     ),
     keystore: KeystoreOption = None,
@@ -313,10 +276,12 @@ def settle(
         keystore_path=keystore,
         password_file=password_file,
     )
+    if force and not token_address:
+        raise typer.BadParameter("--force requires --token")
     payload = {
         "sender": exec_ctx.sender,
         "tokenAddress": normalize_cli_address(token_address, param_hint="--token") if token_address else None,
-        "sweep": sweep,
+        "force": force,
     }
     try:
         with cli_ctx.control_plane_client() as client:

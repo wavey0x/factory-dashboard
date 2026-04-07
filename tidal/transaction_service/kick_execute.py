@@ -9,12 +9,19 @@ import structlog
 from tidal.auction_price_units import format_buffer_pct
 from tidal.time import utcnow_iso
 from tidal.transaction_service.kick_shared import (
-    _DEFAULT_PRIORITY_FEE_GWEI,
     _GAS_ESTIMATE_BUFFER,
     _format_execution_error,
     _is_active_auction_error,
+    resolve_priority_fee_wei,
 )
-from tidal.transaction_service.types import KickCandidate, KickResult, KickStatus, PreparedKick, PreparedSweepAndSettle, TransactionExecutionReport
+from tidal.transaction_service.types import (
+    KickCandidate,
+    KickResult,
+    KickStatus,
+    PreparedKick,
+    PreparedResolveAuction,
+    TransactionExecutionReport,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -58,15 +65,6 @@ class KickExecutor:
             raise RuntimeError("Signer is required for live execution.")
         return self.signer
 
-    async def _resolve_priority_fee_wei(self) -> int:
-        cap_wei = self.max_priority_fee_gwei * 10**9
-        try:
-            suggested_wei = await self.web3_client.get_max_priority_fee()
-        except Exception:
-            fallback_wei = int(_DEFAULT_PRIORITY_FEE_GWEI * 10**9)
-            return min(fallback_wei, cap_wei)
-        return min(suggested_wei, cap_wei)
-
     def _insert_operation_tx(
         self,
         run_id: str,
@@ -89,7 +87,6 @@ class KickExecutor:
         start_price_buffer_bps: int | None = None,
         min_price_buffer_bps: int | None = None,
         step_decay_rate_bps: int | None = None,
-        settle_token: str | None = None,
         normalized_balance: str | None = None,
         stuck_abort_reason: str | None = None,
     ) -> int:
@@ -134,8 +131,6 @@ class KickExecutor:
             row["min_price_buffer_bps"] = min_price_buffer_bps
         if step_decay_rate_bps is not None:
             row["step_decay_rate_bps"] = step_decay_rate_bps
-        if settle_token is not None:
-            row["settle_token"] = settle_token
         if normalized_balance is not None:
             row["normalized_balance"] = normalized_balance
         if stuck_abort_reason is not None:
@@ -163,7 +158,6 @@ class KickExecutor:
         start_price_buffer_bps: int | None = None,
         min_price_buffer_bps: int | None = None,
         step_decay_rate_bps: int | None = None,
-        settle_token: str | None = None,
         normalized_balance: str | None = None,
         stuck_abort_reason: str | None = None,
     ) -> KickResult:
@@ -186,7 +180,6 @@ class KickExecutor:
             start_price_buffer_bps=start_price_buffer_bps,
             min_price_buffer_bps=min_price_buffer_bps,
             step_decay_rate_bps=step_decay_rate_bps,
-            settle_token=settle_token,
             normalized_balance=normalized_balance,
             stuck_abort_reason=stuck_abort_reason,
         )
@@ -256,8 +249,17 @@ class KickExecutor:
             "start_price_buffer_bps": prepared_kick.start_price_buffer_bps,
             "min_price_buffer_bps": prepared_kick.min_price_buffer_bps,
             "step_decay_rate_bps": prepared_kick.step_decay_rate_bps,
-            "settle_token": prepared_kick.settle_token,
             "normalized_balance": prepared_kick.normalized_balance,
+        }
+
+    @staticmethod
+    def _resolve_audit_kwargs(prepared_operation: PreparedResolveAuction) -> dict[str, object]:
+        return {
+            "token_address": prepared_operation.sell_token,
+            "token_symbol": prepared_operation.token_symbol,
+            "sell_amount": str(prepared_operation.balance_raw),
+            "normalized_balance": prepared_operation.normalized_balance,
+            "stuck_abort_reason": prepared_operation.reason,
         }
 
     def _fail_batch(
@@ -363,7 +365,7 @@ class KickExecutor:
                 error_message=f"gas estimate {gas_estimate} exceeds batch cap {batch_gas_cap}",
             )
 
-        priority_fee_wei = await self._resolve_priority_fee_wei()
+        priority_fee_wei = await resolve_priority_fee_wei(self.web3_client, self.max_priority_fee_gwei)
 
         if self.confirm_fn is not None:
             kick_summaries = []
@@ -408,7 +410,6 @@ class KickExecutor:
                         "min_buffer_bps": prepared_kick.min_price_buffer_bps,
                         "step_decay_rate_bps": prepared_kick.step_decay_rate_bps,
                         "pricing_profile_name": prepared_kick.pricing_profile_name,
-                        "settle_token": prepared_kick.settle_token,
                         "quote_amount": prepared_kick.quote_amount_str,
                     }
                 )
@@ -583,7 +584,7 @@ class KickExecutor:
         prepared_kicks: list[PreparedKick],
         run_id: str,
     ) -> list[KickResult]:
-        if len(prepared_kicks) == 1 or any(prepared_kick.recovery_plan is not None for prepared_kick in prepared_kicks):
+        if len(prepared_kicks) == 1:
             return [await self.execute_single(prepared_kick, run_id) for prepared_kick in prepared_kicks]
 
         signer = self._require_signer()
@@ -603,49 +604,18 @@ class KickExecutor:
         run_id: str,
     ) -> KickResult:
         signer = self._require_signer()
-        execution_kick = prepared_kick
-
-        if execution_kick.recovery_plan is None:
-            standard_intent = self.tx_builder.build_single_kick_intent(prepared_kick, sender=signer.checksum_address)
-            _, estimate_error = await self._estimate_transaction_data(
-                tx_data=standard_intent.data,
-                to_address=standard_intent.to,
-                sender_address=signer.checksum_address,
-            )
-            if _is_active_auction_error(estimate_error):
-                recovered = await self.preparer.plan_recovery(prepared_kick) if self.preparer is not None else None
-                if recovered is not None:
-                    execution_kick = recovered
-                else:
-                    return self._fail(
-                        run_id,
-                        prepared_kick.candidate,
-                        utcnow_iso(),
-                        status=KickStatus.ESTIMATE_FAILED,
-                        error_message=estimate_error or "active auction",
-                        **self._pk_audit_kwargs(prepared_kick),
-                    )
-
-        intent = self.tx_builder.build_single_kick_intent(execution_kick, sender=signer.checksum_address)
-        results = await self._execute_tx([execution_kick], intent.data, run_id)
+        intent = self.tx_builder.build_single_kick_intent(prepared_kick, sender=signer.checksum_address)
+        results = await self._execute_tx([prepared_kick], intent.data, run_id)
         return results[0]
 
-    async def execute_sweep_and_settle(
+    async def execute_resolve_auction(
         self,
-        prepared_operation: PreparedSweepAndSettle,
+        prepared_operation: PreparedResolveAuction,
         run_id: str,
     ) -> KickResult:
         now_iso = utcnow_iso()
         signer = self._require_signer()
-        op_kwargs = {
-            "token_address": prepared_operation.sell_token,
-            "token_symbol": prepared_operation.token_symbol,
-            "sell_amount": prepared_operation.sell_amount_str,
-            "minimum_price": prepared_operation.minimum_price_str,
-            "usd_value": prepared_operation.usd_value_str,
-            "normalized_balance": prepared_operation.normalized_balance,
-            "stuck_abort_reason": prepared_operation.stuck_abort_reason,
-        }
+        op_kwargs = self._resolve_audit_kwargs(prepared_operation)
 
         try:
             base_fee_wei = await self.web3_client.get_base_fee()
@@ -655,7 +625,7 @@ class KickExecutor:
                 run_id,
                 prepared_operation.candidate,
                 now_iso,
-                operation_type="sweep_and_settle",
+                operation_type="resolve_auction",
                 status=KickStatus.ERROR,
                 error_message=f"base fee check failed: {exc}",
                 **op_kwargs,
@@ -666,13 +636,13 @@ class KickExecutor:
                 run_id,
                 prepared_operation.candidate,
                 now_iso,
-                operation_type="sweep_and_settle",
+                operation_type="resolve_auction",
                 status=KickStatus.ERROR,
                 error_message=f"base fee {base_fee_gwei:.2f} gwei exceeds limit {self.max_base_fee_gwei}",
                 **op_kwargs,
             )
 
-        intent = self.tx_builder.build_sweep_and_settle_intent(prepared_operation, sender=signer.checksum_address)
+        intent = self.tx_builder.build_resolve_auction_intent(prepared_operation, sender=signer.checksum_address)
         try:
             gas_estimate = await self.web3_client.estimate_gas(
                 {
@@ -688,7 +658,7 @@ class KickExecutor:
                 run_id,
                 prepared_operation.candidate,
                 now_iso,
-                operation_type="sweep_and_settle",
+                operation_type="resolve_auction",
                 status=KickStatus.ESTIMATE_FAILED,
                 error_message=friendly_error,
                 **op_kwargs,
@@ -699,14 +669,14 @@ class KickExecutor:
                 run_id,
                 prepared_operation.candidate,
                 now_iso,
-                operation_type="sweep_and_settle",
+                operation_type="resolve_auction",
                 status=KickStatus.ERROR,
                 error_message=f"gas estimate {gas_estimate} exceeds batch cap {self.max_gas_limit}",
                 **op_kwargs,
             )
 
         gas_limit = min(int(gas_estimate * _GAS_ESTIMATE_BUFFER), self.max_gas_limit)
-        priority_fee_wei = await self._resolve_priority_fee_wei()
+        priority_fee_wei = await resolve_priority_fee_wei(self.web3_client, self.max_priority_fee_gwei)
         nonce = await self.web3_client.get_transaction_count(signer.address)
         max_fee_wei = int((max(self.max_base_fee_gwei, base_fee_gwei) + self.max_priority_fee_gwei) * 10**9)
         full_tx = {
@@ -728,7 +698,7 @@ class KickExecutor:
                 run_id,
                 prepared_operation.candidate,
                 now_iso,
-                operation_type="sweep_and_settle",
+                operation_type="resolve_auction",
                 status=KickStatus.ERROR,
                 error_message=f"send failed: {exc}",
                 **op_kwargs,
@@ -738,7 +708,7 @@ class KickExecutor:
             run_id,
             prepared_operation.candidate,
             now_iso,
-            operation_type="sweep_and_settle",
+            operation_type="resolve_auction",
             status=KickStatus.SUBMITTED,
             tx_hash=tx_hash,
             **op_kwargs,
@@ -751,12 +721,10 @@ class KickExecutor:
                 kick_tx_id=kick_tx_id,
                 status=KickStatus.SUBMITTED,
                 tx_hash=tx_hash,
-                sell_amount=prepared_operation.sell_amount_str,
-                minimum_price=prepared_operation.minimum_price_str,
-                usd_value=prepared_operation.usd_value_str,
+                sell_amount=str(prepared_operation.balance_raw),
                 error_message=f"receipt timeout: {exc}",
                 execution_report=TransactionExecutionReport(
-                    operation="sweep-and-settle",
+                    operation="resolve-auction",
                     sender=signer.checksum_address,
                     tx_hash=tx_hash,
                     broadcast_at=now_iso,
@@ -787,11 +755,9 @@ class KickExecutor:
             gas_used=receipt_gas_used,
             gas_price_gwei=effective_gwei,
             block_number=receipt_block,
-            sell_amount=prepared_operation.sell_amount_str,
-            minimum_price=prepared_operation.minimum_price_str,
-            usd_value=prepared_operation.usd_value_str,
+            sell_amount=str(prepared_operation.balance_raw),
             execution_report=TransactionExecutionReport(
-                operation="sweep-and-settle",
+                operation="resolve-auction",
                 sender=signer.checksum_address,
                 tx_hash=tx_hash,
                 broadcast_at=now_iso,

@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
+import tidal.transaction_service.planner as planner_module
+from tidal.auction_settlement import AuctionLotPreview, AuctionSettlementInspection
 from tidal.transaction_service.planner import KickPlanner
-from tidal.transaction_service.types import KickCandidate, KickRecoveryPlan, KickStatus, PreparedKick, TxIntent
+from tidal.transaction_service.types import KickCandidate, KickStatus, PreparedKick, TxIntent
 
 
 def _settings() -> SimpleNamespace:
@@ -17,6 +18,9 @@ def _settings() -> SimpleNamespace:
         txn_max_gas_limit=500000,
         auction_kicker_address="0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         chain_id=1,
+        multicall_address="0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        multicall_enabled=True,
+        multicall_auction_batch_calls=100,
         kick_config=SimpleNamespace(ignore_policy=object(), cooldown_policy=object()),
     )
 
@@ -61,18 +65,11 @@ def _prepared(candidate: KickCandidate) -> PreparedKick:
 
 
 class _FakeKickDeps:
-    def __init__(
-        self,
-        *,
-        prepared_by_token: dict[str, PreparedKick],
-        recovered_by_token: dict[str, PreparedKick] | None = None,
-    ) -> None:
+    def __init__(self, *, prepared_by_token: dict[str, PreparedKick]) -> None:
         self.prepared_by_token = prepared_by_token
-        self.recovered_by_token = recovered_by_token or {}
         self.web3_client = object()
         self.inspect_candidates = AsyncMock(side_effect=self._inspect_candidates)
         self.prepare_kick = AsyncMock(side_effect=self._prepare_kick)
-        self.plan_recovery = AsyncMock(side_effect=self._plan_recovery)
 
     async def _inspect_candidates(self, candidates: list[KickCandidate]) -> dict[tuple[str, str], None]:
         return {(candidate.auction_address, candidate.token_address): None for candidate in candidates}
@@ -81,15 +78,11 @@ class _FakeKickDeps:
         del run_id, inspection
         return self.prepared_by_token[candidate.token_address]
 
-    async def _plan_recovery(self, prepared: PreparedKick) -> PreparedKick | None:
-        return self.recovered_by_token.get(prepared.candidate.token_address)
-
     def build_single_kick_intent(self, prepared: PreparedKick, *, sender: str | None) -> TxIntent:
-        prefix = "0x2" if prepared.recovery_plan is not None else "0x1"
         return TxIntent(
             operation="kick",
             to="0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            data=f"{prefix}{prepared.candidate.token_address[-1]}",
+            data=f"0x1{prepared.candidate.token_address[-1]}",
             value="0x0",
             chain_id=1,
             sender=sender,
@@ -106,11 +99,50 @@ class _FakeKickDeps:
             sender=sender,
         )
 
+    def build_resolve_auction_intent(self, prepared_operation, *, sender: str | None) -> TxIntent:  # noqa: ANN001
+        return TxIntent(
+            operation="resolve-auction",
+            to="0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            data=f"0x2{prepared_operation.sell_token[-1]}",
+            value="0x0",
+            chain_id=1,
+            sender=sender,
+        )
+
+
+def _inspection(*previews: AuctionLotPreview) -> AuctionSettlementInspection:
+    return AuctionSettlementInspection(
+        auction_address="0x3333333333333333333333333333333333333333",
+        is_active_auction=any(preview.active for preview in previews),
+        enabled_tokens=tuple(preview.token_address for preview in previews),
+        requested_token=None,
+        lot_previews=previews,
+    )
+
+
+def _preview(
+    *,
+    token: str,
+    path: int,
+    active: bool,
+    balance_raw: int,
+    requires_force: bool = False,
+) -> AuctionLotPreview:
+    return AuctionLotPreview(
+        token_address=token,
+        path=path,
+        active=active,
+        kicked_at=123 if path in {4, 5} else 0,
+        balance_raw=balance_raw,
+        requires_force=requires_force,
+        receiver="0x5555555555555555555555555555555555555555",
+        read_ok=True,
+    )
+
 
 @pytest.mark.asyncio
-async def test_kick_planner_uses_direct_web3_estimation_path() -> None:
+async def test_kick_planner_prepares_resolve_operations_for_dirty_auction(monkeypatch) -> None:
     candidate = _candidate(token_address="0x2222222222222222222222222222222222222222", usd_value=2500.0)
-    prepared = _prepared(candidate)
     shortlist = SimpleNamespace(
         selected_candidates=[candidate],
         eligible_candidates=[candidate],
@@ -119,8 +151,14 @@ async def test_kick_planner_uses_direct_web3_estimation_path() -> None:
         deferred_same_auction_count=0,
         limited_candidates=[],
     )
-    deps = _FakeKickDeps(prepared_by_token={candidate.token_address: prepared})
-    web3_client = SimpleNamespace(estimate_gas=AsyncMock(return_value=210000))
+    deps = _FakeKickDeps(prepared_by_token={candidate.token_address: _prepared(candidate)})
+    inspection = _inspection(_preview(token="0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", path=5, active=False, balance_raw=10**18))
+
+    monkeypatch.setattr(
+        planner_module,
+        "inspect_auction_settlements",
+        AsyncMock(return_value={candidate.auction_address: inspection}),
+    )
 
     planner = KickPlanner(
         session=object(),
@@ -128,43 +166,33 @@ async def test_kick_planner_uses_direct_web3_estimation_path() -> None:
         preparer=deps,
         tx_builder=deps,
         kick_tx_repository=object(),  # type: ignore[arg-type]
-        web3_client=web3_client,
+        web3_client=object(),
         shortlist_builder=lambda *args, **kwargs: shortlist,
         candidate_sorter=lambda candidates: list(candidates),
+        estimate_transaction_fn=AsyncMock(return_value=(210000, 252000, None)),
     )
 
     plan = await planner.plan(
         source_type="strategy",
         source_address=candidate.source_address,
         auction_address=candidate.auction_address,
-        token_address=candidate.token_address,
+        token_address=None,
         limit=1,
         sender="0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-        run_id="run-direct-web3",
+        run_id="run-dirty",
         batch=True,
     )
 
-    assert plan.status() == "ok"
-    assert len(plan.tx_intents) == 1
-    assert plan.tx_intents[0].gas_estimate == 210000
-    assert plan.tx_intents[0].gas_limit == 252000
-    web3_client.estimate_gas.assert_awaited_once()
-    estimate_tx = web3_client.estimate_gas.await_args.args[0]
-    assert estimate_tx["from"] == "0xbBbBBBBbbBBBbbbBbbBbbbbBBbBbbbbBbBbbBBbB"
-    assert estimate_tx["to"] == "0xaAaAaAaaAaAaAaaAaAAAAAAAAaaaAaAaAaaAaaAa"
-    assert estimate_tx["chainId"] == 1
+    assert plan.kick_operations == []
+    assert len(plan.resolve_operations) == 1
+    assert plan.resolve_operations[0].sell_token == "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    assert [intent.operation for intent in plan.tx_intents] == ["resolve-auction"]
+    assert plan.skipped_during_prepare[0].reason == "auction requires settlement before kick"
 
 
 @pytest.mark.asyncio
-async def test_kick_planner_recovers_single_candidate_after_active_auction_estimate_failure() -> None:
+async def test_kick_planner_skips_live_funded_auction_without_force(monkeypatch) -> None:
     candidate = _candidate(token_address="0x2222222222222222222222222222222222222222", usd_value=2500.0)
-    prepared = _prepared(candidate)
-    recovered = replace(
-        prepared,
-        recovery_plan=KickRecoveryPlan(
-            settle_after_start=("0x5555555555555555555555555555555555555555",),
-        ),
-    )
     shortlist = SimpleNamespace(
         selected_candidates=[candidate],
         eligible_candidates=[candidate],
@@ -173,17 +201,22 @@ async def test_kick_planner_recovers_single_candidate_after_active_auction_estim
         deferred_same_auction_count=0,
         limited_candidates=[],
     )
-    deps = _FakeKickDeps(
-        prepared_by_token={candidate.token_address: prepared},
-        recovered_by_token={candidate.token_address: recovered},
+    deps = _FakeKickDeps(prepared_by_token={candidate.token_address: _prepared(candidate)})
+    inspection = _inspection(
+        _preview(
+            token="0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            path=3,
+            active=True,
+            balance_raw=10**18,
+            requires_force=True,
+        )
     )
 
-    async def estimate_transaction_fn(web3_client, settings, *, sender, to_address, data, gas_cap):  # noqa: ANN001
-        del web3_client, settings, sender, to_address, gas_cap
-        if data == "0x12":
-            return None, None, "Gas estimate failed: call to 0x3333…3333 failed: active auction"
-        assert data == "0x22"
-        return 210000, 252000, None
+    monkeypatch.setattr(
+        planner_module,
+        "inspect_auction_settlements",
+        AsyncMock(return_value={candidate.auction_address: inspection}),
+    )
 
     planner = KickPlanner(
         session=object(),
@@ -191,39 +224,31 @@ async def test_kick_planner_recovers_single_candidate_after_active_auction_estim
         preparer=deps,
         tx_builder=deps,
         kick_tx_repository=object(),  # type: ignore[arg-type]
+        web3_client=object(),
         shortlist_builder=lambda *args, **kwargs: shortlist,
         candidate_sorter=lambda candidates: list(candidates),
-        estimate_transaction_fn=estimate_transaction_fn,
+        estimate_transaction_fn=AsyncMock(return_value=(210000, 252000, None)),
     )
 
     plan = await planner.plan(
         source_type="strategy",
         source_address=candidate.source_address,
         auction_address=candidate.auction_address,
-        token_address=candidate.token_address,
+        token_address=None,
         limit=1,
         sender="0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-        run_id="run-1",
+        run_id="run-live",
         batch=True,
     )
 
-    assert plan.warnings == []
-    assert plan.skipped_during_prepare == []
-    assert plan.status() == "ok"
-    assert plan.kick_operations == [recovered]
-    assert [intent.data for intent in plan.tx_intents] == ["0x22"]
-    assert plan.tx_intents[0].gas_estimate == 210000
-    assert plan.tx_intents[0].gas_limit == 252000
-    assert deps.plan_recovery.await_count == 1
-    assert plan.to_preview_payload()["preparedOperations"][0]["recoveryPlan"] == {
-        "settleAfterStart": ["0x5555555555555555555555555555555555555555"],
-        "settleAfterMin": [],
-        "settleAfterDecay": [],
-    }
+    assert plan.status() == "noop"
+    assert plan.resolve_operations == []
+    assert plan.kick_operations == []
+    assert plan.skipped_during_prepare[0].reason == "auction still active with live sell balance"
 
 
 @pytest.mark.asyncio
-async def test_kick_planner_falls_back_from_batch_to_individual_intents() -> None:
+async def test_kick_planner_falls_back_from_batch_to_individual_intents(monkeypatch) -> None:
     candidate_a = _candidate(token_address="0x1111111111111111111111111111111111111111", usd_value=3000.0)
     candidate_b = _candidate(token_address="0x2222222222222222222222222222222222222222", usd_value=2000.0)
     prepared_a = _prepared(candidate_a)
@@ -242,6 +267,13 @@ async def test_kick_planner_falls_back_from_batch_to_individual_intents() -> Non
             candidate_b.token_address: prepared_b,
         },
     )
+    clean_inspection = _inspection()
+    monkeypatch.setattr(
+        planner_module,
+        "inspect_auction_settlements",
+        AsyncMock(return_value={candidate_a.auction_address: clean_inspection}),
+    )
+
     estimate_calls: list[str] = []
 
     async def estimate_transaction_fn(web3_client, settings, *, sender, to_address, data, gas_cap):  # noqa: ANN001
@@ -272,19 +304,13 @@ async def test_kick_planner_falls_back_from_batch_to_individual_intents() -> Non
         token_address=None,
         limit=2,
         sender="0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-        run_id="run-2",
+        run_id="run-batch",
         batch=True,
     )
 
     assert estimate_calls == ["0x9", "0x11", "0x12"]
-    assert [candidate.token_address for candidate in plan.ranked_candidates] == [
-        candidate_a.token_address,
-        candidate_b.token_address,
-    ]
     assert [prepared.candidate.token_address for prepared in plan.kick_operations] == [candidate_a.token_address]
     assert [intent.data for intent in plan.tx_intents] == ["0x11"]
     assert plan.warnings == ["Gas estimate failed: call to 0x4444…4444 failed: not enabled"]
-    assert [skip.candidate.token_address for skip in plan.skipped_during_prepare] == [candidate_b.token_address]
-    assert plan.skipped_during_prepare[0].reason == "Gas estimate failed: call to 0x4444…4444 failed: not enabled"
     assert plan.skipped_during_prepare[0].result is not None
     assert plan.skipped_during_prepare[0].result.status == KickStatus.ESTIMATE_FAILED

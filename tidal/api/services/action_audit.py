@@ -281,7 +281,7 @@ def _sync_kick_log_rows(
     error_message: str | None = None,
 ) -> None:
     operation_type = _normalize_operation_type(tx_row.get("operation"))
-    if operation_type not in {"kick", "settle", "sweep_and_settle", "resolve_auction"}:
+    if operation_type not in {"kick", "settle", "resolve_auction"}:
         return
 
     tx_hash = tx_row.get("tx_hash")
@@ -352,15 +352,12 @@ def _prepared_log_operations(
     *,
     operation_type: str,
 ) -> list[dict[str, object]]:
-    if str(action_row.get("action_type") or "") == "kick":
-        return _prepared_kick_operations(session, action_row, operation_type=operation_type)
-    if str(action_row.get("action_type") or "") == "settle":
-        operation = _prepared_settlement_operation(session, action_row, operation_type=operation_type)
-        return [operation] if operation is not None else []
+    if str(action_row.get("action_type") or "") in {"kick", "settle"}:
+        return _prepared_preview_operations(session, action_row, operation_type=operation_type)
     return []
 
 
-def _prepared_kick_operations(
+def _prepared_preview_operations(
     session: Session,
     action_row: dict[str, object],
     *,
@@ -412,11 +409,7 @@ def _prepared_kick_operations(
                 "sell_amount": _str("sellAmount"),
                 "normalized_balance": _str("normalizedBalance") or _str("sellAmount"),
                 "starting_price": _str("startingPrice"),
-                "minimum_price": (
-                    _str("minimumPriceScaled1e18")
-                    if operation_type == "sweep_and_settle" and _str("minimumPriceScaled1e18") is not None
-                    else _str("minimumPrice")
-                ),
+                "minimum_price": _str("minimumPriceScaled1e18") or _str("minimumPrice"),
                 "minimum_quote": _str("minimumQuote"),
                 "usd_value": _str("usdValue"),
                 "quote_amount": _str("quoteAmount"),
@@ -424,94 +417,11 @@ def _prepared_kick_operations(
                 "start_price_buffer_bps": _int("bufferBps"),
                 "min_price_buffer_bps": _int("minBufferBps"),
                 "step_decay_rate_bps": _int("stepDecayRateBps"),
-                "settle_token": _optional_normalize_address(item.get("settleToken")),
+                "settle_token": None,
                 "stuck_abort_reason": _str("reason"),
             }
         )
     return items
-
-
-def _prepared_settlement_operation(
-    session: Session,
-    action_row: dict[str, object],
-    *,
-    operation_type: str,
-) -> dict[str, object] | None:
-    if operation_type not in {"settle", "sweep_and_settle", "resolve_auction"}:
-        return None
-
-    preview = _decode_json(action_row.get("preview_json"))
-    inspection = preview.get("inspection")
-    decision = preview.get("decision")
-    if not isinstance(inspection, dict) or not isinstance(decision, dict):
-        return None
-
-    decision_operation = _normalize_operation_type(
-        decision.get("operation_type") or decision.get("operationType")
-    )
-    if decision_operation is not None and decision_operation != operation_type:
-        return None
-
-    auction_address = (
-        _optional_normalize_address(action_row.get("auction_address"))
-        or _optional_normalize_address(inspection.get("auction_address"))
-    )
-    token_address = (
-        _optional_normalize_address(action_row.get("token_address"))
-        or _optional_normalize_address(decision.get("token_address") or decision.get("tokenAddress"))
-        or _optional_normalize_address(inspection.get("active_token") or inspection.get("activeToken"))
-    )
-    if auction_address is None or token_address is None:
-        return None
-
-    source_context = _resolve_source_context(session, auction_address)
-    return {
-        "source_type": source_context.get("source_type"),
-        "source_address": source_context.get("source_address"),
-        "auction_address": auction_address,
-        "token_address": token_address,
-        "token_symbol": None,
-        "want_address": (
-            _optional_normalize_address(inspection.get("want_address") or inspection.get("wantAddress"))
-            or source_context.get("want_address")
-        ),
-        "want_symbol": None,
-        "sell_amount": (
-            str(
-                inspection.get("selected_token_balance_raw")
-                if inspection.get("selected_token_balance_raw") is not None
-                else inspection.get("active_available_raw")
-                if inspection.get("active_available_raw") is not None
-                else inspection.get("inactive_token_balance_raw")
-            )
-            if (
-                inspection.get("selected_token_balance_raw") is not None
-                or inspection.get("active_available_raw") is not None
-                or inspection.get("inactive_token_balance_raw") is not None
-            )
-            else None
-        ),
-        "normalized_balance": None,
-        "starting_price": None,
-        "minimum_price": (
-            str(inspection.get("minimum_price_scaled_1e18"))
-            if inspection.get("minimum_price_scaled_1e18") is not None
-            else None
-        ),
-        "minimum_quote": (
-            str(inspection.get("minimum_price_public_raw"))
-            if inspection.get("minimum_price_public_raw") is not None
-            else None
-        ),
-        "usd_value": None,
-        "quote_amount": None,
-        "quote_response_json": None,
-        "start_price_buffer_bps": None,
-        "min_price_buffer_bps": None,
-        "step_decay_rate_bps": None,
-        "settle_token": None,
-        "stuck_abort_reason": str(decision.get("reason")) if decision.get("reason") is not None else None,
-    }
 
 
 def _resolve_source_context(session: Session, auction_address: str) -> dict[str, str]:

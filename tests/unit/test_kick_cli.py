@@ -201,7 +201,6 @@ class _BroadcastClient:
                             "minBufferBps": 50,
                             "pricingProfileName": "stable",
                             "stepDecayRateBps": 50,
-                            "settleToken": None,
                         }
                     ]
                 },

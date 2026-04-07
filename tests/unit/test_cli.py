@@ -370,24 +370,41 @@ def test_render_prepared_action_summary_for_settle(capsys):
             "preview": {
                 "inspection": {
                     "auction_address": "0x1111111111111111111111111111111111111111",
-                    "is_active_auction": True,
-                    "active_tokens": ["0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
-                    "active_token": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                    "active_available_raw": 0,
-                    "active_price_public_raw": 125,
-                    "minimum_price_scaled_1e18": 100,
-                    "minimum_price_public_raw": 100,
+                    "is_active_auction": False,
+                    "enabled_tokens": ["0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
                 },
                 "decision": {
                     "status": "actionable",
-                    "operation_type": "settle",
-                    "token_address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                    "reason": "active lot is sold out",
+                    "operations": [
+                        {
+                            "operation_type": "resolve_auction",
+                            "token_address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                            "path": 1,
+                            "reason": "active sold-out lot",
+                            "balance_raw": 0,
+                            "requires_force": False,
+                            "receiver": "0x2222222222222222222222222222222222222222",
+                        }
+                    ],
+                    "reason": "active sold-out lot",
                 },
+                "requestedForce": False,
+                "preparedOperations": [
+                    {
+                        "operation": "resolve-auction",
+                        "auctionAddress": "0x1111111111111111111111111111111111111111",
+                        "tokenAddress": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "reason": "active sold-out lot",
+                        "path": 1,
+                        "requiresForce": False,
+                        "balanceRaw": "0",
+                        "receiver": "0x2222222222222222222222222222222222222222",
+                    }
+                ],
             },
             "transactions": [
                 {
-                    "operation": "settle",
+                    "operation": "resolve-auction",
                     "to": "0x1111111111111111111111111111111111111111",
                     "sender": "0x9999999999999999999999999999999999999999",
                     "chainId": 1,
@@ -402,8 +419,8 @@ def test_render_prepared_action_summary_for_settle(capsys):
     output = capsys.readouterr().out
     assert "settle · 1 transaction" in output
     assert "Review details" in output
-    assert "Operation:   settle" in output
-    assert "Reason:      active lot is sold out" in output
+    assert "Operations:  1" in output
+    assert "Reason:      active sold-out lot" in output
     assert "Auction:" in output
 
 

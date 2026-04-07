@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from collections.abc import Callable
-from dataclasses import replace
 from decimal import Decimal
 from typing import Any
 
@@ -15,12 +13,10 @@ from tidal.auction_price_units import (
     compute_minimum_price_scaled_1e18,
     compute_minimum_quote_unscaled,
     compute_starting_price_unscaled,
-    scaled_price_to_public_raw,
 )
 from tidal.chain.contracts.erc20 import ERC20Reader
-from tidal.normalizers import normalize_address, to_decimal_string
+from tidal.normalizers import to_decimal_string
 from tidal.scanner.auction_state import AuctionStateReader
-from tidal.transaction_service.auction_recovery import plan_prepared_kick_recovery
 from tidal.transaction_service.kick_policy import PricingPolicy, TokenSizingPolicy
 from tidal.transaction_service.kick_shared import (
     _DEFAULT_STEP_DECAY_RATE_BPS,
@@ -31,7 +27,7 @@ from tidal.transaction_service.kick_shared import (
     _quote_metadata_resolves_to_want,
     _select_sell_size,
 )
-from tidal.transaction_service.types import AuctionInspection, KickCandidate, KickResult, KickStatus, PreparedKick, PreparedSweepAndSettle
+from tidal.transaction_service.types import AuctionInspection, KickCandidate, KickResult, KickStatus, PreparedKick
 
 logger = structlog.get_logger(__name__)
 
@@ -95,19 +91,6 @@ class KickPreparer:
             live_balance_raw=live_balance_raw,
         )
 
-    async def _plan_recovery(self, prepared_kick: PreparedKick) -> PreparedKick | None:
-        plan = await plan_prepared_kick_recovery(
-            prepared_kick=prepared_kick,
-            web3_client=self.web3_client,
-            erc20_reader=self._resolve_erc20_reader(),
-        )
-        if plan is None or plan.is_empty:
-            return None
-        return replace(prepared_kick, recovery_plan=plan)
-
-    async def plan_recovery(self, prepared_kick: PreparedKick) -> PreparedKick | None:
-        return await self._plan_recovery(prepared_kick)
-
     async def inspect_candidates(
         self,
         candidates: list[KickCandidate],
@@ -121,135 +104,14 @@ class KickPreparer:
         auction_addresses = sorted({auction_address for auction_address, _ in candidate_keys})
 
         active_flags = await reader.read_bool_noargs_many(auction_addresses, "isAnActiveAuction")
-        active_auctions = [auction_address for auction_address in auction_addresses if active_flags.get(auction_address) is True]
-
-        enabled_tokens = {}
-        if active_auctions:
-            enabled_tokens = await reader.read_address_array_noargs_many(active_auctions, "getAllEnabledAuctions")
-
-        tokens_to_probe_by_auction: dict[str, set[str]] = {auction_address: set() for auction_address in active_auctions}
         for auction_address, token_address in candidate_keys:
-            if active_flags.get(auction_address) is True:
-                tokens_to_probe_by_auction[auction_address].add(token_address)
-        for auction_address in active_auctions:
-            tokens_to_probe_by_auction[auction_address].update(enabled_tokens.get(auction_address, []))
-
-        probe_pairs = sorted(
-            (auction_address, token_address)
-            for auction_address, token_addresses in tokens_to_probe_by_auction.items()
-            for token_address in token_addresses
-        )
-
-        token_active = {}
-        if probe_pairs:
-            token_active = await reader.read_bool_arg_many(probe_pairs, "isActive")
-
-        active_tokens_by_auction: dict[str, tuple[str, ...]] = {}
-        active_pairs: list[tuple[str, str]] = []
-        for auction_address in active_auctions:
-            active_tokens = tuple(
-                sorted(
-                    token_address
-                    for token_address in tokens_to_probe_by_auction.get(auction_address, set())
-                    if token_active.get((auction_address, token_address)) is True
-                )
-            )
-            active_tokens_by_auction[auction_address] = active_tokens
-            active_pairs.extend((auction_address, token_address) for token_address in active_tokens)
-
-        available_by_pair = {}
-        price_by_pair = {}
-        minimum_price_by_auction = {}
-        want_by_auction = {}
-        if active_pairs:
-            available_by_pair, price_by_pair, minimum_price_by_auction, want_by_auction = await asyncio.gather(
-                reader.read_uint_arg_many(active_pairs, "available"),
-                reader.read_uint_arg_many(active_pairs, "price"),
-                reader.read_uint_noargs_many(active_auctions, "minimumPrice"),
-                reader.read_address_noargs_many(active_auctions, "want"),
-            )
-        elif active_auctions:
-            minimum_price_by_auction, want_by_auction = await asyncio.gather(
-                reader.read_uint_noargs_many(active_auctions, "minimumPrice"),
-                reader.read_address_noargs_many(active_auctions, "want"),
-            )
-
-        want_addresses = sorted({address for address in want_by_auction.values() if address})
-        want_decimals_by_address: dict[str, int | None] = {}
-        if want_addresses:
-            erc20_reader = self._resolve_erc20_reader()
-
-            async def _read_decimals(address: str) -> tuple[str, int | None]:
-                try:
-                    return address, await erc20_reader.read_decimals(address)
-                except Exception:
-                    return address, None
-
-            want_decimals_by_address = dict(await asyncio.gather(*(_read_decimals(address) for address in want_addresses)))
-
-        for auction_address, token_address in candidate_keys:
-            active_tokens = active_tokens_by_auction.get(auction_address, ())
-            active_token = active_tokens[0] if len(active_tokens) == 1 else None
-            want_address = want_by_auction.get(auction_address)
-            want_decimals = want_decimals_by_address.get(want_address) if want_address else None
-            minimum_price_scaled_1e18 = minimum_price_by_auction.get(auction_address)
             inspections[(auction_address, token_address)] = AuctionInspection(
                 auction_address=auction_address,
                 is_active_auction=active_flags.get(auction_address),
-                active_tokens=active_tokens,
-                active_token=active_token,
-                active_available_raw=available_by_pair.get((auction_address, active_token)) if active_token else None,
-                active_price_public_raw=price_by_pair.get((auction_address, active_token)) if active_token else None,
-                minimum_price_scaled_1e18=minimum_price_scaled_1e18,
-                minimum_price_public_raw=scaled_price_to_public_raw(minimum_price_scaled_1e18, want_decimals),
-                want_address=want_address,
-                want_decimals=want_decimals,
+                active_tokens=(),
             )
 
         return inspections
-
-    async def _prepare_sweep_and_settle(
-        self,
-        candidate: KickCandidate,
-        inspection: AuctionInspection,
-    ) -> PreparedSweepAndSettle:
-        sell_token = inspection.active_token or candidate.token_address
-        token_symbol = candidate.token_symbol if normalize_address(sell_token) == normalize_address(candidate.token_address) else None
-        sell_amount_str = str(inspection.active_available_raw) if inspection.active_available_raw is not None else None
-        minimum_price_scaled_1e18_str = (
-            str(inspection.minimum_price_scaled_1e18)
-            if inspection.minimum_price_scaled_1e18 is not None
-            else None
-        )
-        minimum_price_public_str = (
-            str(inspection.minimum_price_public_raw)
-            if inspection.minimum_price_public_raw is not None
-            else None
-        )
-        normalized_balance = None
-        usd_value_str = None
-
-        if (
-            inspection.active_available_raw is not None
-            and normalize_address(sell_token) == normalize_address(candidate.token_address)
-        ):
-            normalized_balance = to_decimal_string(inspection.active_available_raw, candidate.decimals)
-            usd_value_str = str(Decimal(normalized_balance) * Decimal(candidate.price_usd))
-
-        return PreparedSweepAndSettle(
-            candidate=candidate,
-            sell_token=sell_token,
-            minimum_price_scaled_1e18=inspection.minimum_price_scaled_1e18,
-            minimum_price_public_raw=inspection.minimum_price_public_raw,
-            available_raw=inspection.active_available_raw,
-            sell_amount_str=sell_amount_str,
-            minimum_price_scaled_1e18_str=minimum_price_scaled_1e18_str,
-            minimum_price_public_str=minimum_price_public_str,
-            usd_value_str=usd_value_str,
-            normalized_balance=normalized_balance,
-            stuck_abort_reason="active auction price is at or below minimumPrice",
-            token_symbol=token_symbol,
-        )
 
     async def prepare_kick(
         self,
@@ -257,7 +119,7 @@ class KickPreparer:
         run_id: str,
         *,
         inspection: AuctionInspection | None = None,
-    ) -> PreparedKick | PreparedSweepAndSettle | KickResult:
+    ) -> PreparedKick | KickResult:
         del run_id
         if candidate.token_address == candidate.want_address:
             return KickResult(kick_tx_id=0, status=KickStatus.SKIP, error_message="sell token matches want token")
@@ -275,7 +137,6 @@ class KickPreparer:
 
         if inspection is None:
             inspection = (await self.inspect_candidates([candidate])).get(_candidate_key(candidate))
-        settle_token: str | None = None
         if inspection is None:
             return KickResult(kick_tx_id=0, status=KickStatus.ERROR, error_message="auction inspection missing")
         if inspection.is_active_auction is None:
@@ -286,52 +147,11 @@ class KickPreparer:
             )
 
         if inspection.is_active_auction is True:
-            if len(inspection.active_tokens) > 1:
-                return KickResult(
-                    kick_tx_id=0,
-                    status=KickStatus.ERROR,
-                    error_message="multiple active tokens detected for auction",
-                )
-            if inspection.active_token is None:
-                return KickResult(
-                    kick_tx_id=0,
-                    status=KickStatus.ERROR,
-                    error_message="active auction token inspection failed",
-                )
-            if inspection.active_available_raw is None:
-                return KickResult(
-                    kick_tx_id=0,
-                    status=KickStatus.ERROR,
-                    error_message="active auction available() read failed",
-                )
-            if inspection.minimum_price_scaled_1e18 is None:
-                return KickResult(
-                    kick_tx_id=0,
-                    status=KickStatus.ERROR,
-                    error_message="auction minimumPrice() read failed",
-                )
-            if inspection.active_available_raw == 0:
-                settle_token = inspection.active_token
-            else:
-                if inspection.active_price_public_raw is None:
-                    return KickResult(
-                        kick_tx_id=0,
-                        status=KickStatus.ERROR,
-                        error_message="active auction price() read failed",
-                    )
-                if inspection.minimum_price_public_raw is None:
-                    return KickResult(
-                        kick_tx_id=0,
-                        status=KickStatus.ERROR,
-                        error_message="auction want token metadata read failed",
-                    )
-                if inspection.active_price_public_raw <= inspection.minimum_price_public_raw:
-                    return await self._prepare_sweep_and_settle(candidate, inspection)
-                return KickResult(
-                    kick_tx_id=0,
-                    status=KickStatus.SKIP,
-                    error_message="auction still active above minimumPrice",
-                )
+            return KickResult(
+                kick_tx_id=0,
+                status=KickStatus.SKIP,
+                error_message="auction still active",
+            )
 
         try:
             live_balance_raw = await self._resolve_erc20_reader().read_balance(
@@ -530,6 +350,5 @@ class KickPreparer:
             min_price_buffer_bps=profile.min_price_buffer_bps,
             step_decay_rate_bps=profile.step_decay_rate_bps,
             pricing_profile_name=profile.name,
-            settle_token=settle_token,
             want_price_usd_str=want_price_usd_str,
         )

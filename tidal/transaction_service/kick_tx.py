@@ -6,7 +6,7 @@ from eth_utils import to_checksum_address
 
 from tidal.chain.contracts.abis import AUCTION_KICKER_ABI
 from tidal.normalizers import normalize_address
-from tidal.transaction_service.types import KickRecoveryPlan, PreparedKick, PreparedSweepAndSettle, TxIntent
+from tidal.transaction_service.types import PreparedKick, PreparedResolveAuction, TxIntent
 
 
 class KickTxBuilder:
@@ -29,10 +29,7 @@ class KickTxBuilder:
 
     def build_single_kick_intent(self, prepared_kick: PreparedKick, *, sender: str | None) -> TxIntent:
         kicker_address, kicker_contract = self._kicker_contract()
-        if prepared_kick.recovery_plan is None:
-            tx_data = kicker_contract.functions.kick(*self._kick_args(prepared_kick))._encode_transaction_data()
-        else:
-            tx_data = kicker_contract.functions.kickExtended(*self._kick_extended_args(prepared_kick))._encode_transaction_data()
+        tx_data = kicker_contract.functions.kick(*self._kick_args(prepared_kick))._encode_transaction_data()
         return TxIntent(
             operation="kick",
             to=normalize_address(kicker_address),
@@ -55,19 +52,20 @@ class KickTxBuilder:
             sender=sender,
         )
 
-    def build_sweep_and_settle_intent(
+    def build_resolve_auction_intent(
         self,
-        prepared_operation: PreparedSweepAndSettle,
+        prepared_operation: PreparedResolveAuction,
         *,
         sender: str | None,
     ) -> TxIntent:
         kicker_address, kicker_contract = self._kicker_contract()
-        tx_data = kicker_contract.functions.sweepAndSettle(
+        tx_data = kicker_contract.functions.resolveAuction(
             to_checksum_address(prepared_operation.candidate.auction_address),
             to_checksum_address(prepared_operation.sell_token),
+            prepared_operation.requires_force,
         )._encode_transaction_data()
         return TxIntent(
-            operation="sweep-and-settle",
+            operation="resolve-auction",
             to=normalize_address(kicker_address),
             data=tx_data,
             value="0x0",
@@ -86,33 +84,4 @@ class KickTxBuilder:
             prepared_kick.starting_price_unscaled,
             prepared_kick.minimum_price_scaled_1e18,
             prepared_kick.step_decay_rate_bps,
-            (
-                to_checksum_address(prepared_kick.settle_token)
-                if prepared_kick.settle_token
-                else "0x0000000000000000000000000000000000000000"
-            ),
-        )
-
-    @staticmethod
-    def _kick_extended_args(prepared_kick: PreparedKick) -> tuple:
-        plan = prepared_kick.recovery_plan or KickRecoveryPlan()
-        return (
-            (
-                to_checksum_address(prepared_kick.candidate.source_address),
-                to_checksum_address(prepared_kick.candidate.auction_address),
-                to_checksum_address(prepared_kick.candidate.token_address),
-                prepared_kick.sell_amount,
-                to_checksum_address(prepared_kick.candidate.want_address),
-                prepared_kick.starting_price_unscaled,
-                prepared_kick.minimum_price_scaled_1e18,
-                prepared_kick.step_decay_rate_bps,
-                (
-                    to_checksum_address(prepared_kick.settle_token)
-                    if prepared_kick.settle_token
-                    else "0x0000000000000000000000000000000000000000"
-                ),
-                [to_checksum_address(address) for address in plan.settle_after_start],
-                [to_checksum_address(address) for address in plan.settle_after_min],
-                [to_checksum_address(address) for address in plan.settle_after_decay],
-            ),
         )

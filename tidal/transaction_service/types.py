@@ -13,9 +13,6 @@ _WAD = Decimal(10) ** 18
 
 
 SourceType = Literal["strategy", "fee_burner"]
-OperationType = Literal["kick", "settle", "sweep_and_settle", "resolve_auction"]
-
-
 class KickAction(str, Enum):
     KICK = "KICK"
     SKIP = "SKIP"
@@ -68,19 +65,6 @@ class KickCandidate:
 
 
 @dataclass(slots=True)
-class KickRecoveryPlan:
-    """Staged settle instructions for the extended kick path."""
-
-    settle_after_start: tuple[str, ...] = ()
-    settle_after_min: tuple[str, ...] = ()
-    settle_after_decay: tuple[str, ...] = ()
-
-    @property
-    def is_empty(self) -> bool:
-        return not (self.settle_after_start or self.settle_after_min or self.settle_after_decay)
-
-
-@dataclass(slots=True)
 class PreparedKick:
     """Output of the prepare phase — everything needed to include this kick in a batch."""
 
@@ -101,8 +85,6 @@ class PreparedKick:
     min_price_buffer_bps: int
     step_decay_rate_bps: int
     pricing_profile_name: str
-    settle_token: str | None = None
-    recovery_plan: KickRecoveryPlan | None = None
     quote_response_json: str | None = None
     want_price_usd_str: str | None = None
 
@@ -144,25 +126,18 @@ class KickDecision:
 
 
 @dataclass(slots=True)
-class PreparedSweepAndSettle:
-    """Prepared stuck-auction abort operation."""
+class PreparedResolveAuction:
+    """Prepared lot-resolution operation emitted before a later kick."""
 
     candidate: KickCandidate
     sell_token: str
-    minimum_price_scaled_1e18: int | None
-    minimum_price_public_raw: int | None
-    available_raw: int | None
-    sell_amount_str: str | None
-    minimum_price_scaled_1e18_str: str | None
-    minimum_price_public_str: str | None
-    usd_value_str: str | None
-    normalized_balance: str | None
-    stuck_abort_reason: str
+    path: int
+    reason: str
+    balance_raw: int
+    requires_force: bool
+    receiver: str | None = None
     token_symbol: str | None = None
-
-    @property
-    def minimum_price_str(self) -> str | None:
-        return self.minimum_price_scaled_1e18_str
+    normalized_balance: str | None = None
 
 
 @dataclass(slots=True)
@@ -297,32 +272,23 @@ class SkippedPreparedCandidate:
         }
 
 
-def _serialize_recovery_plan(plan: KickRecoveryPlan | None) -> dict[str, list[str]] | None:
-    if plan is None or plan.is_empty:
-        return None
+def _prepared_resolve_preview_item(item: PreparedResolveAuction) -> dict[str, object]:
     return {
-        "settleAfterStart": list(plan.settle_after_start),
-        "settleAfterMin": list(plan.settle_after_min),
-        "settleAfterDecay": list(plan.settle_after_decay),
-    }
-
-
-def _prepared_sweep_preview_item(item: PreparedSweepAndSettle) -> dict[str, object]:
-    return {
-        "operation": "sweep-and-settle",
+        "operation": "resolve-auction",
         "auctionAddress": item.candidate.auction_address,
         "sourceAddress": item.candidate.source_address,
+        "sourceName": item.candidate.source_name,
         "sourceType": item.candidate.source_type,
         "tokenAddress": item.sell_token,
         "tokenSymbol": item.token_symbol,
         "wantAddress": item.candidate.want_address,
         "wantSymbol": item.candidate.want_symbol,
-        "reason": item.stuck_abort_reason,
-        "sellAmount": item.sell_amount_str,
-        "minimumPrice": item.minimum_price_public_str,
-        "minimumPriceScaled1e18": item.minimum_price_scaled_1e18_str,
-        "usdValue": item.usd_value_str,
+        "reason": item.reason,
+        "path": item.path,
+        "requiresForce": item.requires_force,
+        "balanceRaw": str(item.balance_raw),
         "normalizedBalance": item.normalized_balance,
+        "receiver": item.receiver,
     }
 
 
@@ -362,8 +328,6 @@ def _prepared_kick_preview_item(item: PreparedKick) -> dict[str, object]:
         "quoteRate": item.quote_rate,
         "startRate": item.start_rate,
         "floorRate": item.floor_rate,
-        "settleToken": item.settle_token,
-        "recoveryPlan": _serialize_recovery_plan(item.recovery_plan),
     }
 
 
@@ -385,7 +349,7 @@ class KickPlan:
     limited_count: int = 0
     ranked_candidates: list[KickCandidate] = field(default_factory=list)
     kick_operations: list[PreparedKick] = field(default_factory=list)
-    sweep_operations: list[PreparedSweepAndSettle] = field(default_factory=list)
+    resolve_operations: list[PreparedResolveAuction] = field(default_factory=list)
     tx_intents: list[TxIntent] = field(default_factory=list)
     skipped_during_prepare: list[SkippedPreparedCandidate] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -395,7 +359,7 @@ class KickPlan:
 
     def prepared_operations_preview(self) -> list[dict[str, object]]:
         return [
-            *[_prepared_sweep_preview_item(item) for item in self.sweep_operations],
+            *[_prepared_resolve_preview_item(item) for item in self.resolve_operations],
             *[_prepared_kick_preview_item(item) for item in self.kick_operations],
         ]
 

@@ -21,7 +21,6 @@ from tidal.transaction_service.types import (
     KickResult,
     KickStatus,
     PreparedKick,
-    PreparedSweepAndSettle,
     SourceType,
     TransactionExecutionReport,
     TxnRunResult,
@@ -242,7 +241,7 @@ class TxnService:
                     candidates=_candidate_order_log(plan.ranked_candidates),
                 )
 
-            kicks_attempted = len(plan.ranked_candidates)
+            kicks_attempted = len(plan.resolve_operations) + len(plan.kick_operations)
             kicks_succeeded = 0
             kicks_failed = 0
             failed_messages: list[str] = []
@@ -258,8 +257,8 @@ class TxnService:
                 kicks_attempted += attempt_delta
                 kicks_failed += failure_delta
 
-            for prepared_operation in plan.sweep_operations:
-                exec_result = await executor.execute_sweep_and_settle(prepared_operation, run_id)
+            for prepared_operation in plan.resolve_operations:
+                exec_result = await executor.execute_resolve_auction(prepared_operation, run_id)
                 self._emit_execution_report(exec_result)
                 if exec_result.status == KickStatus.CONFIRMED:
                     kicks_succeeded += 1
@@ -382,7 +381,6 @@ class TxnService:
         preparer = self.preparer
         executor = self.executor
         prepared: list[PreparedKick] = []
-        prepared_sweep_and_settle: list[PreparedSweepAndSettle] = []
         failed_messages: list[str] = []
 
         if candidates_to_prepare:
@@ -442,10 +440,7 @@ class TxnService:
                     kicks_attempted += attempt_delta
                     kicks_failed += failure_delta
                     continue
-                if isinstance(result, PreparedSweepAndSettle):
-                    exec_result = await executor.execute_sweep_and_settle(result, run_id)
-                else:
-                    exec_result = await executor.execute_single(result, run_id)
+                exec_result = await executor.execute_single(result, run_id)
                 self._emit_execution_report(exec_result)
                 if exec_result.status == KickStatus.CONFIRMED:
                     kicks_succeeded += 1
@@ -457,7 +452,7 @@ class TxnService:
                     kicks_attempted -= 1
         elif live and candidates_to_prepare:
             # Batch: prepare all in groups, then execute as one batch transaction.
-            prepare_results: list[tuple[KickCandidate, PreparedKick | PreparedSweepAndSettle | KickResult]] = []
+            prepare_results: list[tuple[KickCandidate, PreparedKick | KickResult]] = []
             for batch_start in range(0, len(candidates_to_prepare), self.max_batch_kick_size):
                 if batch_start > 0:
                     await asyncio.sleep(self.batch_kick_delay_seconds)
@@ -477,19 +472,8 @@ class TxnService:
                     )
                     kicks_attempted += attempt_delta
                     kicks_failed += failure_delta
-                elif isinstance(result, PreparedSweepAndSettle):
-                    prepared_sweep_and_settle.append(result)
                 else:
                     prepared.append(result)
-
-            for prepared_operation in prepared_sweep_and_settle:
-                exec_result = await executor.execute_sweep_and_settle(prepared_operation, run_id)
-                if exec_result.status == KickStatus.CONFIRMED:
-                    kicks_succeeded += 1
-                elif exec_result.status in (KickStatus.REVERTED, KickStatus.ERROR, KickStatus.ESTIMATE_FAILED):
-                    kicks_failed += 1
-                    if exec_result.error_message:
-                        failed_messages.append(exec_result.error_message)
 
             if prepared:
                 exec_results = await executor.execute_batch(prepared, run_id)

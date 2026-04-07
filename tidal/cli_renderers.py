@@ -113,37 +113,19 @@ def render_skip_panel(
 
 
 def format_warning_lines(warning: str, *, bullet: str = "- ") -> list[str]:
-    if warning == "Forced sweep requested while auction is still active; unsold tokens will be returned to the receiver.":
-        return [
-            f"{bullet}Forced sweep requested while auction is still active.",
-            "  Unsold tokens will be returned to the receiver.",
-        ]
     return [f"{bullet}{warning}"]
 
 
 def format_settlement_reason_lines(reason: str, *, prefix: str = "Reason:        ") -> list[str]:
-    if reason == "forced sweep requested while auction is still active with sell balance":
+    if reason == "requested token is live and in progress; pass --force to close it":
         return [
-            f"{prefix}forced sweep requested",
-            " " * len(prefix) + "active lot still has sell balance",
+            f"{prefix}requested token is live and in progress",
+            " " * len(prefix) + "pass --force to close it",
         ]
-    if reason == "requested settlement method is not applicable: auction still active with sell balance":
+    if reason == "one or more enabled lot previews failed; retry or pass --token":
         return [
-            f"{prefix}settle not applicable",
-            " " * len(prefix) + "active lot still has sell balance",
-        ]
-    if reason == "inactive kicked lot has stranded sell balance":
-        return [f"{prefix}inactive kicked lot has stranded sell balance"]
-    if reason == "inactive kicked lot is stale and empty":
-        return [f"{prefix}inactive kicked lot is stale and empty"]
-    if reason == "inactive lot holds sell balance":
-        return [f"{prefix}inactive lot holds sell balance"]
-    if reason == "auction has nothing to resolve":
-        return [f"{prefix}auction has nothing to resolve"]
-    if reason == "multiple candidate tokens detected for auction; pass --token":
-        return [
-            f"{prefix}multiple candidate tokens detected",
-            " " * len(prefix) + "pass --token",
+            f"{prefix}one or more enabled lot previews failed",
+            " " * len(prefix) + "retry or pass --token",
         ]
     return [f"{prefix}{reason}"]
 
@@ -303,14 +285,26 @@ def _prepared_action_detail_lines(action_type: str | None, preview: dict[str, An
     if normalized_action_type == "settle":
         inspection = preview.get("inspection") if isinstance(preview.get("inspection"), dict) else {}
         decision = preview.get("decision") if isinstance(preview.get("decision"), dict) else {}
+        prepared_operations = preview.get("preparedOperations")
+        prepared_count = len(prepared_operations) if isinstance(prepared_operations, list) else 0
         lines = [
             "",
             "  Review details",
             f"  Auction:     {_display_address(inspection.get('auction_address') or inspection.get('auctionAddress'))}",
-            f"  Operation:   {str(decision.get('operation_type') or decision.get('operationType') or '-').replace('_', '-')}",
-            f"  Token:       {_display_address(decision.get('token_address') or decision.get('tokenAddress'))}",
+            f"  Force live:  {_display_bool(preview.get('requestedForce'))}",
+            f"  Operations:  {prepared_count}",
         ]
         lines.extend(format_settlement_reason_lines(str(decision.get("reason") or "-"), prefix="  Reason:      "))
+        if isinstance(prepared_operations, list):
+            for index, operation in enumerate(prepared_operations[:3], 1):
+                if not isinstance(operation, dict):
+                    continue
+                lines.append(
+                    f"  {index}. Token:    {_display_address(operation.get('tokenAddress'))} "
+                    f"({operation.get('reason') or 'resolve-auction'})"
+                )
+            if len(prepared_operations) > 3:
+                lines.append(f"  +{len(prepared_operations) - 3} more operation(s)")
         return lines
 
     prepared_operations = preview.get("preparedOperations")
@@ -436,23 +430,6 @@ def render_kick_submission_summary(summary: dict[str, Any]) -> None:
         precision_line = None
         if quote_amount > 0 and starting_price > quote_amount * 2:
             precision_line = f"               ↳ ceiled lot based on {quote_amount:.4f} quote"
-        recovery_line = None
-        recovery_plan = k.get("recovery_plan")
-        if isinstance(recovery_plan, dict):
-            recovery_parts: list[str] = []
-            stage_labels = (
-                ("settleAfterStart", "after start"),
-                ("settleAfterMin", "after min"),
-                ("settleAfterDecay", "after decay"),
-            )
-            for key, label in stage_labels:
-                tokens = recovery_plan.get(key)
-                if isinstance(tokens, list) and tokens:
-                    token_count = len(tokens)
-                    token_label = "lot" if token_count == 1 else "lots"
-                    recovery_parts.append(f"{token_count} stale {token_label} {label}")
-            if recovery_parts:
-                recovery_line = f"  Recovery:    {' | '.join(recovery_parts)}"
 
         content = []
         if divergence_line:
@@ -469,8 +446,6 @@ def render_kick_submission_summary(summary: dict[str, Any]) -> None:
             f"  Min quote:   {k.get('minimum_quote_display') or k.get('minimum_price_display') or '-'}",
             f"  Profile:     {profile_name} | decay {step_decay_str}",
         ])
-        if recovery_line:
-            content.append(recovery_line)
         if rate_line:
             content.append(rate_line)
         if precision_line:

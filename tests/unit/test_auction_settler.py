@@ -1,54 +1,41 @@
-"""Unit tests for scanner-side auction settlement."""
+"""Unit tests for scanner-side auction resolution."""
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
-from eth_abi import encode
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
+import tidal.scanner.auction_settler as auction_settler_module
+from tidal.auction_settlement import AuctionLotPreview, AuctionSettlementInspection
 from tidal.persistence import models
 from tidal.persistence.repositories import KickTxRepository
 from tidal.scanner.auction_settler import AuctionSettlementService, AuctionSource
-from tidal.transaction_service.signer import TransactionSigner
 from tidal.types import TokenMetadata
 
 
-class _FakeFunction:
-    def __init__(self, name: str, args: tuple[object, ...] = ()) -> None:
-        self.name = name
-        self.args = args
+class _FakeResolveFunction:
+    def __init__(self, auction, token, force):  # noqa: ANN001
+        self.auction = auction
+        self.token = token
+        self.force = force
 
     def _encode_transaction_data(self) -> bytes:
-        return f"{self.name}:{','.join(map(str, self.args))}".encode()
+        return f"resolve:{self.auction}:{self.token}:{self.force}".encode()
 
 
-class _FakeFunctions:
-    def isAnActiveAuction(self):
-        return _FakeFunction("isAnActiveAuction")
-
-    def getAllEnabledAuctions(self):
-        return _FakeFunction("getAllEnabledAuctions")
-
-    def auctionLength(self):
-        return _FakeFunction("auctionLength")
-
-    def isActive(self, token):
-        return _FakeFunction("isActive", (token,))
-
-    def kicked(self, token):
-        return _FakeFunction("kicked", (token,))
-
-    def settle(self, token):
-        return _FakeFunction("settle", (token,))
+class _FakeKickerFunctions:
+    def resolveAuction(self, auction, token, force):  # noqa: ANN001
+        return _FakeResolveFunction(auction, token, force)
 
 
-class _FakeContract:
+class _FakeKickerContract:
     def __init__(self) -> None:
-        self.functions = _FakeFunctions()
+        self.functions = _FakeKickerFunctions()
 
 
 class _FakeWeb3Client:
@@ -57,7 +44,7 @@ class _FakeWeb3Client:
         self.sent = 0
 
     def contract(self, address, abi):  # noqa: ARG002
-        return _FakeContract()
+        return _FakeKickerContract()
 
     async def get_base_fee(self) -> int:
         return int(0.1 * 1e9)
@@ -75,7 +62,7 @@ class _FakeWeb3Client:
 
     async def send_raw_transaction(self, signed_tx):  # noqa: ARG002
         self.sent += 1
-        return "0xsettlehash"
+        return "0xresolvehash"
 
     async def get_transaction_receipt(self, tx_hash, *, timeout_seconds=120):  # noqa: ARG002
         return {
@@ -84,41 +71,6 @@ class _FakeWeb3Client:
             "effectiveGasPrice": 300000000,
             "blockNumber": 999,
         }
-
-    async def call(self, call_fn, **call_kwargs):  # noqa: ARG002
-        if getattr(call_fn, "name", None) == "isAnActiveAuction":
-            return True
-        raise AssertionError("unexpected direct web3 call in test")
-
-
-class _FakeMulticallClient:
-    def __init__(self, values):
-        self.values = values
-        self.last_stats = SimpleNamespace(
-            batch_count=1,
-            subcalls_total=0,
-            subcalls_failed=0,
-            fallback_direct_calls_total=0,
-        )
-
-    async def execute(self, requests, *, batch_size, allow_failure=True, block="latest"):  # noqa: ARG002
-        results = []
-        for request in requests:
-            value = self.values.get(request.logical_key)
-            if value is None:
-                results.append(SimpleNamespace(logical_key=request.logical_key, success=False, return_data=b""))
-                continue
-            results.append(SimpleNamespace(logical_key=request.logical_key, success=True, return_data=value))
-        self.last_stats.subcalls_total = len(requests)
-        return results
-
-
-class _FakeERC20Reader:
-    def __init__(self, balances):
-        self.balances = balances
-
-    async def read_balances_many(self, pairs):
-        return ({pair: self.balances.get(pair) for pair in pairs}, {})
 
 
 class _FakeTokenMetadataService:
@@ -157,13 +109,9 @@ def session():
         yield s
 
 
-def _make_settler(session, *, web3_client, balances, multicall_values):
+def _make_settler(session, *, web3_client):
     return AuctionSettlementService(
         web3_client=web3_client,
-        multicall_client=_FakeMulticallClient(multicall_values),
-        multicall_enabled=True,
-        multicall_auction_batch_calls=100,
-        erc20_reader=_FakeERC20Reader(balances),
         signer=_FakeSigner(),
         kick_tx_repository=KickTxRepository(session),
         token_metadata_service=_FakeTokenMetadataService(),
@@ -171,30 +119,64 @@ def _make_settler(session, *, web3_client, balances, multicall_values):
         max_priority_fee_gwei=2,
         max_gas_limit=500000,
         chain_id=1,
+        settings=SimpleNamespace(
+            auction_kicker_address="0x9999999999999999999999999999999999999999",
+            multicall_address="0x8888888888888888888888888888888888888888",
+            multicall_enabled=True,
+            multicall_auction_batch_calls=100,
+        ),
     )
 
 
-def _settlement_values(*, auction, token):
-    return {
-        (auction, "isAnActiveAuction"): encode(["bool"], [True]),
-        (auction, "getAllEnabledAuctions"): encode(["address[]"], [[token]]),
-        (auction, "auctionLength"): encode(["uint256"], [86400]),
-        (auction, token, "isActive"): encode(["bool"], [True]),
-        (auction, token, "kicked"): encode(["uint256"], [1774497215]),
-    }
+def _inspection(*previews: AuctionLotPreview) -> AuctionSettlementInspection:
+    return AuctionSettlementInspection(
+        auction_address="0x1111111111111111111111111111111111111111",
+        is_active_auction=any(preview.active for preview in previews),
+        enabled_tokens=tuple(preview.token_address for preview in previews),
+        requested_token=None,
+        lot_previews=previews,
+    )
+
+
+def _preview(
+    *,
+    token: str,
+    path: int,
+    active: bool,
+    balance_raw: int,
+    requires_force: bool = False,
+    read_ok: bool = True,
+    error_message: str | None = None,
+) -> AuctionLotPreview:
+    return AuctionLotPreview(
+        token_address=token,
+        path=path if read_ok else None,
+        active=active if read_ok else None,
+        kicked_at=123 if read_ok else None,
+        balance_raw=balance_raw if read_ok else None,
+        requires_force=requires_force if read_ok else None,
+        receiver="0x7777777777777777777777777777777777777777" if read_ok else None,
+        read_ok=read_ok,
+        error_message=error_message,
+    )
 
 
 @pytest.mark.asyncio
-async def test_settler_confirms_zero_balance_settlement(session):
+async def test_settler_confirms_default_actionable_resolution(session, monkeypatch) -> None:
     auction = "0x1111111111111111111111111111111111111111"
     token = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     want = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
     web3_client = _FakeWeb3Client()
-    settler = _make_settler(
-        session,
-        web3_client=web3_client,
-        balances={(auction, token): 0},
-        multicall_values=_settlement_values(auction=auction, token=token),
+    settler = _make_settler(session, web3_client=web3_client)
+
+    monkeypatch.setattr(
+        auction_settler_module,
+        "inspect_auction_settlements",
+        AsyncMock(
+            return_value={
+                auction: _inspection(_preview(token=token, path=4, active=False, balance_raw=0)),
+            }
+        ),
     )
 
     result = await settler.settle_stale_auctions(
@@ -207,22 +189,30 @@ async def test_settler_confirms_zero_balance_settlement(session):
     assert result.stats.settlements_confirmed == 1
     rows = session.execute(select(models.kick_txs)).mappings().all()
     assert len(rows) == 1
-    assert rows[0]["operation_type"] == "settle"
+    assert rows[0]["operation_type"] == "resolve_auction"
     assert rows[0]["status"] == "CONFIRMED"
+    assert rows[0]["stuck_abort_reason"] == "inactive kicked empty lot"
     assert rows[0]["token_symbol"] == "OPASF"
     assert rows[0]["want_symbol"] == "crvUSD"
 
 
 @pytest.mark.asyncio
-async def test_settler_skips_nonzero_balance_blocker(session):
+async def test_settler_skips_live_funded_blocker(session, monkeypatch) -> None:
     auction = "0x1111111111111111111111111111111111111111"
     token = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     web3_client = _FakeWeb3Client()
-    settler = _make_settler(
-        session,
-        web3_client=web3_client,
-        balances={(auction, token): 123},
-        multicall_values=_settlement_values(auction=auction, token=token),
+    settler = _make_settler(session, web3_client=web3_client)
+
+    monkeypatch.setattr(
+        auction_settler_module,
+        "inspect_auction_settlements",
+        AsyncMock(
+            return_value={
+                auction: _inspection(
+                    _preview(token=token, path=3, active=True, balance_raw=123, requires_force=True)
+                ),
+            }
+        ),
     )
 
     result = await settler.settle_stale_auctions(
@@ -237,15 +227,29 @@ async def test_settler_skips_nonzero_balance_blocker(session):
 
 
 @pytest.mark.asyncio
-async def test_settler_persists_estimate_failure(session):
+async def test_settler_skips_auction_with_preview_failure(session, monkeypatch) -> None:
     auction = "0x1111111111111111111111111111111111111111"
     token = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    web3_client = _FakeWeb3Client(estimate_error=RuntimeError("execution reverted: unauthorized"))
-    settler = _make_settler(
-        session,
-        web3_client=web3_client,
-        balances={(auction, token): 0},
-        multicall_values=_settlement_values(auction=auction, token=token),
+    web3_client = _FakeWeb3Client()
+    settler = _make_settler(session, web3_client=web3_client)
+
+    monkeypatch.setattr(
+        auction_settler_module,
+        "inspect_auction_settlements",
+        AsyncMock(
+            return_value={
+                auction: _inspection(
+                    _preview(
+                        token=token,
+                        path=0,
+                        active=False,
+                        balance_raw=0,
+                        read_ok=False,
+                        error_message="multicall preview failed",
+                    )
+                ),
+            }
+        ),
     )
 
     result = await settler.settle_stale_auctions(
@@ -254,9 +258,6 @@ async def test_settler_persists_estimate_failure(session):
     )
 
     assert len(result.errors) == 1
-    assert result.errors[0].error_code == "auction_settlement_estimate_failed"
+    assert result.errors[0].error_code == "resolve_preview_failed"
     rows = session.execute(select(models.kick_txs)).mappings().all()
-    assert len(rows) == 1
-    assert rows[0]["operation_type"] == "settle"
-    assert rows[0]["status"] == "ESTIMATE_FAILED"
-    assert rows[0]["error_message"] == "unauthorized"
+    assert rows == []
