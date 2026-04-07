@@ -230,6 +230,27 @@ The CLI should not:
 - model pricing rescue behavior
 - generate `settleAfterStart` / `settleAfterMin` / `settleAfterDecay` closeout plans
 
+## Test Plan
+
+Add Solidity coverage in `contracts/test/AuctionKicker.t.sol` for:
+
+- path 1: active with balance -> sweep and settle
+- path 2: active with zero balance -> settle only
+- path 3: inactive kicked with balance -> sweep and reset
+- path 4: inactive kicked with zero balance -> reset only
+- path 5: clean with balance -> sweep only
+- path 6: clean with zero balance -> no-op
+
+Also add revert and behavior tests for:
+
+- unauthorized caller
+- governance mismatch
+- recovered tokens always sent to `receiver`
+- `disable -> enable` leaves the token enabled again with `kicked == 0`
+- emitted `AuctionResolved` path values and recovered balance
+
+Add minimal Python coverage for the prepare/preview layer so the CLI renders the new outcomes correctly and no longer depends on `available()`-driven recovery heuristics.
+
 ## Recommendation
 
 Implement `resolveAuction(...)` as a minimal balance-driven resolver.
