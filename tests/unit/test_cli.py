@@ -103,10 +103,9 @@ def test_render_kick_submission_summary_warns_on_sell_vs_quote_mismatch(capsys):
     output = capsys.readouterr().out
     assert "Sell amount: 3,473.41 WFRAX (~$10,000.00)" in output
     assert "Quote out:   1,568.00 crvUSD (~$1,568.00)" in output
-    assert (
-        "⚠️  Warning: live quote is 84.3% lower than evaluated spot "
-        "(1,568.00 crvUSD quoted vs 10,000.00 crvUSD at spot)"
-    ) in output
+    assert "⚠️  Warning: live quote is 84.3% lower than evaluated spot" in output
+    assert "1,568.00 crvUSD quoted vs 10,000.00" in output
+    assert "crvUSD at spot" in output
     assert output.index("⚠️  Warning:") < output.index("Kick (1 of 1)")
 
 

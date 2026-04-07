@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime
 import json
+import re
 import shutil
 import sys
+import textwrap
 from dataclasses import asdict, dataclass, is_dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -22,6 +24,11 @@ from tidal.normalizers import short_address
 from tidal.ops.kick_inspect import KickInspectEntry, KickInspectResult
 from tidal.ops.logs import KickLogRecord, RunDetail, ScanRunRecord, ScanRunDetail, TxnRunDetail
 from tidal.transaction_service.types import SourceType
+
+_MAX_PANEL_CONTENT_WIDTH = 96
+_MIN_PANEL_CONTENT_WIDTH = 40
+_WARNING_PREFIX_RE = re.compile(r"^(\s*⚠️\s+Warning:\s+)(.+)$")
+_LABEL_VALUE_RE = re.compile(r"^(\s*[^:]+:\s+)(.+)$")
 
 
 @dataclass(slots=True)
@@ -61,6 +68,58 @@ def _panel_text(lines: list[str]) -> Text:
     return body
 
 
+def _panel_content_width(console_width: int) -> int:
+    return max(min(console_width - 8, _MAX_PANEL_CONTENT_WIDTH), _MIN_PANEL_CONTENT_WIDTH)
+
+
+def _wrap_panel_line(line: str, *, max_width: int) -> list[str]:
+    if not line or len(line) <= max_width:
+        return [line]
+
+    warning_match = _WARNING_PREFIX_RE.match(line)
+    if warning_match is not None:
+        prefix, remainder = warning_match.groups()
+        return textwrap.wrap(
+            remainder,
+            width=max_width,
+            initial_indent=prefix,
+            subsequent_indent=" " * len(prefix),
+            break_long_words=False,
+            break_on_hyphens=False,
+        )
+
+    label_match = _LABEL_VALUE_RE.match(line)
+    if label_match is not None:
+        prefix, remainder = label_match.groups()
+        if len(prefix) < max_width:
+            return textwrap.wrap(
+                remainder,
+                width=max_width,
+                initial_indent=prefix,
+                subsequent_indent=" " * len(prefix),
+                break_long_words=False,
+                break_on_hyphens=False,
+            )
+
+    leading_spaces = len(line) - len(line.lstrip(" "))
+    indent = " " * leading_spaces
+    return textwrap.wrap(
+        line.strip(),
+        width=max_width,
+        initial_indent=indent,
+        subsequent_indent=indent,
+        break_long_words=False,
+        break_on_hyphens=False,
+    )
+
+
+def _wrap_panel_lines(lines: list[str], *, max_width: int) -> list[str]:
+    wrapped: list[str] = []
+    for line in lines:
+        wrapped.extend(_wrap_panel_line(line, max_width=max_width))
+    return wrapped
+
+
 def render_panel(
     title: str,
     lines: list[str],
@@ -70,9 +129,11 @@ def render_panel(
 ) -> None:
     if not lines:
         return
-    _console(stderr=stderr).print(
+    console = _console(stderr=stderr)
+    wrapped_lines = _wrap_panel_lines(lines, max_width=_panel_content_width(console.width))
+    console.print(
         Panel.fit(
-            _panel_text(lines),
+            _panel_text(wrapped_lines),
             title=title,
             border_style=border_style,
             box=box.ROUNDED,
