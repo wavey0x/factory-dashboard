@@ -69,6 +69,15 @@ Use only these reads per token:
 
 This is sufficient to distinguish happy-path live auctions from stuck / closeable ones. No closeout decision should depend on `available()`, `price()`, `minimumPrice()`, or `auctionLength()`.
 
+Discovery should be multicall-first:
+
+- batch `isAnActiveAuction()` across candidate auctions
+- batch `getAllEnabledAuctions()` across auctions that need token enumeration
+- batch `(auction, token)` reads for `isActive(token)` and `kicked(token)`
+- batch `ERC20(token).balanceOf(auction)` across the same `(auction, token)` pairs
+
+The scanner and operator inspection path should use the shared multicall-capable readers that already exist in the runtime. Do not fall back to one-RPC-call-per-token discovery unless multicall is explicitly unavailable.
+
 Per token, the classifier is:
 
 1. `active && balance > 0`
@@ -176,6 +185,7 @@ That means:
 - it should never auto-force a live funded lot
 - it should report live funded lots as in progress, not stuck
 - it should prepare / send `resolveAuction(...)`, not literal `settle(token)`
+- if discovery is ambiguous or incomplete, it should fail closed and skip that lot / auction instead of guessing
 
 The scanner should inspect enabled lot tokens for each auction. An operator can still pass `--token` explicitly for manual closeout of a specific lot.
 
