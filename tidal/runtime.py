@@ -312,18 +312,10 @@ def build_txn_service(
     lock_path = default_txn_lock_path()
 
     return TxnService(
-        session=session,
-        preparer=preparer,
         executor=executor,
         planner=planner,
         txn_run_repository=txn_run_repository,
         kick_tx_repository=kick_tx_repository,
-        usd_threshold=settings.txn_usd_threshold,
-        max_data_age_seconds=settings.txn_max_data_age_seconds,
-        cooldown_policy=kick_config.cooldown_policy,
-        ignore_policy=kick_config.ignore_policy,
         lock_path=lock_path,
-        max_batch_kick_size=settings.max_batch_kick_size,
-        batch_kick_delay_seconds=settings.batch_kick_delay_seconds,
         execution_report_fn=execution_report_fn,
     )

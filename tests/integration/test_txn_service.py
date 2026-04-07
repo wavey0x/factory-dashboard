@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from tidal.persistence import models
 from tidal.persistence.repositories import KickTxRepository, TxnRunRepository
+from tidal.transaction_service.evaluator import build_shortlist, sort_candidates
 from tidal.transaction_service.kick_policy import CooldownPolicy, IgnorePolicy
 from tidal.transaction_service.service import TxnService
 from tidal.transaction_service.types import (
@@ -24,6 +25,7 @@ from tidal.transaction_service.types import (
     PreparedResolveAuction,
     SkippedPreparedCandidate,
     TransactionExecutionReport,
+    TxIntent,
 )
 
 
@@ -157,6 +159,124 @@ def _evm_address(char: str) -> str:
     return f"0x{char * 40}"
 
 
+def _skip_payloads(decisions) -> list[dict[str, object]]:  # noqa: ANN001
+    return [
+        {
+            "sourceAddress": decision.candidate.source_address,
+            "auctionAddress": decision.candidate.auction_address,
+            "tokenAddress": decision.candidate.token_address,
+            "tokenSymbol": decision.candidate.token_symbol,
+            "detail": decision.detail,
+        }
+        for decision in decisions
+    ]
+
+
+def _build_stub_planner(session, kick_tx_repo, preparer):
+    async def _plan(
+        *,
+        source_type=None,
+        source_address=None,
+        auction_address=None,
+        token_address=None,
+        limit=None,
+        sender=None,
+        run_id,
+        batch=True,
+        estimate_transactions=True,
+    ):
+        shortlist = build_shortlist(
+            session,
+            usd_threshold=100.0,
+            max_data_age_seconds=600,
+            source_type=source_type,
+            source_address=source_address,
+            auction_address=auction_address,
+            token_address=token_address,
+            limit=limit,
+            ignore_policy=IgnorePolicy(
+                ignored_sources=frozenset(),
+                ignored_auctions=frozenset(),
+                ignored_auction_tokens=frozenset(),
+            ),
+            cooldown_policy=CooldownPolicy(default_minutes=60, auction_token_overrides_minutes={}),
+            kick_tx_repository=kick_tx_repo,
+        )
+        candidates = sort_candidates(shortlist.selected_candidates)
+        kick_operations: list[PreparedKick] = []
+        skipped_during_prepare: list[SkippedPreparedCandidate] = []
+
+        for candidate in candidates:
+            result = await preparer.prepare_kick(candidate, run_id, inspection=None)
+            if isinstance(result, KickResult):
+                skipped_during_prepare.append(
+                    SkippedPreparedCandidate(
+                        candidate=candidate,
+                        reason=result.error_message or "candidate was skipped during prepare",
+                        result=result,
+                    )
+                )
+                continue
+            kick_operations.append(result)
+
+        tx_intents: list[TxIntent] = []
+        if kick_operations:
+            if not batch:
+                tx_intents = [
+                    TxIntent(
+                        operation="kick",
+                        to="0x9999999999999999999999999999999999999999",
+                        data="0xfeedface",
+                        chain_id=1,
+                        sender=sender,
+                    )
+                    for _ in kick_operations
+                ]
+            elif len(kick_operations) == 1:
+                tx_intents = [
+                    TxIntent(
+                        operation="kick",
+                        to="0x9999999999999999999999999999999999999999",
+                        data="0xfeedface",
+                        chain_id=1,
+                        sender=sender,
+                    )
+                ]
+            else:
+                tx_intents = [
+                    TxIntent(
+                        operation="kick",
+                        to="0x9999999999999999999999999999999999999999",
+                        data="0xfeedface",
+                        chain_id=1,
+                        sender=sender,
+                    )
+                ]
+
+        return KickPlan(
+            source_type=source_type,
+            source_address=source_address,
+            auction_address=auction_address,
+            token_address=token_address,
+            limit=limit,
+            eligible_count=len(shortlist.eligible_candidates),
+            selected_count=len(shortlist.selected_candidates) + len(shortlist.limited_candidates),
+            ready_count=len(kick_operations),
+            ignored_skips=_skip_payloads(shortlist.ignored_skips),
+            cooldown_skips=_skip_payloads(shortlist.cooldown_skips),
+            deferred_same_auction_count=shortlist.deferred_same_auction_count,
+            limited_count=len(shortlist.limited_candidates),
+            ranked_candidates=list(candidates),
+            kick_operations=kick_operations,
+            skipped_during_prepare=skipped_during_prepare,
+            tx_intents=tx_intents,
+        )
+
+    planner = MagicMock()
+    planner.plan = AsyncMock(side_effect=_plan)
+    return planner
+
+
 def _build_txn_service(session, *, preparer=None, executor=None, planner=None, lock_path=None):
     txn_run_repo = TxnRunRepository(session)
     kick_tx_repo = KickTxRepository(session)
@@ -165,29 +285,21 @@ def _build_txn_service(session, *, preparer=None, executor=None, planner=None, l
         preparer = MagicMock()
     if executor is None:
         executor = MagicMock()
-    if not isinstance(getattr(preparer, "inspect_candidates", None), AsyncMock):
-        preparer.inspect_candidates = AsyncMock(return_value={})
+    if not isinstance(getattr(preparer, "prepare_kick", None), AsyncMock):
+        preparer.prepare_kick = AsyncMock(side_effect=lambda c, run_id, inspection=None: _make_prepared_kick(c))
     if not isinstance(getattr(executor, "execute_resolve_auction", None), AsyncMock):
         executor.execute_resolve_auction = AsyncMock()
+    if planner is None:
+        planner = _build_stub_planner(session, kick_tx_repo, preparer)
 
     if lock_path is None:
         lock_path = Path(f"/tmp/test_txn_daemon_{uuid.uuid4().hex}.lock")
 
     return TxnService(
-        session=session,
-        preparer=preparer,
         executor=executor,
         planner=planner,
         txn_run_repository=txn_run_repo,
         kick_tx_repository=kick_tx_repo,
-        usd_threshold=100.0,
-        max_data_age_seconds=600,
-        cooldown_policy=CooldownPolicy(default_minutes=60, auction_token_overrides_minutes={}),
-        ignore_policy=IgnorePolicy(
-            ignored_sources=frozenset(),
-            ignored_auctions=frozenset(),
-            ignored_auction_tokens=frozenset(),
-        ),
         lock_path=lock_path,
     )
 
@@ -251,13 +363,13 @@ async def test_live_kick_confirmed(session):
 
     kicker = MagicMock()
     kicker.prepare_kick = AsyncMock(side_effect=lambda c, run_id, inspection=None: _make_prepared_kick(c))
-    kicker.execute_batch = AsyncMock(return_value=[KickResult(
+    kicker.execute_single = AsyncMock(return_value=KickResult(
         kick_tx_id=1,
         status=KickStatus.CONFIRMED,
         tx_hash="0xabc",
         gas_used=180000,
         block_number=12345,
-    )])
+    ))
 
     service = _build_txn_service(session, preparer=kicker, executor=kicker)
     result = await service.run_once(live=True)
@@ -278,11 +390,11 @@ async def test_live_kick_reverted(session):
 
     kicker = MagicMock()
     kicker.prepare_kick = AsyncMock(side_effect=lambda c, run_id, inspection=None: _make_prepared_kick(c))
-    kicker.execute_batch = AsyncMock(return_value=[KickResult(
+    kicker.execute_single = AsyncMock(return_value=KickResult(
         kick_tx_id=1,
         status=KickStatus.REVERTED,
         tx_hash="0xdef",
-    )])
+    ))
 
     service = _build_txn_service(session, preparer=kicker, executor=kicker)
     result = await service.run_once(live=True)
@@ -423,20 +535,10 @@ async def test_live_planner_prepare_error_counts_as_failure_and_persists(session
     executor.record_prepare_failure = MagicMock(side_effect=_record_prepare_failure)
 
     service = TxnService(
-        session=session,
-        preparer=MagicMock(),
         executor=executor,
         planner=planner,
         txn_run_repository=txn_run_repo,
         kick_tx_repository=kick_tx_repo,
-        usd_threshold=100.0,
-        max_data_age_seconds=600,
-        cooldown_policy=CooldownPolicy(default_minutes=60, auction_token_overrides_minutes={}),
-        ignore_policy=IgnorePolicy(
-            ignored_sources=frozenset(),
-            ignored_auctions=frozenset(),
-            ignored_auction_tokens=frozenset(),
-        ),
         lock_path=Path(f"/tmp/test_txn_daemon_{uuid.uuid4().hex}.lock"),
     )
 
@@ -494,11 +596,11 @@ async def test_submitted_blocks_resend(session):
     # First run: kick returns SUBMITTED (receipt timeout).
     kicker = MagicMock()
     kicker.prepare_kick = AsyncMock(side_effect=lambda c, run_id, inspection=None: _make_prepared_kick(c))
-    kicker.execute_batch = AsyncMock(return_value=[KickResult(
+    kicker.execute_single = AsyncMock(return_value=KickResult(
         kick_tx_id=1,
         status=KickStatus.SUBMITTED,
         tx_hash="0xpending",
-    )])
+    ))
 
     service = _build_txn_service(session, preparer=kicker, executor=kicker)
     result1 = await service.run_once(live=True)
@@ -630,20 +732,10 @@ async def test_dry_run_planner_persists_resolve_and_kick_rows(session):
     executor.record_prepare_failure = MagicMock()
 
     service = TxnService(
-        session=session,
-        preparer=MagicMock(),
         executor=executor,
         planner=planner,
         txn_run_repository=txn_run_repo,
         kick_tx_repository=kick_tx_repo,
-        usd_threshold=100.0,
-        max_data_age_seconds=600,
-        cooldown_policy=CooldownPolicy(default_minutes=60, auction_token_overrides_minutes={}),
-        ignore_policy=IgnorePolicy(
-            ignored_sources=frozenset(),
-            ignored_auctions=frozenset(),
-            ignored_auction_tokens=frozenset(),
-        ),
         lock_path=Path(f"/tmp/test_txn_daemon_{uuid.uuid4().hex}.lock"),
     )
 
