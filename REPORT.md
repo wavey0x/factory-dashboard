@@ -159,6 +159,12 @@ Replace the kick flow with a resolver-first precondition:
 5. defer the kick candidate until a later run after cleanup
 6. only prepare `kick(...)` once the auction is clean
 
+This is a workflow boundary, not a one-transaction guarantee:
+
+- a dirty auction may require `N` resolve transactions before one later kick transaction
+- after resolve confirmation, the next kick must be freshly re-inspected and re-prepared
+- do not pre-commit or pre-sign a kick based on stale pre-resolve state
+
 Use this pre-kick policy:
 
 - active lot with sell balance:
@@ -193,6 +199,13 @@ Recommended semantics:
 - without `--token`, prepare may return multiple `resolveAuction(..., false)` transactions, one per actionable lot
 - live funded lots on the same auction do not prevent default settle from closing separate stale lots
 - if an auction is only progressing on the happy path, default `settle` should return a clean noop, not an error
+
+Manual operator UX should still feel like one workflow:
+
+- if a kick request finds a dirty auction, the CLI should explain that prior lots must be settled first
+- the CLI may offer to execute the required resolve transaction(s) first
+- after resolve confirmation, the CLI should re-inspect and offer a freshly prepared kick
+- the workflow should feel continuous even though the on-chain actions are separate transactions
 
 Delete these legacy concepts from the operator path:
 
