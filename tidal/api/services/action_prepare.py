@@ -581,15 +581,9 @@ async def prepare_settle_action(
         gas_cap=settings.txn_max_gas_limit,
     )
     warnings = [gas_warning] if gas_warning else []
-    if (
-        sweep
-        and inspection.active_available_raw
-        and inspection.active_price_public_raw is not None
-        and inspection.minimum_price_public_raw is not None
-        and inspection.active_price_public_raw > inspection.minimum_price_public_raw
-    ):
+    if decision.reason == "forced sweep requested while auction is still active with sell balance":
         warnings.append(
-            "Forced sweep requested while auction is still above floor; unsold tokens will be returned to the receiver."
+            "Forced sweep requested while auction is still active; unsold tokens will be returned to the receiver."
         )
     tx = {
         "operation": settlement_call.operation_type.replace("_", "-"),

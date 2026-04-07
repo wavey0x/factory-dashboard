@@ -11,7 +11,6 @@ from typing import Any
 
 import structlog
 
-from tidal.auction_settlement import decide_auction_settlement
 from tidal.auction_price_units import (
     compute_minimum_price_scaled_1e18,
     compute_minimum_quote_unscaled,
@@ -287,16 +286,52 @@ class KickPreparer:
             )
 
         if inspection.is_active_auction is True:
-            settlement_decision = decide_auction_settlement(inspection)
-            if settlement_decision.status == "error":
-                return KickResult(kick_tx_id=0, status=KickStatus.ERROR, error_message=settlement_decision.reason)
-            if settlement_decision.status == "actionable":
-                if settlement_decision.operation_type == "settle":
-                    settle_token = settlement_decision.token_address
-                else:
-                    return await self._prepare_sweep_and_settle(candidate, inspection)
+            if len(inspection.active_tokens) > 1:
+                return KickResult(
+                    kick_tx_id=0,
+                    status=KickStatus.ERROR,
+                    error_message="multiple active tokens detected for auction",
+                )
+            if inspection.active_token is None:
+                return KickResult(
+                    kick_tx_id=0,
+                    status=KickStatus.ERROR,
+                    error_message="active auction token inspection failed",
+                )
+            if inspection.active_available_raw is None:
+                return KickResult(
+                    kick_tx_id=0,
+                    status=KickStatus.ERROR,
+                    error_message="active auction available() read failed",
+                )
+            if inspection.minimum_price_scaled_1e18 is None:
+                return KickResult(
+                    kick_tx_id=0,
+                    status=KickStatus.ERROR,
+                    error_message="auction minimumPrice() read failed",
+                )
+            if inspection.active_available_raw == 0:
+                settle_token = inspection.active_token
             else:
-                return KickResult(kick_tx_id=0, status=KickStatus.SKIP, error_message=settlement_decision.reason)
+                if inspection.active_price_public_raw is None:
+                    return KickResult(
+                        kick_tx_id=0,
+                        status=KickStatus.ERROR,
+                        error_message="active auction price() read failed",
+                    )
+                if inspection.minimum_price_public_raw is None:
+                    return KickResult(
+                        kick_tx_id=0,
+                        status=KickStatus.ERROR,
+                        error_message="auction want token metadata read failed",
+                    )
+                if inspection.active_price_public_raw <= inspection.minimum_price_public_raw:
+                    return await self._prepare_sweep_and_settle(candidate, inspection)
+                return KickResult(
+                    kick_tx_id=0,
+                    status=KickStatus.SKIP,
+                    error_message="auction still active above minimumPrice",
+                )
 
         try:
             live_balance_raw = await self._resolve_erc20_reader().read_balance(

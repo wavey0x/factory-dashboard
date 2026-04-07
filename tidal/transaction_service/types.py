@@ -13,7 +13,7 @@ _WAD = Decimal(10) ** 18
 
 
 SourceType = Literal["strategy", "fee_burner"]
-OperationType = Literal["kick", "settle", "sweep_and_settle"]
+OperationType = Literal["kick", "settle", "sweep_and_settle", "resolve_auction"]
 
 
 class KickAction(str, Enum):
@@ -181,11 +181,17 @@ class AuctionInspection:
     want_decimals: int | None = None
     enabled_tokens: tuple[str, ...] = ()
     inactive_tokens_with_balance: tuple[str, ...] = ()
+    inactive_tokens_with_kick: tuple[str, ...] = ()
+    candidate_tokens: tuple[str, ...] = ()
     inactive_token: str | None = None
     inactive_token_balance_raw: int | None = None
     inactive_token_kickable_raw: int | None = None
     inactive_token_kicked_at: int | None = None
     auction_length_seconds: int | None = None
+    selected_token: str | None = None
+    selected_token_active: bool | None = None
+    selected_token_balance_raw: int | None = None
+    selected_token_kicked_at: int | None = None
 
     @property
     def active_price_raw(self) -> int | None:

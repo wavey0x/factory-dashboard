@@ -6,6 +6,7 @@ interface IAuction {
     function want() external view returns (address);
     function receiver() external view returns (address);
     function getAllEnabledAuctions() external view returns (address[] memory);
+    function kicked(address _from) external view returns (uint256);
     function startingPrice() external view returns (uint256);
     function setStartingPrice(uint256 _startingPrice) external;
     function minimumPrice() external view returns (uint256);
@@ -17,6 +18,7 @@ interface IAuction {
     function isActive(address _from) external view returns (bool);
     function settle(address _from) external;
     function sweep(address _token) external;
+    function disable(address _from) external;
     function enable(address _from) external;
     function kick(address _from) external returns (uint256);
 }

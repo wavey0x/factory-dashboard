@@ -172,6 +172,13 @@ AUCTION_ABI = [
         "type": "function",
     },
     {
+        "inputs": [{"internalType": "address", "name": "_from", "type": "address"}],
+        "name": "disable",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function",
+    },
+    {
         "inputs": [],
         "name": "isAnActiveAuction",
         "outputs": [{"internalType": "bool", "name": "", "type": "bool"}],
@@ -399,6 +406,16 @@ AUCTION_KICKER_ABI = [
             }
         ],
         "name": "batchKick",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function",
+    },
+    {
+        "inputs": [
+            {"internalType": "address", "name": "auction", "type": "address"},
+            {"internalType": "address", "name": "sellToken", "type": "address"},
+        ],
+        "name": "resolveAuction",
         "outputs": [],
         "stateMutability": "nonpayable",
         "type": "function",

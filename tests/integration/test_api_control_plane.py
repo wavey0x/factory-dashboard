@@ -814,23 +814,22 @@ def test_settle_action_broadcast_and_receipt_materialize_kick_logs(tmp_path: Pat
                     "active_tokens": ["0x5000000000000000000000000000000000000005"],
                     "active_token": "0x5000000000000000000000000000000000000005",
                     "active_available_raw": 1000000000000000000,
-                    "active_price_public_raw": 2500,
-                    "minimum_price_scaled_1e18": 2375000000000000000000,
-                    "minimum_price_public_raw": 2375,
-                    "want_address": "0x4000000000000000000000000000000000000004",
-                    "want_decimals": 6,
+                    "selected_token": "0x5000000000000000000000000000000000000005",
+                    "selected_token_active": True,
+                    "selected_token_balance_raw": 1000000000000000000,
+                    "selected_token_kicked_at": 123,
                 },
                 "decision": {
                     "status": "actionable",
-                    "operation_type": "sweep_and_settle",
+                    "operation_type": "resolve_auction",
                     "token_address": "0x5000000000000000000000000000000000000005",
-                    "reason": "forced sweep requested while auction is still active above minimumPrice",
+                    "reason": "forced sweep requested while auction is still active with sell balance",
                 },
                 "requestedSweep": True,
             },
             transactions=[
                 {
-                    "operation": "sweep-and-settle",
+                    "operation": "resolve-auction",
                     "to": "0x7000000000000000000000000000000000000007",
                     "data": "0xdeadbeef",
                     "value": "0x0",
@@ -881,12 +880,12 @@ def test_settle_action_broadcast_and_receipt_materialize_kick_logs(tmp_path: Pat
     assert payload["data"]["total"] == 1
     assert payload["data"]["kicks"][0]["status"] == "CONFIRMED"
     assert payload["data"]["kicks"][0]["txHash"] == tx_hash
-    assert payload["data"]["kicks"][0]["operationType"] == "sweep_and_settle"
+    assert payload["data"]["kicks"][0]["operationType"] == "resolve_auction"
     assert payload["data"]["kicks"][0]["tokenSymbol"] == "CRV"
     assert payload["data"]["kicks"][0]["wantSymbol"] == "USDC"
     assert payload["data"]["kicks"][0]["sourceName"] == "Test Strategy"
     assert payload["data"]["kicks"][0]["stuckAbortReason"] == (
-        "forced sweep requested while auction is still active above minimumPrice"
+        "forced sweep requested while auction is still active with sell balance"
     )
 
 

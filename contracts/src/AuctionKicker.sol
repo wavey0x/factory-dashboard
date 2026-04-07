@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import {ITradeHandler} from "./interfaces/ITradeHandler.sol";
 import {IAuction} from "./interfaces/IAuction.sol";
+import {IERC20} from "./interfaces/IERC20.sol";
 import {WeiRollCommandLib} from "./utils/WeiRollCommandLib.sol";
 
 contract AuctionKicker {
@@ -14,7 +15,14 @@ contract AuctionKicker {
     bytes4 internal constant SETTLE_SELECTOR = bytes4(keccak256("settle(address)"));
     bytes4 internal constant SWEEP_SELECTOR = bytes4(keccak256("sweep(address)"));
     bytes4 internal constant KICK_SELECTOR = bytes4(keccak256("kick(address)"));
+    bytes4 internal constant DISABLE_SELECTOR = bytes4(keccak256("disable(address)"));
     bytes4 internal constant ENABLE_SELECTOR = bytes4(keccak256("enable(address)"));
+    uint8 internal constant PATH_NOOP = 0;
+    uint8 internal constant PATH_SETTLE_ONLY = 1;
+    uint8 internal constant PATH_SWEEP_ONLY = 2;
+    uint8 internal constant PATH_SWEEP_AND_SETTLE = 3;
+    uint8 internal constant PATH_RESET_ONLY = 4;
+    uint8 internal constant PATH_SWEEP_AND_RESET = 5;
     address public constant tradeHandler = 0xb634316E06cC0B358437CbadD4dC94F1D3a92B3b;
 
     event OwnerUpdated(address indexed owner);
@@ -30,6 +38,9 @@ contract AuctionKicker {
         address settleToken
     );
     event SweepAndSettled(address indexed auction, address indexed sellToken);
+    event AuctionResolved(
+        address indexed auction, address indexed sellToken, uint8 path, address receiver, uint256 recoveredBalance
+    );
 
     struct KickParams {
         address source;
@@ -131,27 +142,17 @@ contract AuctionKicker {
         _kickExtended(p);
     }
 
+    function resolveAuction(address auction, address sellToken) external onlyKeeperOrOwner {
+        (uint8 path, address receiver, uint256 recoveredBalance) = _resolveAuction(auction, sellToken);
+        emit AuctionResolved(auction, sellToken, path, receiver, recoveredBalance);
+    }
+
     function sweepAndSettle(address auction, address sellToken) external onlyKeeperOrOwner {
-        address receiver = IAuction(auction).receiver();
-        uint256 sellAmount = IAuction(auction).available(sellToken);
-        require(sellAmount != 0, "nothing to sweep");
-
-        bytes[] memory state = new bytes[](3);
-        state[0] = abi.encode(sellToken);
-        state[1] = abi.encode(receiver);
-        state[2] = abi.encode(sellAmount);
-
-        bytes32[] memory commands = new bytes32[](3);
-        commands[0] = WeiRollCommandLib.cmdCall(
-            SWEEP_SELECTOR, 0, WeiRollCommandLib.ARG_UNUSED, WeiRollCommandLib.ARG_UNUSED, auction
-        );
-        commands[1] = WeiRollCommandLib.cmdCall(TRANSFER_SELECTOR, 1, 2, WeiRollCommandLib.ARG_UNUSED, sellToken);
-        commands[2] = WeiRollCommandLib.cmdCall(
-            SETTLE_SELECTOR, 0, WeiRollCommandLib.ARG_UNUSED, WeiRollCommandLib.ARG_UNUSED, auction
-        );
-
-        ITradeHandler(tradeHandler).execute(commands, state);
-        emit SweepAndSettled(auction, sellToken);
+        (uint8 path, address receiver, uint256 recoveredBalance) = _resolveAuction(auction, sellToken);
+        if (path == PATH_SWEEP_AND_SETTLE) {
+            emit SweepAndSettled(auction, sellToken);
+        }
+        emit AuctionResolved(auction, sellToken, path, receiver, recoveredBalance);
     }
 
     function enableTokens(address auction, address[] calldata sellTokens) external onlyKeeperOrOwner {
@@ -167,11 +168,7 @@ contract AuctionKicker {
             require(sellToken != address(0), "zero token");
             state[i] = abi.encode(sellToken);
             commands[i] = WeiRollCommandLib.cmdCall(
-                ENABLE_SELECTOR,
-                uint8(i),
-                WeiRollCommandLib.ARG_UNUSED,
-                WeiRollCommandLib.ARG_UNUSED,
-                auction
+                ENABLE_SELECTOR, uint8(i), WeiRollCommandLib.ARG_UNUSED, WeiRollCommandLib.ARG_UNUSED, auction
             );
         }
 
@@ -323,5 +320,124 @@ contract AuctionKicker {
             p.stepDecayRateBps,
             p.settleToken
         );
+    }
+
+    function _resolveAuction(address auction, address sellToken)
+        internal
+        returns (uint8 path, address receiver, uint256 recoveredBalance)
+    {
+        require(IAuction(auction).governance() == tradeHandler, "governance mismatch");
+
+        receiver = IAuction(auction).receiver();
+        bool active = IAuction(auction).isActive(sellToken);
+        uint256 kickedAt = IAuction(auction).kicked(sellToken);
+        recoveredBalance = IERC20(sellToken).balanceOf(auction);
+
+        if (active) {
+            if (recoveredBalance == 0) {
+                _executeSettleOnly(auction, sellToken);
+                return (PATH_SETTLE_ONLY, receiver, 0);
+            }
+
+            _executeSweepTransferSettle(auction, sellToken, receiver, recoveredBalance);
+            return (PATH_SWEEP_AND_SETTLE, receiver, recoveredBalance);
+        }
+
+        if (kickedAt != 0) {
+            if (recoveredBalance == 0) {
+                _executeDisableEnable(auction, sellToken);
+                return (PATH_RESET_ONLY, receiver, 0);
+            }
+
+            _executeSweepTransferDisableEnable(auction, sellToken, receiver, recoveredBalance);
+            return (PATH_SWEEP_AND_RESET, receiver, recoveredBalance);
+        }
+
+        if (recoveredBalance != 0) {
+            _executeSweepTransfer(auction, sellToken, receiver, recoveredBalance);
+            return (PATH_SWEEP_ONLY, receiver, recoveredBalance);
+        }
+
+        return (PATH_NOOP, receiver, 0);
+    }
+
+    function _executeSettleOnly(address auction, address sellToken) internal {
+        bytes[] memory state = new bytes[](1);
+        state[0] = abi.encode(sellToken);
+        bytes32[] memory commands = new bytes32[](1);
+        commands[0] = WeiRollCommandLib.cmdCall(
+            SETTLE_SELECTOR, 0, WeiRollCommandLib.ARG_UNUSED, WeiRollCommandLib.ARG_UNUSED, auction
+        );
+        ITradeHandler(tradeHandler).execute(commands, state);
+    }
+
+    function _executeSweepTransfer(address auction, address sellToken, address receiver, uint256 recoveredBalance)
+        internal
+    {
+        bytes[] memory state = new bytes[](3);
+        state[0] = abi.encode(sellToken);
+        state[1] = abi.encode(receiver);
+        state[2] = abi.encode(recoveredBalance);
+        bytes32[] memory commands = new bytes32[](2);
+        commands[0] = WeiRollCommandLib.cmdCall(
+            SWEEP_SELECTOR, 0, WeiRollCommandLib.ARG_UNUSED, WeiRollCommandLib.ARG_UNUSED, auction
+        );
+        commands[1] = WeiRollCommandLib.cmdCall(TRANSFER_SELECTOR, 1, 2, WeiRollCommandLib.ARG_UNUSED, sellToken);
+        ITradeHandler(tradeHandler).execute(commands, state);
+    }
+
+    function _executeSweepTransferSettle(address auction, address sellToken, address receiver, uint256 recoveredBalance)
+        internal
+    {
+        bytes[] memory state = new bytes[](3);
+        state[0] = abi.encode(sellToken);
+        state[1] = abi.encode(receiver);
+        state[2] = abi.encode(recoveredBalance);
+        bytes32[] memory commands = new bytes32[](3);
+        commands[0] = WeiRollCommandLib.cmdCall(
+            SWEEP_SELECTOR, 0, WeiRollCommandLib.ARG_UNUSED, WeiRollCommandLib.ARG_UNUSED, auction
+        );
+        commands[1] = WeiRollCommandLib.cmdCall(TRANSFER_SELECTOR, 1, 2, WeiRollCommandLib.ARG_UNUSED, sellToken);
+        commands[2] = WeiRollCommandLib.cmdCall(
+            SETTLE_SELECTOR, 0, WeiRollCommandLib.ARG_UNUSED, WeiRollCommandLib.ARG_UNUSED, auction
+        );
+        ITradeHandler(tradeHandler).execute(commands, state);
+    }
+
+    function _executeDisableEnable(address auction, address sellToken) internal {
+        bytes[] memory state = new bytes[](1);
+        state[0] = abi.encode(sellToken);
+        bytes32[] memory commands = new bytes32[](2);
+        commands[0] = WeiRollCommandLib.cmdCall(
+            DISABLE_SELECTOR, 0, WeiRollCommandLib.ARG_UNUSED, WeiRollCommandLib.ARG_UNUSED, auction
+        );
+        commands[1] = WeiRollCommandLib.cmdCall(
+            ENABLE_SELECTOR, 0, WeiRollCommandLib.ARG_UNUSED, WeiRollCommandLib.ARG_UNUSED, auction
+        );
+        ITradeHandler(tradeHandler).execute(commands, state);
+    }
+
+    function _executeSweepTransferDisableEnable(
+        address auction,
+        address sellToken,
+        address receiver,
+        uint256 recoveredBalance
+    ) internal {
+        bytes[] memory state = new bytes[](3);
+        state[0] = abi.encode(sellToken);
+        state[1] = abi.encode(receiver);
+        state[2] = abi.encode(recoveredBalance);
+        bytes32[] memory commands = new bytes32[](4);
+        commands[0] = WeiRollCommandLib.cmdCall(
+            SWEEP_SELECTOR, 0, WeiRollCommandLib.ARG_UNUSED, WeiRollCommandLib.ARG_UNUSED, auction
+        );
+        commands[1] = WeiRollCommandLib.cmdCall(TRANSFER_SELECTOR, 1, 2, WeiRollCommandLib.ARG_UNUSED, sellToken);
+        commands[2] = WeiRollCommandLib.cmdCall(
+            DISABLE_SELECTOR, 0, WeiRollCommandLib.ARG_UNUSED, WeiRollCommandLib.ARG_UNUSED, auction
+        );
+        commands[3] = WeiRollCommandLib.cmdCall(
+            ENABLE_SELECTOR, 0, WeiRollCommandLib.ARG_UNUSED, WeiRollCommandLib.ARG_UNUSED, auction
+        );
+        ITradeHandler(tradeHandler).execute(commands, state);
     }
 }

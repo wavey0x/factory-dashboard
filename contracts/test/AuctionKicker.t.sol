@@ -33,6 +33,87 @@ contract EnableAuctionMock {
     }
 }
 
+contract ResolveAuctionTokenMock {
+    mapping(address => uint256) public balanceOf;
+
+    function mint(address to, uint256 amount) external {
+        balanceOf[to] += amount;
+    }
+
+    function transfer(address to, uint256 amount) external returns (bool) {
+        require(balanceOf[msg.sender] >= amount, "insufficient balance");
+        balanceOf[msg.sender] -= amount;
+        balanceOf[to] += amount;
+        return true;
+    }
+}
+
+contract ResolveAuctionMock {
+    address public immutable governance;
+    address public receiver;
+    mapping(address => bool) public active;
+    mapping(address => uint256) public kickedAt;
+    mapping(address => bool) public enabled;
+
+    constructor(address governance_, address receiver_) {
+        governance = governance_;
+        receiver = receiver_;
+    }
+
+    modifier onlyGovernance() {
+        require(msg.sender == governance, "!governance");
+        _;
+    }
+
+    function want() external pure returns (address) {
+        return address(0);
+    }
+
+    function getAllEnabledAuctions() external pure returns (address[] memory) {
+        return new address[](0);
+    }
+
+    function isActive(address token) external view returns (bool) {
+        return active[token];
+    }
+
+    function kicked(address token) external view returns (uint256) {
+        return kickedAt[token];
+    }
+
+    function setLotState(address token, bool isActive_, uint256 kicked_, bool enabled_) external {
+        active[token] = isActive_;
+        kickedAt[token] = kicked_;
+        enabled[token] = enabled_;
+    }
+
+    function settle(address token) external {
+        require(active[token], "!active");
+        require(ResolveAuctionTokenMock(token).balanceOf(address(this)) == 0, "!empty");
+        active[token] = false;
+        kickedAt[token] = 0;
+    }
+
+    function sweep(address token) external onlyGovernance {
+        uint256 amount = ResolveAuctionTokenMock(token).balanceOf(address(this));
+        ResolveAuctionTokenMock(token).transfer(msg.sender, amount);
+    }
+
+    function disable(address token) external onlyGovernance {
+        require(enabled[token], "not enabled");
+        enabled[token] = false;
+        active[token] = false;
+        kickedAt[token] = 0;
+    }
+
+    function enable(address token) external onlyGovernance {
+        require(!enabled[token], "already enabled");
+        enabled[token] = true;
+        active[token] = false;
+        kickedAt[token] = 0;
+    }
+}
+
 contract AuctionKickerTest is Test {
     using stdStorage for StdStorage;
 
@@ -49,6 +130,9 @@ contract AuctionKickerTest is Test {
         address settleToken
     );
     event SweepAndSettled(address indexed auction, address indexed sellToken);
+    event AuctionResolved(
+        address indexed auction, address indexed sellToken, uint8 path, address receiver, uint256 recoveredBalance
+    );
 
     address internal constant TRADE_HANDLER = 0xb634316E06cC0B358437CbadD4dC94F1D3a92B3b;
     address internal constant AUCTION = 0x785cf728913e92DC5b24162DCBeE7A41E7de5747;
@@ -62,6 +146,7 @@ contract AuctionKickerTest is Test {
 
     address internal keeper = makeAddr("keeper");
     address internal newOwner = makeAddr("new-owner");
+    address internal resolveReceiver = makeAddr("resolve-receiver");
 
     AuctionKicker internal kicker;
     WeiRollCommandLibHarness internal commandHarness;
@@ -523,6 +608,144 @@ contract AuctionKickerTest is Test {
         assertFalse(IAuction(AUCTION).isActive(CRV));
         assertEq(IERC20(CRV).balanceOf(AUCTION), 0);
         assertEq(IERC20(CRV).balanceOf(STRATEGY), strategyBaseBalance + amount);
+    }
+
+    function test_resolveAuction_activeWithBalance_sweepsAndSettles() public {
+        ResolveAuctionTokenMock token = new ResolveAuctionTokenMock();
+        ResolveAuctionMock auction = new ResolveAuctionMock(TRADE_HANDLER, resolveReceiver);
+        uint256 amount = 7e18;
+
+        token.mint(address(auction), amount);
+        auction.setLotState(address(token), true, block.timestamp, true);
+
+        vm.expectEmit(true, true, false, true);
+        emit AuctionResolved(address(auction), address(token), 3, resolveReceiver, amount);
+
+        vm.prank(keeper);
+        kicker.resolveAuction(address(auction), address(token));
+
+        assertEq(token.balanceOf(resolveReceiver), amount);
+        assertEq(token.balanceOf(address(auction)), 0);
+        assertFalse(auction.active(address(token)));
+        assertEq(auction.kicked(address(token)), 0);
+        assertTrue(auction.enabled(address(token)));
+    }
+
+    function test_resolveAuction_activeWithZeroBalance_settlesOnly() public {
+        ResolveAuctionTokenMock token = new ResolveAuctionTokenMock();
+        ResolveAuctionMock auction = new ResolveAuctionMock(TRADE_HANDLER, resolveReceiver);
+
+        auction.setLotState(address(token), true, block.timestamp, true);
+
+        vm.expectEmit(true, true, false, true);
+        emit AuctionResolved(address(auction), address(token), 1, resolveReceiver, 0);
+
+        vm.prank(keeper);
+        kicker.resolveAuction(address(auction), address(token));
+
+        assertEq(token.balanceOf(resolveReceiver), 0);
+        assertEq(token.balanceOf(address(auction)), 0);
+        assertFalse(auction.active(address(token)));
+        assertEq(auction.kicked(address(token)), 0);
+        assertTrue(auction.enabled(address(token)));
+    }
+
+    function test_resolveAuction_inactiveKickedWithBalance_sweepsAndResets() public {
+        ResolveAuctionTokenMock token = new ResolveAuctionTokenMock();
+        ResolveAuctionMock auction = new ResolveAuctionMock(TRADE_HANDLER, resolveReceiver);
+        uint256 amount = 11e18;
+
+        token.mint(address(auction), amount);
+        auction.setLotState(address(token), false, block.timestamp - 1, true);
+
+        vm.expectEmit(true, true, false, true);
+        emit AuctionResolved(address(auction), address(token), 5, resolveReceiver, amount);
+
+        vm.prank(keeper);
+        kicker.resolveAuction(address(auction), address(token));
+
+        assertEq(token.balanceOf(resolveReceiver), amount);
+        assertEq(token.balanceOf(address(auction)), 0);
+        assertFalse(auction.active(address(token)));
+        assertEq(auction.kicked(address(token)), 0);
+        assertTrue(auction.enabled(address(token)));
+    }
+
+    function test_resolveAuction_inactiveKickedEmpty_resetsOnly() public {
+        ResolveAuctionTokenMock token = new ResolveAuctionTokenMock();
+        ResolveAuctionMock auction = new ResolveAuctionMock(TRADE_HANDLER, resolveReceiver);
+
+        auction.setLotState(address(token), false, block.timestamp - 1, true);
+
+        vm.expectEmit(true, true, false, true);
+        emit AuctionResolved(address(auction), address(token), 4, resolveReceiver, 0);
+
+        vm.prank(keeper);
+        kicker.resolveAuction(address(auction), address(token));
+
+        assertEq(token.balanceOf(resolveReceiver), 0);
+        assertEq(token.balanceOf(address(auction)), 0);
+        assertFalse(auction.active(address(token)));
+        assertEq(auction.kicked(address(token)), 0);
+        assertTrue(auction.enabled(address(token)));
+    }
+
+    function test_resolveAuction_cleanWithBalance_sweepsOnly() public {
+        ResolveAuctionTokenMock token = new ResolveAuctionTokenMock();
+        ResolveAuctionMock auction = new ResolveAuctionMock(TRADE_HANDLER, resolveReceiver);
+        uint256 amount = 5e18;
+
+        token.mint(address(auction), amount);
+        auction.setLotState(address(token), false, 0, true);
+
+        vm.expectEmit(true, true, false, true);
+        emit AuctionResolved(address(auction), address(token), 2, resolveReceiver, amount);
+
+        vm.prank(keeper);
+        kicker.resolveAuction(address(auction), address(token));
+
+        assertEq(token.balanceOf(resolveReceiver), amount);
+        assertEq(token.balanceOf(address(auction)), 0);
+        assertFalse(auction.active(address(token)));
+        assertEq(auction.kicked(address(token)), 0);
+        assertTrue(auction.enabled(address(token)));
+    }
+
+    function test_resolveAuction_cleanEmpty_isNoop() public {
+        ResolveAuctionTokenMock token = new ResolveAuctionTokenMock();
+        ResolveAuctionMock auction = new ResolveAuctionMock(TRADE_HANDLER, resolveReceiver);
+
+        auction.setLotState(address(token), false, 0, true);
+
+        vm.expectEmit(true, true, false, true);
+        emit AuctionResolved(address(auction), address(token), 0, resolveReceiver, 0);
+
+        vm.prank(keeper);
+        kicker.resolveAuction(address(auction), address(token));
+
+        assertEq(token.balanceOf(resolveReceiver), 0);
+        assertEq(token.balanceOf(address(auction)), 0);
+        assertFalse(auction.active(address(token)));
+        assertEq(auction.kicked(address(token)), 0);
+        assertTrue(auction.enabled(address(token)));
+    }
+
+    function test_resolveAuction_revert_governanceMismatch() public {
+        ResolveAuctionTokenMock token = new ResolveAuctionTokenMock();
+        ResolveAuctionMock auction = new ResolveAuctionMock(makeAddr("other-governance"), resolveReceiver);
+
+        vm.expectRevert("governance mismatch");
+        vm.prank(keeper);
+        kicker.resolveAuction(address(auction), address(token));
+    }
+
+    function test_resolveAuction_revert_unauthorized() public {
+        ResolveAuctionTokenMock token = new ResolveAuctionTokenMock();
+        ResolveAuctionMock auction = new ResolveAuctionMock(TRADE_HANDLER, resolveReceiver);
+
+        vm.expectRevert("unauthorized");
+        vm.prank(makeAddr("not-authorized"));
+        kicker.resolveAuction(address(auction), address(token));
     }
 
     function test_enableTokens_keeperEnablesTokenThroughTradeHandler() public {

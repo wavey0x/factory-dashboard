@@ -281,7 +281,7 @@ def _sync_kick_log_rows(
     error_message: str | None = None,
 ) -> None:
     operation_type = _normalize_operation_type(tx_row.get("operation"))
-    if operation_type not in {"kick", "settle", "sweep_and_settle"}:
+    if operation_type not in {"kick", "settle", "sweep_and_settle", "resolve_auction"}:
         return
 
     tx_hash = tx_row.get("tx_hash")
@@ -437,7 +437,7 @@ def _prepared_settlement_operation(
     *,
     operation_type: str,
 ) -> dict[str, object] | None:
-    if operation_type not in {"settle", "sweep_and_settle"}:
+    if operation_type not in {"settle", "sweep_and_settle", "resolve_auction"}:
         return None
 
     preview = _decode_json(action_row.get("preview_json"))
@@ -477,8 +477,18 @@ def _prepared_settlement_operation(
         ),
         "want_symbol": None,
         "sell_amount": (
-            str(inspection.get("active_available_raw"))
-            if inspection.get("active_available_raw") is not None
+            str(
+                inspection.get("selected_token_balance_raw")
+                if inspection.get("selected_token_balance_raw") is not None
+                else inspection.get("active_available_raw")
+                if inspection.get("active_available_raw") is not None
+                else inspection.get("inactive_token_balance_raw")
+            )
+            if (
+                inspection.get("selected_token_balance_raw") is not None
+                or inspection.get("active_available_raw") is not None
+                or inspection.get("inactive_token_balance_raw") is not None
+            )
             else None
         ),
         "normalized_balance": None,

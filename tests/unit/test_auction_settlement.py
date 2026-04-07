@@ -1,4 +1,3 @@
-import time
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -17,10 +16,11 @@ def _make_inspection(**overrides) -> AuctionInspection:
         "is_active_auction": True,
         "active_tokens": ("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",),
         "active_token": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "active_available_raw": 10**18,
-        "active_price_public_raw": 110,
-        "minimum_price_scaled_1e18": 100,
-        "minimum_price_public_raw": 100,
+        "candidate_tokens": ("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",),
+        "selected_token": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "selected_token_active": True,
+        "selected_token_balance_raw": 10**18,
+        "selected_token_kicked_at": 123,
     }
     defaults.update(overrides)
     return AuctionInspection(**defaults)
@@ -30,168 +30,160 @@ def test_normalize_settlement_method_accepts_dash_form() -> None:
     assert normalize_settlement_method("sweep-and-settle") == "sweep_and_settle"
 
 
-def test_decide_auction_settlement_no_active_lot_is_noop_in_auto_mode() -> None:
+def test_decide_auction_settlement_no_candidate_is_noop_in_auto_mode() -> None:
     decision = decide_auction_settlement(
         _make_inspection(
             is_active_auction=False,
             active_tokens=(),
             active_token=None,
-            active_available_raw=None,
-            active_price_public_raw=None,
-            minimum_price_scaled_1e18=None,
-            minimum_price_public_raw=None,
+            candidate_tokens=(),
+            selected_token=None,
+            selected_token_active=None,
+            selected_token_balance_raw=None,
+            selected_token_kicked_at=None,
         )
     )
 
     assert decision.status == "noop"
     assert decision.operation_type is None
-    assert decision.reason == "auction has no active lot"
+    assert decision.reason == "auction has nothing to resolve"
 
 
-def test_decide_auction_settlement_no_active_lot_is_error_for_forced_method() -> None:
+def test_decide_auction_settlement_no_candidate_is_error_for_forced_method() -> None:
     decision = decide_auction_settlement(
         _make_inspection(
             is_active_auction=False,
             active_tokens=(),
             active_token=None,
-            active_available_raw=None,
-            active_price_public_raw=None,
-            minimum_price_scaled_1e18=None,
-            minimum_price_public_raw=None,
+            candidate_tokens=(),
+            selected_token=None,
+            selected_token_active=None,
+            selected_token_balance_raw=None,
+            selected_token_kicked_at=None,
         ),
         method="settle",
     )
 
     assert decision.status == "error"
-    assert decision.reason == "requested settlement method is not applicable: auction has no active lot"
+    assert decision.reason == "requested settlement method is not applicable: auction has nothing to resolve"
 
 
-def test_decide_auction_settlement_inactive_below_floor_reports_stranded_balance() -> None:
-    now = int(time.time())
+def test_decide_auction_settlement_multiple_candidates_requires_token() -> None:
     decision = decide_auction_settlement(
         _make_inspection(
             is_active_auction=False,
             active_tokens=(),
             active_token=None,
-            active_available_raw=None,
-            active_price_public_raw=None,
-            inactive_token="0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            inactive_token_balance_raw=10**18,
-            inactive_token_kickable_raw=10**18,
-            inactive_token_kicked_at=now - 300,
-            auction_length_seconds=86400,
-        ),
-        token_address="0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        method="sweep_and_settle",
-    )
-
-    assert decision.status == "error"
-    assert decision.token_address == "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    assert "inactive below minimumPrice" in decision.reason
-    assert "forceKick()" in decision.reason
-    assert "sweep()+disable()" in decision.reason
-
-
-def test_decide_auction_settlement_inactive_expired_balance_is_noop_in_auto_mode() -> None:
-    now = int(time.time())
-    decision = decide_auction_settlement(
-        _make_inspection(
-            is_active_auction=False,
-            active_tokens=(),
-            active_token=None,
-            active_available_raw=None,
-            active_price_public_raw=None,
-            inactive_token="0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            inactive_token_balance_raw=10**18,
-            inactive_token_kickable_raw=10**18,
-            inactive_token_kicked_at=now - 90_000,
-            auction_length_seconds=86400,
+            candidate_tokens=(
+                "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            ),
+            selected_token=None,
+            selected_token_active=None,
+            selected_token_balance_raw=None,
+            selected_token_kicked_at=None,
         )
     )
 
-    assert decision.status == "noop"
-    assert decision.token_address == "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    assert "the lot has already expired" in decision.reason
+    assert decision.status == "error"
+    assert decision.reason == "multiple candidate tokens detected for auction; pass --token"
 
 
-def test_decide_auction_settlement_sold_out_selects_settle() -> None:
-    decision = decide_auction_settlement(_make_inspection(active_available_raw=0, active_price_public_raw=125))
+def test_decide_auction_settlement_active_sold_out_selects_resolver() -> None:
+    decision = decide_auction_settlement(_make_inspection(selected_token_balance_raw=0))
 
     assert decision.status == "actionable"
-    assert decision.operation_type == "settle"
+    assert decision.operation_type == "resolve_auction"
     assert decision.token_address == "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     assert decision.reason == "active lot is sold out"
 
 
-def test_decide_auction_settlement_floor_price_selects_sweep_and_settle() -> None:
-    decision = decide_auction_settlement(_make_inspection(active_available_raw=10**18, active_price_public_raw=100))
-
-    assert decision.status == "actionable"
-    assert decision.operation_type == "sweep_and_settle"
-    assert decision.reason == "active auction price is at or below minimumPrice"
-
-
-def test_decide_auction_settlement_above_floor_is_noop_in_auto_mode() -> None:
-    decision = decide_auction_settlement(_make_inspection(active_available_raw=10**18, active_price_public_raw=101))
+def test_decide_auction_settlement_active_with_balance_is_noop_in_auto_mode() -> None:
+    decision = decide_auction_settlement(_make_inspection(selected_token_balance_raw=10**18))
 
     assert decision.status == "noop"
     assert decision.operation_type is None
-    assert decision.reason == "auction still active above minimumPrice"
+    assert decision.reason == "auction still active with sell balance"
 
 
-def test_decide_auction_settlement_above_floor_is_error_for_forced_method() -> None:
+def test_decide_auction_settlement_active_with_balance_is_error_for_settle() -> None:
     decision = decide_auction_settlement(
-        _make_inspection(active_available_raw=10**18, active_price_public_raw=101),
-        method="sweep_and_settle",
+        _make_inspection(selected_token_balance_raw=10**18),
+        method="settle",
     )
 
     assert decision.status == "error"
-    assert decision.reason == "requested settlement method is not applicable: auction still active above minimumPrice"
+    assert decision.reason == "settle is not applicable: active lot still has sell balance"
 
 
-def test_decide_auction_settlement_above_floor_force_sweep_is_actionable() -> None:
+def test_decide_auction_settlement_active_with_balance_forced_sweep_is_actionable() -> None:
     decision = decide_auction_settlement(
-        _make_inspection(active_available_raw=10**18, active_price_public_raw=101),
+        _make_inspection(selected_token_balance_raw=10**18),
         method="sweep_and_settle",
         allow_above_floor=True,
     )
 
     assert decision.status == "actionable"
-    assert decision.operation_type == "sweep_and_settle"
-    assert decision.reason == "forced sweep requested while auction is still active above minimumPrice"
+    assert decision.operation_type == "resolve_auction"
+    assert decision.reason == "forced sweep requested while auction is still active with sell balance"
 
 
-def test_decide_auction_settlement_token_override_mismatch_errors() -> None:
-    decision = decide_auction_settlement(
-        _make_inspection(),
-        token_address="0xcccccccccccccccccccccccccccccccccccccccc",
-    )
-
-    assert decision.status == "error"
-    assert decision.token_address == "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    assert "does not match active token" in decision.reason
-
-
-def test_decide_auction_settlement_non_18_decimal_want_uses_public_floor() -> None:
+def test_decide_auction_settlement_inactive_kicked_with_balance_selects_resolver() -> None:
     decision = decide_auction_settlement(
         _make_inspection(
-            active_available_raw=10**18,
-            active_price_public_raw=2375000,
-            minimum_price_scaled_1e18=2_375_000_000_000_000_000,
-            minimum_price_public_raw=2375000,
-            want_decimals=6,
+            is_active_auction=False,
+            active_tokens=(),
+            active_token=None,
+            selected_token_active=False,
+            selected_token_balance_raw=10**18,
+            selected_token_kicked_at=123,
         )
     )
 
     assert decision.status == "actionable"
-    assert decision.operation_type == "sweep_and_settle"
+    assert decision.operation_type == "resolve_auction"
+    assert decision.reason == "inactive kicked lot has stranded sell balance"
 
 
-def test_build_auction_settlement_call_for_settle_targets_auction() -> None:
+def test_decide_auction_settlement_inactive_kicked_empty_selects_resolver() -> None:
+    decision = decide_auction_settlement(
+        _make_inspection(
+            is_active_auction=False,
+            active_tokens=(),
+            active_token=None,
+            selected_token_active=False,
+            selected_token_balance_raw=0,
+            selected_token_kicked_at=123,
+        )
+    )
+
+    assert decision.status == "actionable"
+    assert decision.operation_type == "resolve_auction"
+    assert decision.reason == "inactive kicked lot is stale and empty"
+
+
+def test_decide_auction_settlement_inactive_clean_with_balance_selects_resolver() -> None:
+    decision = decide_auction_settlement(
+        _make_inspection(
+            is_active_auction=False,
+            active_tokens=(),
+            active_token=None,
+            selected_token_active=False,
+            selected_token_balance_raw=10**18,
+            selected_token_kicked_at=0,
+        )
+    )
+
+    assert decision.status == "actionable"
+    assert decision.operation_type == "resolve_auction"
+    assert decision.reason == "inactive lot holds sell balance"
+
+
+def test_build_auction_settlement_call_targets_kicker_resolver() -> None:
     mock_contract = MagicMock()
-    mock_settle = MagicMock()
-    mock_settle._encode_transaction_data.return_value = "0xdeadbeef"
-    mock_contract.functions.settle.return_value = mock_settle
+    mock_resolve = MagicMock()
+    mock_resolve._encode_transaction_data.return_value = "0xfeedface"
+    mock_contract.functions.resolveAuction.return_value = mock_resolve
 
     web3_client = MagicMock()
     web3_client.contract.return_value = mock_contract
@@ -202,38 +194,12 @@ def test_build_auction_settlement_call_for_settle_targets_auction() -> None:
         auction_address="0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         decision=AuctionSettlementDecision(
             status="actionable",
-            operation_type="settle",
+            operation_type="resolve_auction",
             token_address="0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            reason="active lot is sold out",
+            reason="inactive kicked lot has stranded sell balance",
         ),
     )
 
-    assert call.operation_type == "settle"
-    assert call.target_address == "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-    assert call.data == "0xdeadbeef"
-
-
-def test_build_auction_settlement_call_for_sweep_targets_kicker() -> None:
-    mock_contract = MagicMock()
-    mock_sweep = MagicMock()
-    mock_sweep._encode_transaction_data.return_value = "0xfeedface"
-    mock_contract.functions.sweepAndSettle.return_value = mock_sweep
-
-    web3_client = MagicMock()
-    web3_client.contract.return_value = mock_contract
-
-    call = build_auction_settlement_call(
-        settings=SimpleNamespace(auction_kicker_address="0x9999999999999999999999999999999999999999"),
-        web3_client=web3_client,
-        auction_address="0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-        decision=AuctionSettlementDecision(
-            status="actionable",
-            operation_type="sweep_and_settle",
-            token_address="0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            reason="active auction price is at or below minimumPrice",
-        ),
-    )
-
-    assert call.operation_type == "sweep_and_settle"
+    assert call.operation_type == "resolve_auction"
     assert call.target_address == "0x9999999999999999999999999999999999999999"
     assert call.data == "0xfeedface"

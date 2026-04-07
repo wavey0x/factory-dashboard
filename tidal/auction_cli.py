@@ -136,6 +136,8 @@ def _handle_prepared_action(
                         progress_callback=update_progress,
                     )
     except RuntimeError as exc:
+        if isinstance(exc, typer.Exit):
+            raise
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
 
@@ -292,7 +294,7 @@ def settle(
     sweep: bool = typer.Option(
         False,
         "--sweep",
-        help="Force sweep-and-settle for the active lot, even if it is still above floor.",
+        help="Allow resolving a live lot that still has sell balance.",
     ),
     keystore: KeystoreOption = None,
     password_file: PasswordFileOption = None,

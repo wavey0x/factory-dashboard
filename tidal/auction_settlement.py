@@ -4,14 +4,12 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-import time
 from typing import Literal
 
 from eth_utils import to_checksum_address
 
-from tidal.auction_price_units import scaled_price_to_public_raw
+from tidal.chain.contracts.abis import AUCTION_KICKER_ABI
 from tidal.chain.contracts.erc20 import ERC20Reader
-from tidal.chain.contracts.abis import AUCTION_ABI, AUCTION_KICKER_ABI
 from tidal.chain.contracts.multicall import MulticallClient
 from tidal.normalizers import normalize_address
 from tidal.scanner.auction_state import AuctionStateReader
@@ -19,7 +17,7 @@ from tidal.transaction_service.types import AuctionInspection
 
 SettlementMethod = Literal["auto", "settle", "sweep_and_settle"]
 SettlementDecisionStatus = Literal["actionable", "noop", "error"]
-SettlementOperationType = Literal["settle", "sweep_and_settle"]
+SettlementOperationType = Literal["resolve_auction"]
 
 
 @dataclass(slots=True)
@@ -80,137 +78,87 @@ async def inspect_auction_settlement(  # noqa: ANN001
     probe_tokens: set[str] = set(enabled_tokens)
     if normalized_token is not None:
         probe_tokens.add(normalized_token)
-    probe_pairs = [(normalized_auction, token_address) for token_address in sorted(probe_tokens)]
+    ordered_tokens = tuple(sorted(probe_tokens))
+    probe_pairs = [(normalized_auction, token_address) for token_address in ordered_tokens]
 
-    token_active = {}
+    token_active: dict[tuple[str, str], bool | None] = {}
+    balance_by_pair: dict[tuple[str, str], int | None] = {}
+    kicked_by_pair: dict[tuple[str, str], int | None] = {}
+
     if probe_pairs:
         token_active = await reader.read_bool_arg_many(probe_pairs, "isActive")
+        balance_by_pair, _ = await erc20_reader.read_balances_many(probe_pairs)
+        kicked_by_pair = await reader.read_uint_arg_many(probe_pairs, "kicked")
 
     active_tokens = tuple(
         sorted(
-            token_address
-            for token_address in sorted(probe_tokens)
-            if token_active.get((normalized_auction, token_address)) is True
+            token
+            for token in ordered_tokens
+            if token_active.get((normalized_auction, token)) is True
         )
     )
+    inactive_tokens_with_balance = tuple(
+        sorted(
+            token
+            for token in ordered_tokens
+            if token_active.get((normalized_auction, token)) is not True
+            and (balance_by_pair.get((normalized_auction, token)) or 0) > 0
+        )
+    )
+    inactive_tokens_with_kick = tuple(
+        sorted(
+            token
+            for token in ordered_tokens
+            if token_active.get((normalized_auction, token)) is not True
+            and (kicked_by_pair.get((normalized_auction, token)) or 0) > 0
+        )
+    )
+    candidate_tokens = tuple(
+        sorted(
+            token
+            for token in ordered_tokens
+            if token_active.get((normalized_auction, token)) is True
+            or (balance_by_pair.get((normalized_auction, token)) or 0) > 0
+            or (kicked_by_pair.get((normalized_auction, token)) or 0) > 0
+        )
+    )
+
+    selected_token = normalized_token
+    if selected_token is None and len(candidate_tokens) == 1:
+        selected_token = candidate_tokens[0]
+
+    selected_token_active = None
+    selected_token_balance_raw = None
+    selected_token_kicked_at = None
+    if selected_token is not None:
+        selected_token_active = token_active.get((normalized_auction, selected_token))
+        selected_token_balance_raw = balance_by_pair.get((normalized_auction, selected_token))
+        selected_token_kicked_at = kicked_by_pair.get((normalized_auction, selected_token))
+
     active_token = active_tokens[0] if len(active_tokens) == 1 else None
-
-    active_available_raw = None
-    active_price_public_raw = None
-    minimum_price_scaled_1e18 = None
-    minimum_price_public_raw = None
-    want_address = None
-    want_decimals = None
-    inactive_tokens_with_balance: tuple[str, ...] = ()
-    inactive_token = None
-    inactive_token_balance_raw = None
-    inactive_token_kickable_raw = None
-    inactive_token_kicked_at = None
-    auction_length_seconds = None
-
-    if active_tokens or normalized_token is not None:
-        minimum_price_by_auction, want_by_auction = await asyncio.gather(
-            reader.read_uint_noargs_many([normalized_auction], "minimumPrice"),
-            reader.read_address_noargs_many([normalized_auction], "want"),
-        )
-        minimum_price_scaled_1e18 = minimum_price_by_auction.get(normalized_auction)
-        want_address = want_by_auction.get(normalized_auction)
-        if want_address is not None:
-            try:
-                want_decimals = await erc20_reader.read_decimals(want_address)
-            except Exception:  # noqa: BLE001
-                want_decimals = None
-        minimum_price_public_raw = scaled_price_to_public_raw(minimum_price_scaled_1e18, want_decimals)
-
-    if active_token is not None:
-        available_by_pair, price_by_pair = await asyncio.gather(
-            reader.read_uint_arg_many([(normalized_auction, active_token)], "available"),
-            reader.read_uint_arg_many([(normalized_auction, active_token)], "price"),
-        )
-        active_available_raw = available_by_pair.get((normalized_auction, active_token))
-        active_price_public_raw = price_by_pair.get((normalized_auction, active_token))
-    elif probe_pairs:
-        balance_by_pair, _ = await erc20_reader.read_balances_many(probe_pairs)
-        inactive_tokens_with_balance = tuple(
-            sorted(
-                token_address
-                for _, token_address in probe_pairs
-                if (balance_by_pair.get((normalized_auction, token_address)) or 0) > 0
-            )
-        )
-        if normalized_token is not None and (balance_by_pair.get((normalized_auction, normalized_token)) or 0) > 0:
-            inactive_token = normalized_token
-        elif len(inactive_tokens_with_balance) == 1:
-            inactive_token = inactive_tokens_with_balance[0]
-
-        if inactive_token is not None:
-            kickable_by_pair, kicked_by_pair, auction_length_by_auction = await asyncio.gather(
-                reader.read_uint_arg_many([(normalized_auction, inactive_token)], "kickable"),
-                reader.read_uint_arg_many([(normalized_auction, inactive_token)], "kicked"),
-                reader.read_uint_noargs_many([normalized_auction], "auctionLength"),
-            )
-            inactive_token_balance_raw = balance_by_pair.get((normalized_auction, inactive_token))
-            inactive_token_kickable_raw = kickable_by_pair.get((normalized_auction, inactive_token))
-            inactive_token_kicked_at = kicked_by_pair.get((normalized_auction, inactive_token))
-            auction_length_seconds = auction_length_by_auction.get(normalized_auction)
+    inactive_token = (
+        selected_token
+        if selected_token is not None and selected_token_active is not True
+        else None
+    )
 
     return AuctionInspection(
         auction_address=normalized_auction,
         is_active_auction=is_active_auction,
         active_tokens=active_tokens,
         active_token=active_token,
-        active_available_raw=active_available_raw,
-        active_price_public_raw=active_price_public_raw,
-        minimum_price_scaled_1e18=minimum_price_scaled_1e18,
-        minimum_price_public_raw=minimum_price_public_raw,
-        want_address=want_address,
-        want_decimals=want_decimals,
+        active_available_raw=selected_token_balance_raw if selected_token_active is True else None,
         enabled_tokens=tuple(sorted(enabled_tokens)),
         inactive_tokens_with_balance=inactive_tokens_with_balance,
+        inactive_tokens_with_kick=inactive_tokens_with_kick,
+        candidate_tokens=candidate_tokens,
         inactive_token=inactive_token,
-        inactive_token_balance_raw=inactive_token_balance_raw,
-        inactive_token_kickable_raw=inactive_token_kickable_raw,
-        inactive_token_kicked_at=inactive_token_kicked_at,
-        auction_length_seconds=auction_length_seconds,
-    )
-
-
-def _describe_inactive_balance_reason(
-    inspection: AuctionInspection,
-    *,
-    requested_token: str | None,
-) -> str | None:
-    if inspection.inactive_token is None or (inspection.inactive_token_balance_raw or 0) <= 0:
-        return None
-
-    inactive_token = normalize_address(inspection.inactive_token)
-    token_label = to_checksum_address(inactive_token)
-    if requested_token is not None and normalize_address(requested_token) == inactive_token:
-        subject = f"requested token {token_label} has stranded balance"
-    else:
-        subject = f"auction has stranded balance for token {token_label}"
-
-    if (
-        inspection.inactive_token_kicked_at is not None
-        and inspection.auction_length_seconds is not None
-        and inspection.inactive_token_kicked_at > 0
-    ):
-        inactive_until = inspection.inactive_token_kicked_at + inspection.auction_length_seconds
-        state = (
-            "the lot is already inactive below minimumPrice"
-            if inactive_until > int(time.time())
-            else "the lot has already expired"
-        )
-    else:
-        state = "the lot is inactive"
-
-    unwind_options = "Use governance sweep()+disable() to unwind."
-    if (inspection.inactive_token_kickable_raw or 0) > 0:
-        unwind_options = "Use governance forceKick() to relist or governance sweep()+disable() to unwind."
-
-    return (
-        f"{subject}, but {state}; current sweep-and-settle only works while the lot is active. "
-        f"{unwind_options}"
+        inactive_token_balance_raw=selected_token_balance_raw if inactive_token is not None else None,
+        inactive_token_kicked_at=selected_token_kicked_at if inactive_token is not None else None,
+        selected_token=selected_token,
+        selected_token_active=selected_token_active,
+        selected_token_balance_raw=selected_token_balance_raw,
+        selected_token_kicked_at=selected_token_kicked_at,
     )
 
 
@@ -224,7 +172,6 @@ def decide_auction_settlement(
     if allow_above_floor and method != "sweep_and_settle":
         raise ValueError("allow_above_floor requires method='sweep_and_settle'")
 
-    normalized_token = normalize_address(token_address) if token_address else None
     forced = method in {"settle", "sweep_and_settle"}
 
     if inspection.is_active_auction is None:
@@ -235,132 +182,102 @@ def decide_auction_settlement(
             reason="auction isAnActiveAuction() read failed",
         )
 
-    if inspection.is_active_auction is not True:
-        inactive_reason = _describe_inactive_balance_reason(inspection, requested_token=normalized_token)
-        if inactive_reason is not None:
+    if inspection.selected_token is None:
+        if len(inspection.candidate_tokens) > 1:
             return AuctionSettlementDecision(
-                status="error" if forced else "noop",
+                status="error",
                 operation_type=None,
-                token_address=inspection.inactive_token,
-                reason=inactive_reason,
+                token_address=None,
+                reason="multiple candidate tokens detected for auction; pass --token",
             )
         return AuctionSettlementDecision(
             status="error" if forced else "noop",
             operation_type=None,
             token_address=None,
             reason=(
-                "requested settlement method is not applicable: auction has no active lot"
+                "requested settlement method is not applicable: auction has nothing to resolve"
                 if forced
-                else "auction has no active lot"
+                else "auction has nothing to resolve"
             ),
         )
 
-    if len(inspection.active_tokens) > 1:
-        return AuctionSettlementDecision(
-            status="error",
-            operation_type=None,
-            token_address=None,
-            reason="multiple active tokens detected for auction",
-        )
+    normalized_token = normalize_address(inspection.selected_token)
+    active = inspection.selected_token_active is True
+    balance_raw = inspection.selected_token_balance_raw or 0
+    kicked_at = inspection.selected_token_kicked_at or 0
 
-    if inspection.active_token is None:
+    if token_address is not None and normalize_address(token_address) != normalized_token:
         return AuctionSettlementDecision(
             status="error",
             operation_type=None,
-            token_address=None,
-            reason="active auction token inspection failed",
-        )
-
-    active_token = normalize_address(inspection.active_token)
-    if normalized_token is not None and normalized_token != active_token:
-        return AuctionSettlementDecision(
-            status="error",
-            operation_type=None,
-            token_address=active_token,
+            token_address=normalized_token,
             reason=(
-                f"requested token {to_checksum_address(normalized_token)} does not match "
-                f"active token {to_checksum_address(active_token)}"
+                f"requested token {to_checksum_address(normalize_address(token_address))} does not match "
+                f"resolved token {to_checksum_address(normalized_token)}"
             ),
         )
 
-    if inspection.active_available_raw is None:
-        return AuctionSettlementDecision(
-            status="error",
-            operation_type=None,
-            token_address=active_token,
-            reason="active auction available() read failed",
-        )
-
-    if inspection.minimum_price_scaled_1e18 is None:
-        return AuctionSettlementDecision(
-            status="error",
-            operation_type=None,
-            token_address=active_token,
-            reason="auction minimumPrice() read failed",
-        )
-
-    if inspection.active_available_raw == 0:
-        if method == "sweep_and_settle":
+    if active:
+        if balance_raw == 0:
             return AuctionSettlementDecision(
-                status="error",
-                operation_type=None,
-                token_address=active_token,
-                reason="sweep-and-settle is not applicable: active lot is already sold out",
+                status="actionable",
+                operation_type="resolve_auction",
+                token_address=normalized_token,
+                reason="active lot is sold out",
             )
-        return AuctionSettlementDecision(
-            status="actionable",
-            operation_type="settle",
-            token_address=active_token,
-            reason="active lot is sold out",
-        )
-
-    if inspection.active_price_public_raw is None:
-        return AuctionSettlementDecision(
-            status="error",
-            operation_type=None,
-            token_address=active_token,
-            reason="active auction price() read failed",
-        )
-
-    if inspection.minimum_price_public_raw is None:
-        return AuctionSettlementDecision(
-            status="error",
-            operation_type=None,
-            token_address=active_token,
-            reason="auction want token metadata read failed",
-        )
-
-    if inspection.active_price_public_raw <= inspection.minimum_price_public_raw:
         if method == "settle":
             return AuctionSettlementDecision(
                 status="error",
                 operation_type=None,
-                token_address=active_token,
-                reason="settle is not applicable: active lot still has available balance",
+                token_address=normalized_token,
+                reason="settle is not applicable: active lot still has sell balance",
+            )
+        if allow_above_floor:
+            return AuctionSettlementDecision(
+                status="actionable",
+                operation_type="resolve_auction",
+                token_address=normalized_token,
+                reason="forced sweep requested while auction is still active with sell balance",
             )
         return AuctionSettlementDecision(
-            status="actionable",
-            operation_type="sweep_and_settle",
-            token_address=active_token,
-            reason="active auction price is at or below minimumPrice",
+            status="error" if forced else "noop",
+            operation_type=None,
+            token_address=normalized_token,
+            reason=(
+                "requested settlement method is not applicable: auction still active with sell balance"
+                if forced
+                else "auction still active with sell balance"
+            ),
         )
 
-    if method == "sweep_and_settle" and allow_above_floor:
+    if kicked_at != 0:
         return AuctionSettlementDecision(
             status="actionable",
-            operation_type="sweep_and_settle",
-            token_address=active_token,
-            reason="forced sweep requested while auction is still active above minimumPrice",
+            operation_type="resolve_auction",
+            token_address=normalized_token,
+            reason=(
+                "inactive kicked lot has stranded sell balance"
+                if balance_raw > 0
+                else "inactive kicked lot is stale and empty"
+            ),
+        )
+
+    if balance_raw > 0:
+        return AuctionSettlementDecision(
+            status="actionable",
+            operation_type="resolve_auction",
+            token_address=normalized_token,
+            reason="inactive lot holds sell balance",
         )
 
     return AuctionSettlementDecision(
         status="error" if forced else "noop",
         operation_type=None,
-        token_address=active_token,
+        token_address=normalized_token,
         reason=(
-            "requested settlement method is not applicable: auction still active above minimumPrice"
+            "requested settlement method is not applicable: auction has nothing to resolve"
             if forced
-            else "auction still active above minimumPrice"
+            else "auction has nothing to resolve"
         ),
     )
 
@@ -377,25 +294,14 @@ def build_auction_settlement_call(
 
     normalized_auction = normalize_address(auction_address)
     normalized_token = normalize_address(decision.token_address)
-
-    if decision.operation_type == "settle":
-        contract = web3_client.contract(normalized_auction, AUCTION_ABI)
-        tx_data = contract.functions.settle(to_checksum_address(normalized_token))._encode_transaction_data()
-        return AuctionSettlementCall(
-            operation_type="settle",
-            token_address=normalized_token,
-            target_address=normalized_auction,
-            data=tx_data,
-        )
-
     kicker_address = normalize_address(settings.auction_kicker_address)
     contract = web3_client.contract(kicker_address, AUCTION_KICKER_ABI)
-    tx_data = contract.functions.sweepAndSettle(
+    tx_data = contract.functions.resolveAuction(
         to_checksum_address(normalized_auction),
         to_checksum_address(normalized_token),
     )._encode_transaction_data()
     return AuctionSettlementCall(
-        operation_type="sweep_and_settle",
+        operation_type="resolve_auction",
         token_address=normalized_token,
         target_address=kicker_address,
         data=tx_data,
