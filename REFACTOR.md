@@ -95,6 +95,22 @@ Everything else the resolver needs already exists:
 - `sweep(address)`
 - `enable(address)`
 
+## Required Contract-Level Checks And Selectors
+
+The resolver should validate:
+
+- `IAuction(auction).governance() == tradeHandler`
+
+That check is worth doing explicitly before building the WeiRoll batch. Without it, the first governance-only call fails deeper inside execution and produces a worse operator experience.
+
+Implementation will also need:
+
+```solidity
+bytes4 internal constant DISABLE_SELECTOR = bytes4(keccak256("disable(address)"));
+```
+
+`ENABLE_SELECTOR`, `SWEEP_SELECTOR`, and `SETTLE_SELECTOR` already exist. `DISABLE_SELECTOR` is the new piece needed for the local reset path.
+
 ## Resolver Algorithm
 
 The resolver should inspect:
@@ -273,6 +289,19 @@ Suggested paths:
 - `3`: sweep and settle
 - `4`: reset only
 - `5`: sweep and reset
+
+## Event Compatibility
+
+Replacing `SweepAndSettled(auction, sellToken)` with `LotResolved(...)` is an indexer-facing breaking change.
+
+My preference is still to make `LotResolved(...)` the canonical event and treat the change as intentional.
+
+If backward compatibility turns out to matter, the least messy compromise is:
+
+- emit `LotResolved(...)` for every path
+- also emit `SweepAndSettled(...)` only on the `sweep and settle` path
+
+That is optional. It is not needed for the contract design itself.
 
 ## CLI And API Direction
 
