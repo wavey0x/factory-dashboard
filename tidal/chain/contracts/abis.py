@@ -397,6 +397,16 @@ AUCTION_KICKER_ABI = [
             {"internalType": "address", "name": "auction", "type": "address"},
             {"internalType": "address", "name": "sellToken", "type": "address"},
         ],
+        "name": "sweepAuction",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function",
+    },
+    {
+        "inputs": [
+            {"internalType": "address", "name": "auction", "type": "address"},
+            {"internalType": "address", "name": "sellToken", "type": "address"},
+        ],
         "name": "previewResolveAuction",
         "outputs": [
             {"internalType": "uint8", "name": "path", "type": "uint8"},

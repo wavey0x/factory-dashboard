@@ -281,7 +281,7 @@ def _sync_kick_log_rows(
     error_message: str | None = None,
 ) -> None:
     operation_type = _normalize_operation_type(tx_row.get("operation"))
-    if operation_type not in {"kick", "settle", "resolve_auction"}:
+    if operation_type not in {"kick", "settle", "resolve_auction", "sweep_auction"}:
         return
 
     tx_hash = tx_row.get("tx_hash")
@@ -352,7 +352,7 @@ def _prepared_log_operations(
     *,
     operation_type: str,
 ) -> list[dict[str, object]]:
-    if str(action_row.get("action_type") or "") in {"kick", "settle"}:
+    if str(action_row.get("action_type") or "") in {"kick", "settle", "sweep"}:
         return _prepared_preview_operations(session, action_row, operation_type=operation_type)
     return []
 

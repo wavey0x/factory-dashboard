@@ -150,6 +150,10 @@ def render_skip_panel(
     source_name: str | None,
     source_address: str | None,
     auction_address: str | None,
+    blocked_token_address: str | None = None,
+    blocked_token_symbol: str | None = None,
+    blocked_reason: str | None = None,
+    next_step: str | None = None,
 ) -> None:
     pair_left = token_symbol or "?"
     pair_right = want_symbol or "?"
@@ -165,6 +169,13 @@ def render_skip_panel(
 
     if auction_address:
         rows.append(("Auction", auction_address))
+    if blocked_token_address:
+        blocked_label = blocked_token_symbol or short_address(blocked_token_address)
+        rows.append(("Blocked By", f"{blocked_label} ({blocked_token_address})"))
+    if blocked_reason:
+        rows.append(("Reason", blocked_reason))
+    if next_step:
+        rows.append(("Next Step", next_step))
 
     prefix_width = max(len(f"  {label}:") for label, _ in rows)
     for label, value in rows:
@@ -366,6 +377,28 @@ def _prepared_action_detail_lines(action_type: str | None, preview: dict[str, An
                 )
             if len(prepared_operations) > 3:
                 lines.append(f"  +{len(prepared_operations) - 3} more operation(s)")
+        return lines
+
+    if normalized_action_type == "sweep":
+        inspection = preview.get("inspection") if isinstance(preview.get("inspection"), dict) else {}
+        decision = preview.get("decision") if isinstance(preview.get("decision"), dict) else {}
+        prepared_operations = preview.get("preparedOperations")
+        prepared_count = len(prepared_operations) if isinstance(prepared_operations, list) else 0
+        lines = [
+            "",
+            "  Review details",
+            f"  Auction:     {_display_address(inspection.get('auction_address') or inspection.get('auctionAddress'))}",
+            f"  Operations:  {prepared_count}",
+        ]
+        lines.extend(format_settlement_reason_lines(str(decision.get("reason") or "-"), prefix="  Reason:      "))
+        if isinstance(prepared_operations, list):
+            for index, operation in enumerate(prepared_operations[:3], 1):
+                if not isinstance(operation, dict):
+                    continue
+                lines.append(
+                    f"  {index}. Token:    {_display_address(operation.get('tokenAddress'))} "
+                    f"({operation.get('reason') or 'sweep-auction'})"
+                )
         return lines
 
     prepared_operations = preview.get("preparedOperations")
@@ -794,6 +827,11 @@ def render_kick_inspect(result: KickInspectResult, *, show_all: bool) -> None:
         typer.echo(f"{heading}:")
         for entry in entries:
             typer.echo(_format_inspect_entry(entry))
+            if entry.blocked_token_address:
+                blocked_label = entry.blocked_token_symbol or short_address(entry.blocked_token_address)
+                typer.echo(f"    blocked by: {blocked_label} ({entry.blocked_token_address})")
+            if entry.next_step:
+                typer.echo(f"    next step:  {entry.next_step}")
 
 
 def render_kick_logs(records: list[KickLogRecord]) -> None:

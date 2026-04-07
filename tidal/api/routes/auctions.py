@@ -11,6 +11,7 @@ from tidal.api.schemas.auctions import (
     AuctionDeployPrepareRequest,
     AuctionEnableTokensPrepareRequest,
     AuctionSettlePrepareRequest,
+    AuctionSweepPrepareRequest,
 )
 from tidal.api.services.action_prepare import (
     load_strategy_deploy_defaults,
@@ -18,6 +19,7 @@ from tidal.api.services.action_prepare import (
     prepare_deploy_action,
     prepare_enable_tokens_action,
     prepare_settle_action,
+    prepare_sweep_action,
 )
 from tidal.config import Settings
 from tidal.security import redact_sensitive_data
@@ -111,5 +113,24 @@ async def post_settle_prepare(
         sender=payload.sender,
         token_address=payload.token_address,
         force=payload.force,
+    )
+    return {"status": status, "warnings": redact_sensitive_data(warnings), "data": redact_sensitive_data(data)}
+
+
+@router.post("/auctions/{auction}/sweep/prepare")
+async def post_sweep_prepare(
+    auction: str,
+    payload: AuctionSweepPrepareRequest,
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    operator: OperatorIdentity = Depends(get_operator),
+) -> dict[str, object]:
+    status, warnings, data = await prepare_sweep_action(
+        settings,
+        session,
+        operator_id=operator.operator_id,
+        auction_address=auction,
+        sender=payload.sender,
+        token_address=payload.token_address,
     )
     return {"status": status, "warnings": redact_sensitive_data(warnings), "data": redact_sensitive_data(data)}

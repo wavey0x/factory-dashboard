@@ -30,3 +30,10 @@ class AuctionSettlePrepareRequest(BaseModel):
     force: bool = False
 
     model_config = {"populate_by_name": True}
+
+
+class AuctionSweepPrepareRequest(BaseModel):
+    sender: str | None = None
+    token_address: str = Field(alias="tokenAddress")
+
+    model_config = {"populate_by_name": True}

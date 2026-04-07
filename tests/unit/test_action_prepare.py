@@ -9,9 +9,10 @@ from tidal.api.services.action_prepare import (
     prepare_deploy_browser_action,
     prepare_enable_tokens_action,
     prepare_kick_action,
+    prepare_settle_action,
 )
 from tidal.ops.auction_enable import AuctionInspection, SourceResolution, TokenDiscovery, TokenProbe
-from tidal.auction_settlement import AuctionSettlementInspection
+from tidal.auction_settlement import AuctionLotPreview, AuctionSettlementDecision, AuctionSettlementInspection, AuctionSettlementOperation
 from tidal.transaction_service.planner import KickPlanner
 from tidal.transaction_service.types import KickCandidate, KickPlan, PreparedKick, PreparedResolveAuction, TxIntent
 
@@ -512,6 +513,88 @@ async def test_prepare_kick_action_threads_resolve_operations_from_planner(monke
     assert data["transactions"][0]["data"] == "0xfeedface"
     assert data["preview"]["preparedOperations"][0]["operation"] == "resolve-auction"
     assert data["preview"]["preparedOperations"][0]["reason"] == "inactive kicked lot with stranded inventory"
+
+
+@pytest.mark.asyncio
+async def test_prepare_settle_action_returns_noop_when_manual_sweep_is_required(monkeypatch) -> None:
+    auction_address = "0x3333333333333333333333333333333333333333"
+    token_address = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    inspection = AuctionSettlementInspection(
+        auction_address=auction_address,
+        is_active_auction=False,
+        enabled_tokens=(token_address,),
+        requested_token=token_address,
+        lot_previews=(
+            AuctionLotPreview(
+                token_address=token_address,
+                path=5,
+                active=False,
+                kicked_at=123,
+                balance_raw=10**18,
+                requires_force=False,
+                receiver="0x5555555555555555555555555555555555555555",
+                read_ok=True,
+            ),
+        ),
+    )
+    decision = AuctionSettlementDecision(
+        status="actionable",
+        operations=(
+            AuctionSettlementOperation(
+                operation_type="resolve_auction",
+                token_address=token_address,
+                path=5,
+                reason="inactive kicked lot with stranded inventory",
+                balance_raw=10**18,
+                requires_force=False,
+                receiver="0x5555555555555555555555555555555555555555",
+            ),
+        ),
+        reason="inactive kicked lot with stranded inventory",
+    )
+    settlement_call = SimpleNamespace(
+        operation_type="resolve_auction",
+        token_address=token_address,
+        target_address="0x5555555555555555555555555555555555555555",
+        data="0xdeadbeef",
+    )
+
+    monkeypatch.setattr("tidal.api.services.action_prepare.build_web3_client", lambda settings: object())
+    monkeypatch.setattr("tidal.api.services.action_prepare.inspect_auction_settlement", AsyncMock(return_value=inspection))
+    monkeypatch.setattr("tidal.api.services.action_prepare.decide_auction_settlement", lambda *args, **kwargs: decision)
+    monkeypatch.setattr(
+        "tidal.api.services.action_prepare.build_auction_settlement_calls",
+        lambda **kwargs: [settlement_call],
+    )
+    monkeypatch.setattr(
+        "tidal.api.services.action_prepare._estimate_transaction",
+        AsyncMock(return_value=(None, None, "Gas estimate failed: call to 0x5555…5555 failed: Amount is zero.")),
+    )
+    monkeypatch.setattr(
+        "tidal.api.services.action_prepare.TokenRepository",
+        lambda session: SimpleNamespace(get=lambda token: SimpleNamespace(symbol="CJPY")),
+    )
+    monkeypatch.setattr(
+        "tidal.api.services.action_prepare.create_prepared_action",
+        lambda *args, **kwargs: pytest.fail("manual sweep fallback should not create an action row"),
+    )
+
+    status, warnings, data = await prepare_settle_action(
+        settings=_kick_settings(),
+        session=object(),
+        operator_id="tester",
+        auction_address=auction_address,
+        sender="0x6666666666666666666666666666666666666666",
+        token_address=token_address,
+        force=False,
+    )
+
+    assert status == "noop"
+    assert data["transactions"] == []
+    assert data["preview"]["decision"]["reason"] == "manual sweep required before settlement"
+    assert data["preview"]["preparedOperations"] == []
+    assert any("Resolve failed for CJPY." in warning for warning in warnings)
+    assert any("tidal auction sweep" in warning for warning in warnings)
 
 
 @pytest.mark.asyncio

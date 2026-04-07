@@ -39,6 +39,9 @@ def _entry(
         "auction_active": None,
         "active_token": None,
         "active_tokens": [],
+        "blocked_token_address": None,
+        "blocked_token_symbol": None,
+        "next_step": None,
     }
 
 
@@ -61,7 +64,16 @@ def _deferred_entry(*, token_address: str, source_address: str, auction_address:
     )
 
 
-def _resolve_first_entry(*, token_address: str, source_address: str, auction_address: str, detail: str) -> dict[str, object]:
+def _resolve_first_entry(
+    *,
+    token_address: str,
+    source_address: str,
+    auction_address: str,
+    detail: str,
+    blocked_token_address: str | None = None,
+    blocked_token_symbol: str | None = None,
+    next_step: str | None = None,
+) -> dict[str, object]:
     entry = _entry(
         token_address=token_address,
         source_address=source_address,
@@ -70,10 +82,20 @@ def _resolve_first_entry(*, token_address: str, source_address: str, auction_add
     )
     entry["detail"] = detail
     entry["auction_active"] = False
+    entry["blocked_token_address"] = blocked_token_address
+    entry["blocked_token_symbol"] = blocked_token_symbol
+    entry["next_step"] = next_step
     return entry
 
 
-def _blocked_live_entry(*, token_address: str, source_address: str, auction_address: str, detail: str) -> dict[str, object]:
+def _blocked_live_entry(
+    *,
+    token_address: str,
+    source_address: str,
+    auction_address: str,
+    detail: str,
+    next_step: str | None = None,
+) -> dict[str, object]:
     entry = _entry(
         token_address=token_address,
         source_address=source_address,
@@ -84,6 +106,9 @@ def _blocked_live_entry(*, token_address: str, source_address: str, auction_addr
     entry["auction_active"] = True
     entry["active_token"] = token_address
     entry["active_tokens"] = [token_address]
+    entry["blocked_token_address"] = token_address
+    entry["blocked_token_symbol"] = "CRV"
+    entry["next_step"] = next_step
     return entry
 
 
@@ -303,6 +328,38 @@ class _PrepareNoopClient:
         }
 
 
+class _PrepareNoopWithSweepHintClient(_PrepareNoopClient):
+    def prepare_kicks(self, body: dict[str, object]) -> dict[str, object]:
+        del body
+        return {
+            "status": "noop",
+            "warnings": ["Gas estimate failed: call to 0x2222…2222 failed: Amount is zero."],
+            "data": {
+                "preview": {
+                    "skippedDuringPrepare": [
+                        {
+                            "sourceName": "yCRV Fee Burner",
+                            "sourceAddress": "0x1111111111111111111111111111111111111111",
+                            "auctionAddress": "0x2222222222222222222222222222222222222222",
+                            "tokenSymbol": "WFRAX",
+                            "wantSymbol": "crvUSD",
+                            "reason": "auction requires manual sweep before kick",
+                            "blockedTokenAddress": "0x1cfa5641c01406ab8ac350ded7d735ec41298372",
+                            "blockedTokenSymbol": "CJPY",
+                            "blockedReason": "inactive kicked lot with stranded inventory",
+                            "nextStep": (
+                                "tidal auction sweep "
+                                "0x2222222222222222222222222222222222222222 "
+                                "--token 0x1cfa5641c01406ab8ac350ded7d735ec41298372"
+                            ),
+                        }
+                    ]
+                },
+                "transactions": [],
+            },
+        }
+
+
 class _FeeBurnerSameAuctionNoopClient:
     def __init__(self) -> None:
         self.inspect_calls: list[dict[str, object]] = []
@@ -398,6 +455,13 @@ def test_operator_kick_inspect_renders_resolve_first_and_blocked_live_sections(t
                             source_address="0x1111111111111111111111111111111111111111",
                             auction_address="0x2222222222222222222222222222222222222222",
                             detail="inactive kicked lot with stranded inventory",
+                            blocked_token_address="0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                            blocked_token_symbol="CJPY",
+                            next_step=(
+                                "tidal auction settle "
+                                "0x2222222222222222222222222222222222222222 "
+                                "--token 0xaAaAaAaaAaAaAaaAaAAAAAAAAaaaAaAaAaaAaaAa"
+                            ),
                         )
                     ],
                     blocked_live=[
@@ -406,6 +470,11 @@ def test_operator_kick_inspect_renders_resolve_first_and_blocked_live_sections(t
                             source_address="0x5555555555555555555555555555555555555555",
                             auction_address="0x6666666666666666666666666666666666666666",
                             detail="live funded lot",
+                            next_step=(
+                                "tidal auction settle "
+                                "0x6666666666666666666666666666666666666666 "
+                                "--token 0x4444444444444444444444444444444444444444 --force"
+                            ),
                         )
                     ],
                 ),
@@ -426,6 +495,45 @@ def test_operator_kick_inspect_renders_resolve_first_and_blocked_live_sections(t
     assert "Blocked Live:" in result.output
     assert "inactive kicked lot with stranded inventory" in result.output
     assert "live funded lot" in result.output
+    assert "blocked by: CJPY" in result.output
+    assert "next step:  tidal auction settle 0x2222222222222222222222222222222222222222" in result.output
+
+
+def test_operator_kick_run_renders_manual_sweep_hint_for_blocking_stale_lot(tmp_path, monkeypatch) -> None:
+    config_path = _write_config(tmp_path)
+    client = _PrepareNoopWithSweepHintClient()
+
+    monkeypatch.setattr(
+        operator_kick_cli_module.CLIContext,
+        "verify_authenticated_api_access",
+        lambda self: None,
+    )
+    monkeypatch.setattr(
+        operator_kick_cli_module.CLIContext,
+        "control_plane_client",
+        lambda self, auth=True: client,
+    )
+    monkeypatch.setattr(
+        operator_kick_cli_module.CLIContext,
+        "resolve_execution",
+        lambda self, **kwargs: SimpleNamespace(
+            signer=SimpleNamespace(),
+            sender="0x9999999999999999999999999999999999999999",
+        ),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        operator_app,
+        ["kick", "run", "--source-type", "fee-burner", "--config", str(config_path)],
+    )
+
+    assert result.exit_code == 2
+    assert "Auction requires manual sweep before kick" in result.output
+    assert "Blocked By:" in result.output
+    assert "CJPY" in result.output
+    assert "Next Step:" in result.output
+    assert "tidal auction sweep" in result.output
 
 
 @pytest.mark.parametrize(

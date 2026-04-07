@@ -13,6 +13,8 @@ from sqlalchemy.orm import Session
 from tidal.api.errors import APIError
 from tidal.api.services.action_audit import create_prepared_action
 from tidal.auction_settlement import (
+    PATH_SWEEP_AND_RESET,
+    build_auction_sweep_call,
     build_auction_settlement_calls,
     decide_auction_settlement,
     inspect_auction_settlement,
@@ -33,6 +35,7 @@ from tidal.ops.deploy import (
 from tidal.ops.kick_inspect import inspect_kick_candidates
 from tidal.pricing.token_price_agg import TokenPriceAggProvider
 from tidal.runtime import build_txn_service, build_web3_client
+from tidal.persistence.repositories import TokenRepository
 from tidal.transaction_service.kick_shared import _GAS_ESTIMATE_BUFFER, _format_execution_error
 
 STRATEGY_DEPLOY_CONTEXT_SQL = """
@@ -557,8 +560,8 @@ async def prepare_settle_action(
         token_address=normalized_token,
         force=force,
     )
-    prepared_operations = [
-        {
+    def _prepared_operation_payload(operation) -> dict[str, object]:  # noqa: ANN001
+        return {
             "operation": "resolve-auction",
             "auctionAddress": normalized_auction,
             "tokenAddress": operation.token_address,
@@ -568,13 +571,12 @@ async def prepare_settle_action(
             "balanceRaw": str(operation.balance_raw),
             "receiver": operation.receiver,
         }
-        for operation in decision.operations
-    ]
+
     preview_payload = {
         "inspection": _serialize(inspection),
         "decision": _serialize(decision),
         "requestedForce": force,
-        "preparedOperations": prepared_operations,
+        "preparedOperations": [_prepared_operation_payload(operation) for operation in decision.operations],
     }
     if decision.status == "noop":
         return "noop", [], {"preview": preview_payload, "transactions": []}
@@ -589,7 +591,12 @@ async def prepare_settle_action(
     )
     warnings: list[str] = []
     transactions: list[dict[str, object]] = []
+    prepared_operations: list[dict[str, object]] = []
+    operation_by_token = {operation.token_address: operation for operation in decision.operations}
+    manual_sweep_required = False
+    token_repo = TokenRepository(session)
     for settlement_call in settlement_calls:
+        matching_operation = operation_by_token.get(settlement_call.token_address)
         gas_estimate, gas_limit, gas_warning = await _estimate_transaction(
             web3_client,
             settings,
@@ -600,6 +607,26 @@ async def prepare_settle_action(
         )
         if gas_warning and gas_warning not in warnings:
             warnings.append(gas_warning)
+        if (
+            matching_operation is not None
+            and matching_operation.path == PATH_SWEEP_AND_RESET
+            and gas_warning
+            and "Amount is zero." in gas_warning
+        ):
+            token_meta = token_repo.get(matching_operation.token_address)
+            token_label = token_meta.symbol if token_meta is not None and token_meta.symbol else matching_operation.token_address
+            manual_sweep_command = (
+                f"tidal auction sweep {to_checksum_address(normalized_auction)} "
+                f"--token {to_checksum_address(matching_operation.token_address)}"
+            )
+            hint = f"Resolve failed for {token_label}. This token may require a manual sweep."
+            if hint not in warnings:
+                warnings.append(hint)
+            next_step = f"Next Step: {manual_sweep_command}"
+            if next_step not in warnings:
+                warnings.append(next_step)
+            manual_sweep_required = True
+            continue
         transactions.append(
             {
                 "operation": settlement_call.operation_type.replace("_", "-"),
@@ -612,6 +639,31 @@ async def prepare_settle_action(
                 "gasLimit": gas_limit,
             }
         )
+        if matching_operation is not None:
+            prepared_operations.append(_prepared_operation_payload(matching_operation))
+
+    preview_decision = _serialize(decision)
+    if manual_sweep_required and not transactions:
+        preview_decision = {
+            "status": "noop",
+            "operations": [],
+            "reason": "manual sweep required before settlement",
+        }
+    elif prepared_operations and len(prepared_operations) != len(decision.operations):
+        preview_decision = {
+            "status": "actionable",
+            "operations": [],
+            "reason": f"prepared {len(prepared_operations)} resolvable lot(s)",
+        }
+    preview_payload = {
+        "inspection": _serialize(inspection),
+        "decision": preview_decision,
+        "requestedForce": force,
+        "preparedOperations": prepared_operations,
+    }
+
+    if not transactions:
+        return "noop", warnings, {"preview": preview_payload, "transactions": []}
 
     action_id = create_prepared_action(
         session,
@@ -633,6 +685,114 @@ async def prepare_settle_action(
     return "ok", warnings, {
         "actionId": action_id,
         "actionType": "settle",
+        "preview": preview_payload,
+        "transactions": transactions,
+    }
+
+
+async def prepare_sweep_action(
+    settings: Settings,
+    session: Session,
+    *,
+    operator_id: str,
+    auction_address: str,
+    sender: str | None,
+    token_address: str,
+) -> tuple[str, list[str], dict[str, object]]:
+    normalized_auction = normalize_address(auction_address)
+    normalized_token = normalize_address(token_address)
+    web3_client = build_web3_client(settings)
+    inspection = await inspect_auction_settlement(
+        web3_client,
+        settings,
+        normalized_auction,
+        token_address=normalized_token,
+    )
+    preview = inspection.preview_for_token(normalized_token)
+    if preview is None or not preview.read_ok:
+        detail = preview.error_message if preview is not None else "resolve preview failed for the requested token"
+        raise APIError(detail or "resolve preview failed for the requested token", status_code=409)
+    balance_raw = int(preview.balance_raw or 0)
+    if balance_raw == 0:
+        preview_payload = {
+            "inspection": _serialize(inspection),
+            "decision": {
+                "status": "noop",
+                "reason": "requested token has no auction balance to sweep",
+            },
+            "preparedOperations": [],
+        }
+        return "noop", [], {"preview": preview_payload, "transactions": []}
+
+    token_metadata = TokenRepository(session).get(normalized_token)
+    prepared_operations = [
+        {
+            "operation": "sweep-auction",
+            "auctionAddress": normalized_auction,
+            "tokenAddress": normalized_token,
+            "tokenSymbol": token_metadata.symbol if token_metadata is not None else None,
+            "reason": "manual auction sweep",
+            "path": preview.path,
+            "balanceRaw": str(balance_raw),
+            "receiver": preview.receiver,
+        }
+    ]
+    preview_payload = {
+        "inspection": _serialize(inspection),
+        "decision": {
+            "status": "actionable",
+            "reason": "manual sweep prepared",
+        },
+        "preparedOperations": prepared_operations,
+    }
+
+    sweep_call = build_auction_sweep_call(
+        settings=settings,
+        web3_client=web3_client,
+        auction_address=normalized_auction,
+        token_address=normalized_token,
+    )
+    gas_estimate, gas_limit, gas_warning = await _estimate_transaction(
+        web3_client,
+        settings,
+        sender=sender,
+        to_address=sweep_call.target_address,
+        data=sweep_call.data,
+        gas_cap=settings.txn_max_gas_limit,
+    )
+    warnings = [gas_warning] if gas_warning else []
+    transactions = [
+        {
+            "operation": sweep_call.operation_type.replace("_", "-"),
+            "to": normalize_address(sweep_call.target_address),
+            "data": sweep_call.data,
+            "value": "0x0",
+            "chainId": settings.chain_id,
+            "sender": sender,
+            "gasEstimate": gas_estimate,
+            "gasLimit": gas_limit,
+        }
+    ]
+
+    action_id = create_prepared_action(
+        session,
+        operator_id=operator_id,
+        action_type="sweep",
+        sender=sender,
+        request_payload={
+            "auctionAddress": normalized_auction,
+            "sender": sender,
+            "tokenAddress": normalized_token,
+        },
+        preview_payload=preview_payload,
+        transactions=transactions,
+        resource_address=normalized_auction,
+        auction_address=normalized_auction,
+        token_address=normalized_token,
+    )
+    return "ok", warnings, {
+        "actionId": action_id,
+        "actionType": "sweep",
         "preview": preview_payload,
         "transactions": transactions,
     }

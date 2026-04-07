@@ -326,6 +326,32 @@ def test_auction_settle_prepare_route_threads_force_override(tmp_path: Path, mon
     assert captured["force"] is True
 
 
+def test_auction_sweep_prepare_route_threads_token(tmp_path: Path, monkeypatch) -> None:
+    settings = _make_settings(tmp_path)
+    _init_db(settings)
+    captured: dict[str, object] = {}
+
+    async def fake_prepare_sweep_action(settings, session, **kwargs):  # noqa: ANN001, ANN003
+        del settings, session
+        captured["token_address"] = kwargs.get("token_address")
+        return "noop", [], {"preview": {}, "transactions": []}
+
+    monkeypatch.setattr("tidal.api.routes.auctions.prepare_sweep_action", fake_prepare_sweep_action)
+
+    client = TestClient(create_app(settings))
+    response = client.post(
+        "/api/v1/tidal/auctions/0x3000000000000000000000000000000000000003/sweep/prepare",
+        headers={"Authorization": f"Bearer {_TEST_API_KEY}"},
+        json={
+            "sender": "0x6000000000000000000000000000000000000006",
+            "tokenAddress": "0x5000000000000000000000000000000000000005",
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured["token_address"] == "0x5000000000000000000000000000000000000005"
+
+
 def test_kick_inspect_route_returns_ok_for_resolve_first_only_results(tmp_path: Path, monkeypatch) -> None:
     settings = _make_settings(tmp_path)
     _init_db(settings)

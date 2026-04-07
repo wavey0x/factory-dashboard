@@ -6,6 +6,7 @@ from tidal.auction_settlement import (
     AuctionSettlementDecision,
     AuctionSettlementInspection,
     AuctionSettlementOperation,
+    build_auction_sweep_call,
     build_auction_settlement_calls,
     decide_auction_settlement,
 )
@@ -86,6 +87,18 @@ def test_decide_auction_settlement_prepares_all_default_actionable_lots() -> Non
     assert decision.reason == "prepared 2 resolvable lot(s)"
 
 
+def test_decide_auction_settlement_treats_inactive_kicked_empty_as_noop() -> None:
+    token = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    decision = decide_auction_settlement(
+        _inspection(_preview(token=token, path=4, active=False, kicked_at=123, balance_raw=0)),
+        token_address=token,
+    )
+
+    assert decision.status == "noop"
+    assert decision.operations == ()
+    assert decision.reason == "requested token has nothing to resolve"
+
+
 def test_decide_auction_settlement_errors_on_requested_token_mismatch() -> None:
     requested = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     resolved = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
@@ -157,3 +170,25 @@ def test_build_auction_settlement_calls_targets_resolver_with_force_flag() -> No
     assert calls[0].force_live is True
     assert calls[0].data == "0xfeedface"
     mock_contract.functions.resolveAuction.assert_called_once()
+
+
+def test_build_auction_sweep_call_targets_manual_sweep() -> None:
+    mock_contract = MagicMock()
+    mock_sweep = MagicMock()
+    mock_sweep._encode_transaction_data.return_value = "0xdecafbad"
+    mock_contract.functions.sweepAuction.return_value = mock_sweep
+
+    web3_client = MagicMock()
+    web3_client.contract.return_value = mock_contract
+
+    call = build_auction_sweep_call(
+        settings=SimpleNamespace(auction_kicker_address="0x9999999999999999999999999999999999999999"),
+        web3_client=web3_client,
+        auction_address="0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        token_address="0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    )
+
+    assert call.operation_type == "sweep_auction"
+    assert call.force_live is False
+    assert call.data == "0xdecafbad"
+    mock_contract.functions.sweepAuction.assert_called_once()

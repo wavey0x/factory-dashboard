@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 from eth_utils import to_checksum_address
 
 from tidal.auction_settlement import (
+    PATH_SWEEP_AND_RESET,
     default_actionable_previews,
     inspect_auction_settlements,
     live_funded_previews,
@@ -14,7 +15,7 @@ from tidal.auction_settlement import (
 )
 from tidal.config import Settings
 from tidal.normalizers import to_decimal_string
-from tidal.persistence.repositories import KickTxRepository
+from tidal.persistence.repositories import KickTxRepository, TokenRepository
 from tidal.transaction_service.evaluator import build_shortlist, sort_candidates
 from tidal.transaction_service.kick_shared import (
     _GAS_ESTIMATE_BUFFER,
@@ -78,6 +79,36 @@ def _prepared_estimate_failure(prepared: PreparedKick, reason: str) -> SkippedPr
             quote_response_json=prepared.quote_response_json,
         ),
     )
+
+
+def _operator_settle_command(auction_address: str, token_address: str | None = None, *, force: bool = False) -> str:
+    command = f"tidal auction settle {to_checksum_address(auction_address)}"
+    if token_address is not None:
+        command += f" --token {to_checksum_address(token_address)}"
+    if force:
+        command += " --force"
+    return command
+
+
+def _operator_sweep_command(auction_address: str, token_address: str) -> str:
+    return (
+        f"tidal auction sweep {to_checksum_address(auction_address)} "
+        f"--token {to_checksum_address(token_address)}"
+    )
+
+
+def _lookup_token_symbol(token_repo: TokenRepository, token_address: str, *, fallback: str | None = None) -> str | None:
+    try:
+        metadata = token_repo.get(token_address)
+    except Exception:  # noqa: BLE001
+        metadata = None
+    if metadata is not None and metadata.symbol:
+        return metadata.symbol
+    return fallback
+
+
+def _needs_manual_sweep(preview, gas_warning: str | None) -> bool:  # noqa: ANN001
+    return bool(preview.path == PATH_SWEEP_AND_RESET and gas_warning and "Amount is zero." in gas_warning)
 
 
 class KickPlanner:
@@ -168,6 +199,7 @@ class KickPlanner:
         )
         clean_candidates: list[KickCandidate] = []
         resolved_tokens: set[tuple[str, str]] = set()
+        token_repo = TokenRepository(self.session)
         for auction_key, auction_group in auction_candidates.items():
             inspection = resolve_inspections[auction_key]
             anchor_candidate = auction_group[0]
@@ -181,16 +213,17 @@ class KickPlanner:
 
             actionable_previews = default_actionable_previews(inspection)
             if actionable_previews:
+                manual_sweep_preview = None
                 for preview in actionable_previews:
                     token_key = (auction_key, preview.token_address)
                     if token_key in resolved_tokens:
                         continue
                     resolved_tokens.add(token_key)
                     normalized_balance = None
-                    token_symbol = None
+                    fallback_symbol = anchor_candidate.token_symbol if preview.token_address == anchor_candidate.token_address else None
+                    token_symbol = _lookup_token_symbol(token_repo, preview.token_address, fallback=fallback_symbol)
                     if preview.balance_raw is not None and preview.token_address == anchor_candidate.token_address:
                         normalized_balance = to_decimal_string(preview.balance_raw, anchor_candidate.decimals)
-                        token_symbol = anchor_candidate.token_symbol
                     prepared_operation = PreparedResolveAuction(
                         candidate=anchor_candidate,
                         sell_token=preview.token_address,
@@ -207,19 +240,68 @@ class KickPlanner:
                         gas_warning = await self._estimate_intent(intent, gas_cap=self.settings.txn_max_gas_limit)
                         if gas_warning:
                             plan.warnings.append(gas_warning)
+                            if _needs_manual_sweep(preview, gas_warning):
+                                manual_sweep_preview = preview
+                                manual_sweep_token = token_symbol or to_checksum_address(preview.token_address)
+                                hint = f"Resolve failed for {manual_sweep_token}. This token may require a manual sweep."
+                                if hint not in plan.warnings:
+                                    plan.warnings.append(hint)
                             continue
                     plan.resolve_operations.append(prepared_operation)
                     plan.tx_intents.append(intent)
+                blocker_preview = manual_sweep_preview or actionable_previews[0]
+                blocker_fallback = (
+                    anchor_candidate.token_symbol if blocker_preview.token_address == anchor_candidate.token_address else None
+                )
+                blocker_symbol = _lookup_token_symbol(
+                    token_repo,
+                    blocker_preview.token_address,
+                    fallback=blocker_fallback,
+                )
+                blocker_reason = path_reason(int(blocker_preview.path or 0))
+                if manual_sweep_preview is not None:
+                    next_step = _operator_sweep_command(auction_key, blocker_preview.token_address)
+                    skip_reason = "auction requires manual sweep before kick"
+                elif len(actionable_previews) == 1:
+                    next_step = _operator_settle_command(auction_key, blocker_preview.token_address)
+                    skip_reason = "auction requires settlement before kick"
+                else:
+                    next_step = _operator_settle_command(auction_key)
+                    skip_reason = "auction requires settlement before kick"
                 for candidate in auction_group:
                     plan.skipped_during_prepare.append(
-                        SkippedPreparedCandidate(candidate=candidate, reason="auction requires settlement before kick")
+                        SkippedPreparedCandidate(
+                            candidate=candidate,
+                            reason=skip_reason,
+                            blocked_token_address=blocker_preview.token_address,
+                            blocked_token_symbol=blocker_symbol,
+                            blocked_reason=blocker_reason,
+                            next_step=next_step,
+                        )
                     )
                 continue
 
-            if live_funded_previews(inspection):
+            live_previews = live_funded_previews(inspection)
+            if live_previews:
+                live_preview = live_previews[0]
+                live_fallback = anchor_candidate.token_symbol if live_preview.token_address == anchor_candidate.token_address else None
+                live_symbol = _lookup_token_symbol(token_repo, live_preview.token_address, fallback=live_fallback)
+                live_reason = path_reason(int(live_preview.path or 0))
+                next_step = (
+                    _operator_settle_command(auction_key, live_preview.token_address, force=True)
+                    if len(live_previews) == 1
+                    else None
+                )
                 for candidate in auction_group:
                     plan.skipped_during_prepare.append(
-                        SkippedPreparedCandidate(candidate=candidate, reason="auction still active with live sell balance")
+                        SkippedPreparedCandidate(
+                            candidate=candidate,
+                            reason="auction still active with live sell balance",
+                            blocked_token_address=live_preview.token_address,
+                            blocked_token_symbol=live_symbol,
+                            blocked_reason=live_reason,
+                            next_step=next_step,
+                        )
                     )
                 continue
 

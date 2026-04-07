@@ -16,7 +16,7 @@ from tidal.normalizers import normalize_address
 from tidal.scanner.auction_state import AuctionStateReader
 
 SettlementDecisionStatus = Literal["actionable", "noop", "error"]
-SettlementOperationType = Literal["resolve_auction"]
+SettlementOperationType = Literal["resolve_auction", "sweep_auction"]
 
 PATH_NOOP = 0
 PATH_SETTLE_ONLY = 1
@@ -171,7 +171,7 @@ def default_actionable_previews(inspection: AuctionSettlementInspection) -> tupl
     return tuple(
         preview
         for preview in inspection.lot_previews
-        if preview.read_ok and preview.path not in {None, PATH_NOOP} and preview.requires_force is False
+        if preview.read_ok and preview.path not in {None, PATH_NOOP, PATH_RESET_ONLY} and preview.requires_force is False
     )
 
 
@@ -202,11 +202,13 @@ def decide_auction_settlement(
                 reason="resolve preview failed for the requested token",
             )
 
-        if preview.path in {None, PATH_NOOP}:
+        if preview.path in {None, PATH_NOOP, PATH_RESET_ONLY}:
             other_resolvable = tuple(
                 candidate
                 for candidate in inspection.lot_previews
-                if candidate.read_ok and candidate.token_address != requested_token and candidate.path not in {None, PATH_NOOP}
+                if candidate.read_ok
+                and candidate.token_address != requested_token
+                and candidate.path not in {None, PATH_NOOP, PATH_RESET_ONLY}
             )
             if other_resolvable:
                 if len(other_resolvable) == 1:
@@ -321,6 +323,30 @@ def build_auction_settlement_call(
     if len(calls) != 1:
         raise ValueError("expected exactly one settlement call")
     return calls[0]
+
+
+def build_auction_sweep_call(
+    *,
+    settings,
+    web3_client,
+    auction_address: str,
+    token_address: str,
+) -> AuctionSettlementCall:  # noqa: ANN001
+    normalized_auction = normalize_address(auction_address)
+    normalized_token = normalize_address(token_address)
+    kicker_address = normalize_address(settings.auction_kicker_address)
+    contract = web3_client.contract(kicker_address, AUCTION_KICKER_ABI)
+    tx_data = contract.functions.sweepAuction(
+        to_checksum_address(normalized_auction),
+        to_checksum_address(normalized_token),
+    )._encode_transaction_data()
+    return AuctionSettlementCall(
+        operation_type="sweep_auction",
+        token_address=normalized_token,
+        target_address=kicker_address,
+        data=tx_data,
+        force_live=False,
+    )
 
 
 async def _read_preview_many(  # noqa: ANN001

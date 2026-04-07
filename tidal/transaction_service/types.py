@@ -259,9 +259,13 @@ class SkippedPreparedCandidate:
     candidate: KickCandidate
     reason: str
     result: KickResult | None = None
+    blocked_token_address: str | None = None
+    blocked_token_symbol: str | None = None
+    blocked_reason: str | None = None
+    next_step: str | None = None
 
     def to_payload(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "sourceAddress": self.candidate.source_address,
             "sourceName": self.candidate.source_name,
             "auctionAddress": self.candidate.auction_address,
@@ -270,6 +274,15 @@ class SkippedPreparedCandidate:
             "wantSymbol": self.candidate.want_symbol,
             "reason": self.reason,
         }
+        if self.blocked_token_address is not None:
+            payload["blockedTokenAddress"] = self.blocked_token_address
+        if self.blocked_token_symbol is not None:
+            payload["blockedTokenSymbol"] = self.blocked_token_symbol
+        if self.blocked_reason is not None:
+            payload["blockedReason"] = self.blocked_reason
+        if self.next_step is not None:
+            payload["nextStep"] = self.next_step
+        return payload
 
 
 def _prepared_resolve_preview_item(item: PreparedResolveAuction) -> dict[str, object]:

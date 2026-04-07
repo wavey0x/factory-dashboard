@@ -103,6 +103,10 @@ def test_inspect_kick_candidates_marks_dirty_auction_as_resolve_first(monkeypatc
     assert result.resolve_first_count == 1
     assert result.resolve_first[0].state == "resolve_first"
     assert result.resolve_first[0].detail == "inactive kicked lot with stranded inventory"
+    assert result.resolve_first[0].next_step == (
+        "tidal auction settle 0x3333333333333333333333333333333333333333 "
+        "--token 0x2222222222222222222222222222222222222222"
+    )
 
 
 def test_inspect_kick_candidates_marks_live_lot_as_blocked_live(monkeypatch) -> None:
@@ -140,6 +144,10 @@ def test_inspect_kick_candidates_marks_live_lot_as_blocked_live(monkeypatch) -> 
     assert result.blocked_live_count == 1
     assert result.blocked_live[0].state == "blocked_live"
     assert result.blocked_live[0].detail == "live funded lot"
+    assert result.blocked_live[0].next_step == (
+        "tidal auction settle 0x3333333333333333333333333333333333333333 "
+        "--token 0x2222222222222222222222222222222222222222 --force"
+    )
 
 
 def test_inspect_kick_candidates_marks_preview_failures(monkeypatch) -> None:

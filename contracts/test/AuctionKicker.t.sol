@@ -133,6 +133,9 @@ contract AuctionKickerTest is Test {
     event AuctionResolved(
         address indexed auction, address indexed sellToken, uint8 path, address receiver, uint256 recoveredBalance
     );
+    event AuctionSwept(
+        address indexed auction, address indexed sellToken, address receiver, uint256 recoveredBalance
+    );
 
     address internal constant TRADE_HANDLER = 0xb634316E06cC0B358437CbadD4dC94F1D3a92B3b;
     address internal constant AUCTION = 0x785cf728913e92DC5b24162DCBeE7A41E7de5747;
@@ -678,6 +681,44 @@ contract AuctionKickerTest is Test {
         vm.expectRevert("unauthorized");
         vm.prank(makeAddr("not-authorized"));
         kicker.resolveAuction(address(auction), address(token), false);
+    }
+
+    function test_sweepAuction_sweepsBalanceAndForwardsToReceiver() public {
+        ResolveAuctionTokenMock token = new ResolveAuctionTokenMock();
+        ResolveAuctionMock auction = new ResolveAuctionMock(TRADE_HANDLER, resolveReceiver, address(0));
+        uint256 amount = 13e18;
+
+        token.mint(address(auction), amount);
+        auction.setLotState(address(token), false, block.timestamp - 1, true);
+
+        vm.expectEmit(true, true, false, true);
+        emit AuctionSwept(address(auction), address(token), resolveReceiver, amount);
+
+        vm.prank(keeper);
+        kicker.sweepAuction(address(auction), address(token));
+
+        assertEq(token.balanceOf(resolveReceiver), amount);
+        assertEq(token.balanceOf(address(auction)), 0);
+        assertEq(auction.kicked(address(token)), block.timestamp - 1);
+        assertTrue(auction.enabled(address(token)));
+    }
+
+    function test_sweepAuction_revert_governanceMismatch() public {
+        ResolveAuctionTokenMock token = new ResolveAuctionTokenMock();
+        ResolveAuctionMock auction = new ResolveAuctionMock(makeAddr("other-governance"), resolveReceiver, address(0));
+
+        vm.expectRevert("governance mismatch");
+        vm.prank(keeper);
+        kicker.sweepAuction(address(auction), address(token));
+    }
+
+    function test_sweepAuction_revert_sellTokenIsWant() public {
+        ResolveAuctionTokenMock token = new ResolveAuctionTokenMock();
+        ResolveAuctionMock auction = new ResolveAuctionMock(TRADE_HANDLER, resolveReceiver, address(token));
+
+        vm.expectRevert("sell token is want");
+        vm.prank(keeper);
+        kicker.sweepAuction(address(auction), address(token));
     }
 
     function test_previewResolveAuction_activeWithBalance_requiresForce() public {

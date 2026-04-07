@@ -223,6 +223,10 @@ def _prepare_skips(data: dict[str, object], *, candidate: KickInspectEntry | Non
                 ),
                 "source_address": source_label or (candidate.source_address if candidate is not None else None),
                 "auction_address": auction_label,
+                "blocked_token_address": str(entry.get("blockedTokenAddress")) if entry.get("blockedTokenAddress") else None,
+                "blocked_token_symbol": str(entry.get("blockedTokenSymbol")) if entry.get("blockedTokenSymbol") else None,
+                "blocked_reason": str(entry.get("blockedReason")) if entry.get("blockedReason") else None,
+                "next_step": str(entry.get("nextStep")) if entry.get("nextStep") else None,
             }
         )
     return skips
@@ -527,6 +531,10 @@ def kick_run(
                                     source_name=skip["source_name"],
                                     source_address=skip["source_address"],
                                     auction_address=skip["auction_address"],
+                                    blocked_token_address=skip["blocked_token_address"],
+                                    blocked_token_symbol=skip["blocked_token_symbol"],
+                                    blocked_reason=skip["blocked_reason"],
+                                    next_step=skip["next_step"],
                                 )
                             render_warnings(warnings)
                             remaining_candidates = review_candidates[index:]

@@ -43,7 +43,7 @@ def _noop_status_lines(*, command_name: str, data: dict[str, object]) -> list[st
         if reason:
             lines.extend(format_settlement_reason_lines(reason))
 
-    if command_name != "auction.settle":
+    if command_name not in {"auction.settle", "auction.sweep"}:
         return lines
 
     prepared_operations = preview.get("preparedOperations")
@@ -307,4 +307,60 @@ def settle(
         exec_ctx=exec_ctx,
         json_output=json_output,
         command_name="auction.settle",
+    )
+
+
+@app.command("sweep")
+def sweep(
+    auction_address: str = typer.Argument(..., metavar="AUCTION", help="Auction contract address."),
+    config: ConfigOption = None,
+    api_base_url: ApiBaseUrlOption = None,
+    api_key: ApiKeyOption = None,
+    no_confirmation: NoConfirmationOption = False,
+    token_address: str = typer.Option(..., "--token", help="Sell token to sweep from the auction."),
+    keystore: KeystoreOption = None,
+    password_file: PasswordFileOption = None,
+    json_output: JsonOption = False,
+) -> None:
+    require_no_confirmation_for_json(json_output=json_output, no_confirmation=no_confirmation)
+    cli_ctx = CLIContext(config, api_base_url=api_base_url, api_key=api_key)
+    try:
+        cli_ctx.verify_authenticated_api_access()
+    except (ConfigurationError, ControlPlaneError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    exec_ctx = cli_ctx.resolve_execution(
+        required=True,
+        required_for="auction sweep execution",
+        keystore_path=keystore,
+        password_file=password_file,
+    )
+    payload = {
+        "sender": exec_ctx.sender,
+        "tokenAddress": normalize_cli_address(token_address, param_hint="--token"),
+    }
+    try:
+        with cli_ctx.control_plane_client() as client:
+            if json_output:
+                response = client.prepare_sweep(
+                    normalize_cli_address(auction_address, param_hint="AUCTION"),
+                    payload,
+                )
+            else:
+                with progress_status("Preparing manual sweep..."):
+                    response = client.prepare_sweep(
+                        normalize_cli_address(auction_address, param_hint="AUCTION"),
+                        payload,
+                    )
+    except (ConfigurationError, ControlPlaneError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    _handle_prepared_action(
+        cli_ctx=cli_ctx,
+        response=response,
+        data=response["data"],
+        no_confirmation=no_confirmation,
+        exec_ctx=exec_ctx,
+        json_output=json_output,
+        command_name="auction.sweep",
     )

@@ -150,6 +150,9 @@ class ControlPlaneClient:
     def prepare_settle(self, auction: str, body: dict[str, Any]) -> dict[str, Any]:
         return self.request("POST", f"/api/v1/tidal/auctions/{auction}/settle/prepare", json=body)
 
+    def prepare_sweep(self, auction: str, body: dict[str, Any]) -> dict[str, Any]:
+        return self.request("POST", f"/api/v1/tidal/auctions/{auction}/sweep/prepare", json=body)
+
     def list_actions(
         self,
         *,

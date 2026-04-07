@@ -39,6 +39,9 @@ contract AuctionKicker {
     event AuctionResolved(
         address indexed auction, address indexed sellToken, uint8 path, address receiver, uint256 recoveredBalance
     );
+    event AuctionSwept(
+        address indexed auction, address indexed sellToken, address receiver, uint256 recoveredBalance
+    );
 
     struct KickParams {
         address source;
@@ -125,6 +128,14 @@ contract AuctionKicker {
 
         uint256 recoveredBalance = _executeResolveAuction(auction, sellToken, path, active, kickedAt, balance, receiver);
         emit AuctionResolved(auction, sellToken, path, receiver, recoveredBalance);
+    }
+
+    function sweepAuction(address auction, address sellToken) external onlyKeeperOrOwner {
+        address receiver = _validateResolveAuction(auction, sellToken);
+        uint256 recoveredBalance = IERC20(sellToken).balanceOf(auction);
+        require(recoveredBalance != 0, "nothing to sweep");
+        _executeSweepTransfer(auction, sellToken, receiver, recoveredBalance);
+        emit AuctionSwept(auction, sellToken, receiver, recoveredBalance);
     }
 
     function enableTokens(address auction, address[] calldata sellTokens) external onlyKeeperOrOwner {

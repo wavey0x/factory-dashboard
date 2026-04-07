@@ -162,7 +162,7 @@ def _preview(
 
 
 @pytest.mark.asyncio
-async def test_settler_confirms_default_actionable_resolution(session, monkeypatch) -> None:
+async def test_settler_ignores_inactive_kicked_empty_lots(session, monkeypatch) -> None:
     auction = "0x1111111111111111111111111111111111111111"
     token = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     want = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
@@ -184,16 +184,11 @@ async def test_settler_confirms_default_actionable_resolution(session, monkeypat
         sources=[AuctionSource("fee_burner", "0xburner", auction, want)],
     )
 
-    assert result.stats.eligible_tokens == 1
-    assert result.stats.settlements_attempted == 1
-    assert result.stats.settlements_confirmed == 1
+    assert result.stats.eligible_tokens == 0
+    assert result.stats.settlements_attempted == 0
+    assert result.stats.settlements_confirmed == 0
     rows = session.execute(select(models.kick_txs)).mappings().all()
-    assert len(rows) == 1
-    assert rows[0]["operation_type"] == "resolve_auction"
-    assert rows[0]["status"] == "CONFIRMED"
-    assert rows[0]["stuck_abort_reason"] == "inactive kicked empty lot"
-    assert rows[0]["token_symbol"] == "OPASF"
-    assert rows[0]["want_symbol"] == "crvUSD"
+    assert rows == []
 
 
 @pytest.mark.asyncio

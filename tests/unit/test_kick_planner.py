@@ -188,6 +188,12 @@ async def test_kick_planner_prepares_resolve_operations_for_dirty_auction(monkey
     assert plan.resolve_operations[0].sell_token == "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     assert [intent.operation for intent in plan.tx_intents] == ["resolve-auction"]
     assert plan.skipped_during_prepare[0].reason == "auction requires settlement before kick"
+    assert plan.skipped_during_prepare[0].blocked_token_address == "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    assert plan.skipped_during_prepare[0].blocked_reason == "inactive kicked lot with stranded inventory"
+    assert plan.skipped_during_prepare[0].next_step == (
+        "tidal auction settle 0x3333333333333333333333333333333333333333 "
+        "--token 0xaAaAaAaaAaAaAaaAaAAAAAAAAaaaAaAaAaaAaaAa"
+    )
 
 
 @pytest.mark.asyncio
@@ -245,6 +251,127 @@ async def test_kick_planner_skips_live_funded_auction_without_force(monkeypatch)
     assert plan.resolve_operations == []
     assert plan.kick_operations == []
     assert plan.skipped_during_prepare[0].reason == "auction still active with live sell balance"
+    assert plan.skipped_during_prepare[0].next_step == (
+        "tidal auction settle 0x3333333333333333333333333333333333333333 "
+        "--token 0xaAaAaAaaAaAaAaaAaAAAAAAAAaaaAaAaAaaAaaAa --force"
+    )
+
+
+@pytest.mark.asyncio
+async def test_kick_planner_treats_inactive_kicked_empty_lot_as_non_blocking(monkeypatch) -> None:
+    candidate = _candidate(token_address="0x2222222222222222222222222222222222222222", usd_value=2500.0)
+    shortlist = SimpleNamespace(
+        selected_candidates=[candidate],
+        eligible_candidates=[candidate],
+        ignored_skips=[],
+        cooldown_skips=[],
+        deferred_same_auction_count=0,
+        limited_candidates=[],
+    )
+    deps = _FakeKickDeps(prepared_by_token={candidate.token_address: _prepared(candidate)})
+    inspection = _inspection(
+        _preview(
+            token="0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            path=4,
+            active=False,
+            balance_raw=0,
+        )
+    )
+
+    monkeypatch.setattr(
+        planner_module,
+        "inspect_auction_settlements",
+        AsyncMock(return_value={candidate.auction_address: inspection}),
+    )
+
+    planner = KickPlanner(
+        session=object(),
+        settings=_settings(),
+        preparer=deps,
+        tx_builder=deps,
+        kick_tx_repository=object(),  # type: ignore[arg-type]
+        web3_client=object(),
+        shortlist_builder=lambda *args, **kwargs: shortlist,
+        candidate_sorter=lambda candidates: list(candidates),
+        estimate_transaction_fn=AsyncMock(return_value=(210000, 252000, None)),
+    )
+
+    plan = await planner.plan(
+        source_type="strategy",
+        source_address=candidate.source_address,
+        auction_address=candidate.auction_address,
+        token_address=None,
+        limit=1,
+        sender="0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        run_id="run-nonblocking",
+        batch=True,
+    )
+
+    assert plan.resolve_operations == []
+    assert len(plan.kick_operations) == 1
+    assert [intent.operation for intent in plan.tx_intents] == ["kick"]
+
+
+@pytest.mark.asyncio
+async def test_kick_planner_points_to_manual_sweep_when_resolve_estimate_hits_amount_zero(monkeypatch) -> None:
+    candidate = _candidate(token_address="0x2222222222222222222222222222222222222222", usd_value=2500.0)
+    shortlist = SimpleNamespace(
+        selected_candidates=[candidate],
+        eligible_candidates=[candidate],
+        ignored_skips=[],
+        cooldown_skips=[],
+        deferred_same_auction_count=0,
+        limited_candidates=[],
+    )
+    deps = _FakeKickDeps(prepared_by_token={candidate.token_address: _prepared(candidate)})
+    inspection = _inspection(
+        _preview(
+            token="0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            path=5,
+            active=False,
+            balance_raw=10**18,
+        )
+    )
+
+    monkeypatch.setattr(
+        planner_module,
+        "inspect_auction_settlements",
+        AsyncMock(return_value={candidate.auction_address: inspection}),
+    )
+
+    planner = KickPlanner(
+        session=object(),
+        settings=_settings(),
+        preparer=deps,
+        tx_builder=deps,
+        kick_tx_repository=object(),  # type: ignore[arg-type]
+        web3_client=object(),
+        shortlist_builder=lambda *args, **kwargs: shortlist,
+        candidate_sorter=lambda candidates: list(candidates),
+        estimate_transaction_fn=AsyncMock(
+            return_value=(None, None, "Gas estimate failed: call to 0x3333…3333 failed: Amount is zero.")
+        ),
+    )
+
+    plan = await planner.plan(
+        source_type="strategy",
+        source_address=candidate.source_address,
+        auction_address=candidate.auction_address,
+        token_address=None,
+        limit=1,
+        sender="0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        run_id="run-manual-sweep",
+        batch=True,
+    )
+
+    assert plan.tx_intents == []
+    assert plan.resolve_operations == []
+    assert plan.skipped_during_prepare[0].reason == "auction requires manual sweep before kick"
+    assert plan.skipped_during_prepare[0].next_step == (
+        "tidal auction sweep 0x3333333333333333333333333333333333333333 "
+        "--token 0xaAaAaAaaAaAaAaaAaAAAAAAAAaaaAaAaAaaAaaAa"
+    )
+    assert any("This token may require a manual sweep." in warning for warning in plan.warnings)
 
 
 @pytest.mark.asyncio

@@ -204,6 +204,61 @@ class _PreparedResolveSettleClient:
         }
 
 
+class _PreparedSweepClient:
+    def __enter__(self) -> "_PreparedSweepClient":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:  # noqa: ANN001
+        del exc_type, exc, tb
+
+    def prepare_sweep(self, auction_address: str, payload: dict[str, object]) -> dict[str, object]:
+        sender = payload["sender"]
+        token = payload["tokenAddress"]
+        return {
+            "status": "ok",
+            "warnings": [],
+            "data": {
+                "actionId": "action-sweep",
+                "actionType": "sweep",
+                "preview": {
+                    "decision": {
+                        "status": "actionable",
+                        "reason": "manual sweep prepared",
+                    },
+                    "inspection": {
+                        "auction_address": auction_address,
+                        "is_active_auction": False,
+                        "enabled_tokens": [token],
+                    },
+                    "preparedOperations": [
+                        {
+                            "operation": "sweep-auction",
+                            "auctionAddress": auction_address,
+                            "tokenAddress": token,
+                            "tokenSymbol": "CJPY",
+                            "reason": "manual auction sweep",
+                            "path": 5,
+                            "balanceRaw": "117240663299393522411314",
+                            "receiver": "0x3333333333333333333333333333333333333333",
+                        }
+                    ],
+                },
+                "transactions": [
+                    {
+                        "operation": "sweep-auction",
+                        "to": "0x846475a1b97ac57861813206749c1b0f592383ef",
+                        "data": "0xfacefeed",
+                        "value": "0x0",
+                        "chainId": 1,
+                        "sender": sender,
+                        "gasEstimate": 180000,
+                        "gasLimit": 216000,
+                    }
+                ],
+            },
+        }
+
+
 def test_operator_auction_enable_tokens_uses_styled_submission_flow(tmp_path, monkeypatch) -> None:
     config_path = _write_config(tmp_path)
     client = _EnableTokensClient()
@@ -499,6 +554,48 @@ def test_operator_auction_settle_preview_renders_inactive_balance_state(tmp_path
     assert "inactive kicked lot with stranded inventory" in result.output
     assert "1. Token:" in result.output
     assert "Send this transaction?" not in result.output
+
+
+def test_operator_auction_sweep_preview_renders_manual_sweep_state(tmp_path, monkeypatch) -> None:
+    config_path = _write_config(tmp_path)
+    client = _PreparedSweepClient()
+
+    monkeypatch.setattr(
+        operator_auction_cli_module.CLIContext,
+        "verify_authenticated_api_access",
+        lambda self: None,
+    )
+    monkeypatch.setattr(
+        operator_auction_cli_module.CLIContext,
+        "control_plane_client",
+        lambda self, auth=True: client,
+    )
+    monkeypatch.setattr(
+        operator_auction_cli_module.CLIContext,
+        "resolve_execution",
+        lambda self, **kwargs: SimpleNamespace(signer=SimpleNamespace(), sender="0x9999999999999999999999999999999999999999"),
+    )
+    monkeypatch.setattr(operator_auction_cli_module.typer, "confirm", lambda *args, **kwargs: False)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        operator_app,
+        [
+            "auction",
+            "sweep",
+            "0xa00e6b35c23442fa9d5149cba5dd94623ffe6693",
+            "--token",
+            "0x1cfa5641c01406ab8ac350ded7d735ec41298372",
+            "--config",
+            str(config_path),
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "Prepared action" in result.output
+    assert "sweep · 1 transaction" in result.output
+    assert "manual sweep prepared" in result.output
+    assert "manual auction sweep" in result.output
 
 
 def test_operator_auction_deploy_checks_api_auth_before_resolving_execution(tmp_path, monkeypatch) -> None:
