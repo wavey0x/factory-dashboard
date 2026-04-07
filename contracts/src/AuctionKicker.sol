@@ -34,10 +34,8 @@ contract AuctionKicker {
         uint256 sellAmount,
         uint256 startingPrice,
         uint256 minimumPrice,
-        uint256 stepDecayRateBps,
-        address settleToken
+        uint256 stepDecayRateBps
     );
-    event SweepAndSettled(address indexed auction, address indexed sellToken);
     event AuctionResolved(
         address indexed auction, address indexed sellToken, uint8 path, address receiver, uint256 recoveredBalance
     );
@@ -51,22 +49,6 @@ contract AuctionKicker {
         uint256 startingPrice;
         uint256 minimumPrice;
         uint256 stepDecayRateBps;
-        address settleToken;
-    }
-
-    struct KickParamsExtended {
-        address source;
-        address auction;
-        address sellToken;
-        uint256 sellAmount;
-        address wantToken;
-        uint256 startingPrice;
-        uint256 minimumPrice;
-        uint256 stepDecayRateBps;
-        address settleToken;
-        address[] settleAfterStart;
-        address[] settleAfterMin;
-        address[] settleAfterDecay;
     }
 
     address public owner;
@@ -114,22 +96,9 @@ contract AuctionKicker {
         address wantToken,
         uint256 startingPrice,
         uint256 minimumPrice,
-        uint256 stepDecayRateBps,
-        address settleToken
+        uint256 stepDecayRateBps
     ) external onlyKeeperOrOwner {
-        _kick(
-            KickParams(
-                source,
-                auction,
-                sellToken,
-                sellAmount,
-                wantToken,
-                startingPrice,
-                minimumPrice,
-                stepDecayRateBps,
-                settleToken
-            )
-        );
+        _kick(KickParams(source, auction, sellToken, sellAmount, wantToken, startingPrice, minimumPrice, stepDecayRateBps));
     }
 
     function batchKick(KickParams[] calldata kicks) external onlyKeeperOrOwner {
@@ -138,20 +107,23 @@ contract AuctionKicker {
         }
     }
 
-    function kickExtended(KickParamsExtended calldata p) external onlyKeeperOrOwner {
-        _kickExtended(p);
+    function previewResolveAuction(address auction, address sellToken)
+        external
+        view
+        returns (uint8 path, bool active, uint256 kickedAt, uint256 balance, bool requiresForce, address receiver)
+    {
+        return _previewResolveAuction(auction, sellToken);
     }
 
-    function resolveAuction(address auction, address sellToken) external onlyKeeperOrOwner {
-        (uint8 path, address receiver, uint256 recoveredBalance) = _resolveAuction(auction, sellToken);
-        emit AuctionResolved(auction, sellToken, path, receiver, recoveredBalance);
-    }
+    function resolveAuction(address auction, address sellToken, bool forceLive) external onlyKeeperOrOwner {
+        (uint8 path, bool active, uint256 kickedAt, uint256 balance, bool requiresForce, address receiver) =
+            _previewResolveAuction(auction, sellToken);
 
-    function sweepAndSettle(address auction, address sellToken) external onlyKeeperOrOwner {
-        (uint8 path, address receiver, uint256 recoveredBalance) = _resolveAuction(auction, sellToken);
-        if (path == PATH_SWEEP_AND_SETTLE) {
-            emit SweepAndSettled(auction, sellToken);
+        if (requiresForce) {
+            require(forceLive, "force required");
         }
+
+        uint256 recoveredBalance = _executeResolveAuction(auction, sellToken, path, active, kickedAt, balance, receiver);
         emit AuctionResolved(auction, sellToken, path, receiver, recoveredBalance);
     }
 
@@ -186,34 +158,10 @@ contract AuctionKicker {
         require(IAuction(auction).receiver() == source, "receiver mismatch");
     }
 
-    function _appendSettleCommands(
-        bytes[] memory state,
-        bytes32[] memory commands,
-        uint256 stateIndex,
-        uint256 commandIndex,
-        address auction,
-        address[] memory settleTokens
-    ) internal pure returns (uint256 nextStateIndex, uint256 nextCommandIndex) {
-        nextStateIndex = stateIndex;
-        nextCommandIndex = commandIndex;
-
-        for (uint256 i = 0; i < settleTokens.length; i++) {
-            state[nextStateIndex] = abi.encode(settleTokens[i]);
-            commands[nextCommandIndex++] = WeiRollCommandLib.cmdCall(
-                SETTLE_SELECTOR,
-                uint8(nextStateIndex),
-                WeiRollCommandLib.ARG_UNUSED,
-                WeiRollCommandLib.ARG_UNUSED,
-                auction
-            );
-            nextStateIndex++;
-        }
-    }
-
     function _kick(KickParams memory p) internal {
         _validateKick(p.source, p.auction, p.sellToken, p.wantToken, p.startingPrice);
 
-        bytes[] memory state = new bytes[](8);
+        bytes[] memory state = new bytes[](7);
         state[0] = abi.encode(p.source);
         state[1] = abi.encode(p.auction);
         state[2] = abi.encode(p.sellAmount);
@@ -221,145 +169,101 @@ contract AuctionKicker {
         state[4] = abi.encode(p.minimumPrice);
         state[5] = abi.encode(p.sellToken);
         state[6] = abi.encode(p.stepDecayRateBps);
-        state[7] = abi.encode(p.settleToken);
 
-        uint256 commandCount = p.settleToken == address(0) ? 5 : 6;
-        bytes32[] memory commands = new bytes32[](commandCount);
-        uint256 commandIndex = 0;
-
-        if (p.settleToken != address(0)) {
-            commands[commandIndex++] = WeiRollCommandLib.cmdCall(
-                SETTLE_SELECTOR, 7, WeiRollCommandLib.ARG_UNUSED, WeiRollCommandLib.ARG_UNUSED, p.auction
-            );
-        }
-
-        commands[commandIndex++] = WeiRollCommandLib.cmdCall(TRANSFER_FROM_SELECTOR, 0, 1, 2, p.sellToken);
-        commands[commandIndex++] = WeiRollCommandLib.cmdCall(
+        bytes32[] memory commands = new bytes32[](5);
+        commands[0] = WeiRollCommandLib.cmdCall(TRANSFER_FROM_SELECTOR, 0, 1, 2, p.sellToken);
+        commands[1] = WeiRollCommandLib.cmdCall(
             SET_STARTING_PRICE_SELECTOR, 3, WeiRollCommandLib.ARG_UNUSED, WeiRollCommandLib.ARG_UNUSED, p.auction
         );
-        commands[commandIndex++] = WeiRollCommandLib.cmdCall(
+        commands[2] = WeiRollCommandLib.cmdCall(
             SET_MINIMUM_PRICE_SELECTOR, 4, WeiRollCommandLib.ARG_UNUSED, WeiRollCommandLib.ARG_UNUSED, p.auction
         );
-        commands[commandIndex++] = WeiRollCommandLib.cmdCall(
+        commands[3] = WeiRollCommandLib.cmdCall(
             SET_STEP_DECAY_RATE_SELECTOR, 6, WeiRollCommandLib.ARG_UNUSED, WeiRollCommandLib.ARG_UNUSED, p.auction
         );
-        commands[commandIndex++] = WeiRollCommandLib.cmdCall(
+        commands[4] = WeiRollCommandLib.cmdCall(
             KICK_SELECTOR, 5, WeiRollCommandLib.ARG_UNUSED, WeiRollCommandLib.ARG_UNUSED, p.auction
         );
 
         ITradeHandler(tradeHandler).execute(commands, state);
-        emit Kicked(
-            p.source,
-            p.auction,
-            p.sellToken,
-            p.sellAmount,
-            p.startingPrice,
-            p.minimumPrice,
-            p.stepDecayRateBps,
-            p.settleToken
-        );
+        emit Kicked(p.source, p.auction, p.sellToken, p.sellAmount, p.startingPrice, p.minimumPrice, p.stepDecayRateBps);
     }
 
-    function _kickExtended(KickParamsExtended calldata p) internal {
-        _validateKick(p.source, p.auction, p.sellToken, p.wantToken, p.startingPrice);
-
-        uint256 baseStateCount = 8;
-        uint256 settleCount = p.settleAfterStart.length + p.settleAfterMin.length + p.settleAfterDecay.length;
-        require(baseStateCount + settleCount <= uint256(type(uint8).max) + 1, "too many settle tokens");
-        bytes[] memory state = new bytes[](baseStateCount + settleCount);
-        state[0] = abi.encode(p.source);
-        state[1] = abi.encode(p.auction);
-        state[2] = abi.encode(p.sellAmount);
-        state[3] = abi.encode(p.startingPrice);
-        state[4] = abi.encode(p.minimumPrice);
-        state[5] = abi.encode(p.sellToken);
-        state[6] = abi.encode(p.stepDecayRateBps);
-        state[7] = abi.encode(p.settleToken);
-
-        uint256 commandCount = 5 + settleCount + (p.settleToken == address(0) ? 0 : 1);
-        bytes32[] memory commands = new bytes32[](commandCount);
-        uint256 commandIndex = 0;
-        uint256 stateIndex = baseStateCount;
-
-        if (p.settleToken != address(0)) {
-            commands[commandIndex++] = WeiRollCommandLib.cmdCall(
-                SETTLE_SELECTOR, 7, WeiRollCommandLib.ARG_UNUSED, WeiRollCommandLib.ARG_UNUSED, p.auction
-            );
-        }
-
-        commands[commandIndex++] = WeiRollCommandLib.cmdCall(
-            SET_STARTING_PRICE_SELECTOR, 3, WeiRollCommandLib.ARG_UNUSED, WeiRollCommandLib.ARG_UNUSED, p.auction
-        );
-        (stateIndex, commandIndex) =
-            _appendSettleCommands(state, commands, stateIndex, commandIndex, p.auction, p.settleAfterStart);
-
-        commands[commandIndex++] = WeiRollCommandLib.cmdCall(
-            SET_MINIMUM_PRICE_SELECTOR, 4, WeiRollCommandLib.ARG_UNUSED, WeiRollCommandLib.ARG_UNUSED, p.auction
-        );
-        (stateIndex, commandIndex) =
-            _appendSettleCommands(state, commands, stateIndex, commandIndex, p.auction, p.settleAfterMin);
-
-        commands[commandIndex++] = WeiRollCommandLib.cmdCall(
-            SET_STEP_DECAY_RATE_SELECTOR, 6, WeiRollCommandLib.ARG_UNUSED, WeiRollCommandLib.ARG_UNUSED, p.auction
-        );
-        (, commandIndex) =
-            _appendSettleCommands(state, commands, stateIndex, commandIndex, p.auction, p.settleAfterDecay);
-
-        commands[commandIndex++] = WeiRollCommandLib.cmdCall(TRANSFER_FROM_SELECTOR, 0, 1, 2, p.sellToken);
-        commands[commandIndex++] = WeiRollCommandLib.cmdCall(
-            KICK_SELECTOR, 5, WeiRollCommandLib.ARG_UNUSED, WeiRollCommandLib.ARG_UNUSED, p.auction
-        );
-
-        ITradeHandler(tradeHandler).execute(commands, state);
-        emit Kicked(
-            p.source,
-            p.auction,
-            p.sellToken,
-            p.sellAmount,
-            p.startingPrice,
-            p.minimumPrice,
-            p.stepDecayRateBps,
-            p.settleToken
-        );
-    }
-
-    function _resolveAuction(address auction, address sellToken)
-        internal
-        returns (uint8 path, address receiver, uint256 recoveredBalance)
-    {
+    function _validateResolveAuction(address auction, address sellToken) internal view returns (address receiver) {
         require(IAuction(auction).governance() == tradeHandler, "governance mismatch");
+        require(sellToken != address(0), "zero token");
+        require(sellToken != IAuction(auction).want(), "sell token is want");
+        return IAuction(auction).receiver();
+    }
 
-        receiver = IAuction(auction).receiver();
-        bool active = IAuction(auction).isActive(sellToken);
-        uint256 kickedAt = IAuction(auction).kicked(sellToken);
-        recoveredBalance = IERC20(sellToken).balanceOf(auction);
+    function _previewResolveAuction(address auction, address sellToken)
+        internal
+        view
+        returns (uint8 path, bool active, uint256 kickedAt, uint256 balance, bool requiresForce, address receiver)
+    {
+        receiver = _validateResolveAuction(auction, sellToken);
+        active = IAuction(auction).isActive(sellToken);
+        kickedAt = IAuction(auction).kicked(sellToken);
+        balance = IERC20(sellToken).balanceOf(auction);
+        requiresForce = active && balance > 0;
 
         if (active) {
-            if (recoveredBalance == 0) {
-                _executeSettleOnly(auction, sellToken);
-                return (PATH_SETTLE_ONLY, receiver, 0);
+            if (balance == 0) {
+                return (PATH_SETTLE_ONLY, active, kickedAt, balance, requiresForce, receiver);
             }
-
-            _executeSweepTransferSettle(auction, sellToken, receiver, recoveredBalance);
-            return (PATH_SWEEP_AND_SETTLE, receiver, recoveredBalance);
+            return (PATH_SWEEP_AND_SETTLE, active, kickedAt, balance, requiresForce, receiver);
         }
 
         if (kickedAt != 0) {
-            if (recoveredBalance == 0) {
-                _executeDisableEnable(auction, sellToken);
-                return (PATH_RESET_ONLY, receiver, 0);
+            if (balance == 0) {
+                return (PATH_RESET_ONLY, active, kickedAt, balance, requiresForce, receiver);
             }
-
-            _executeSweepTransferDisableEnable(auction, sellToken, receiver, recoveredBalance);
-            return (PATH_SWEEP_AND_RESET, receiver, recoveredBalance);
+            return (PATH_SWEEP_AND_RESET, active, kickedAt, balance, requiresForce, receiver);
         }
 
-        if (recoveredBalance != 0) {
-            _executeSweepTransfer(auction, sellToken, receiver, recoveredBalance);
-            return (PATH_SWEEP_ONLY, receiver, recoveredBalance);
+        if (balance != 0) {
+            return (PATH_SWEEP_ONLY, active, kickedAt, balance, requiresForce, receiver);
         }
 
-        return (PATH_NOOP, receiver, 0);
+        return (PATH_NOOP, active, kickedAt, balance, requiresForce, receiver);
+    }
+
+    function _executeResolveAuction(
+        address auction,
+        address sellToken,
+        uint8 path,
+        bool active,
+        uint256 kickedAt,
+        uint256 balance,
+        address receiver
+    ) internal returns (uint256 recoveredBalance) {
+        if (path == PATH_SETTLE_ONLY) {
+            _executeSettleOnly(auction, sellToken);
+            return 0;
+        }
+
+        if (path == PATH_SWEEP_ONLY) {
+            _executeSweepTransfer(auction, sellToken, receiver, balance);
+            return balance;
+        }
+
+        if (path == PATH_SWEEP_AND_SETTLE) {
+            _executeSweepTransferSettle(auction, sellToken, receiver, balance);
+            return balance;
+        }
+
+        if (path == PATH_RESET_ONLY) {
+            _executeDisableEnable(auction, sellToken);
+            return 0;
+        }
+
+        if (path == PATH_SWEEP_AND_RESET) {
+            _executeSweepTransferDisableEnable(auction, sellToken, receiver, balance);
+            return balance;
+        }
+
+        require(!active && kickedAt == 0 && balance == 0, "invalid noop");
+        return 0;
     }
 
     function _executeSettleOnly(address auction, address sellToken) internal {
