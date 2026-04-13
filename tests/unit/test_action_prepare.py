@@ -438,6 +438,36 @@ async def test_prepare_enable_tokens_action_returns_error_on_governance_mismatch
 
 
 @pytest.mark.asyncio
+async def test_prepare_enable_tokens_action_returns_error_when_inspection_fails(monkeypatch) -> None:
+    enabler = SimpleNamespace(
+        inspect_auction=lambda auction: (_ for _ in ()).throw(
+            RuntimeError(f"failed to load auction metadata for {auction}: execution reverted")
+        ),
+    )
+
+    monkeypatch.setattr("tidal.api.services.action_prepare.build_sync_web3", lambda settings: object())
+    monkeypatch.setattr("tidal.api.services.action_prepare.AuctionTokenEnabler", lambda w3, settings: enabler)
+
+    status, warnings, data = await prepare_enable_tokens_action(
+        settings=SimpleNamespace(
+            chain_id=1,
+            txn_max_gas_limit=500000,
+        ),
+        session=object(),
+        operator_id="tester",
+        auction_address="0x1111111111111111111111111111111111111111",
+        sender="0x6666666666666666666666666666666666666666",
+        extra_tokens=[],
+    )
+
+    assert status == "error"
+    assert warnings == [
+        "failed to load auction metadata for 0x1111111111111111111111111111111111111111: execution reverted"
+    ]
+    assert data == {"preview": {}, "transactions": []}
+
+
+@pytest.mark.asyncio
 async def test_prepare_kick_action_threads_resolve_operations_from_planner(monkeypatch) -> None:
     candidate = KickCandidate(
         source_type="fee_burner",

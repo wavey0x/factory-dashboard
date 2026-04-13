@@ -22,6 +22,11 @@ def _extract_error_detail(payload: object) -> object | None:
     return None
 
 
+def _extract_error_body_text(response: httpx.Response) -> str | None:
+    text = response.text.strip()
+    return text or None
+
+
 class ControlPlaneError(RuntimeError):
     """Raised when the control-plane API returns an error."""
 
@@ -92,17 +97,23 @@ class ControlPlaneClient:
             response = self._client.request(method, path, params=params, json=json)
         except httpx.HTTPError as exc:
             raise ControlPlaneError(self._transport_error_message(exc)) from exc
-        try:
-            payload = response.json()
-        except ValueError as exc:
-            raise self._unexpected_response_error(path=path, status_code=response.status_code) from exc
 
         if not response.is_success:
-            message = _extract_error_detail(payload)
+            try:
+                payload = response.json()
+            except ValueError:
+                message = _extract_error_body_text(response)
+            else:
+                message = _extract_error_detail(payload) or _extract_error_body_text(response)
             raise ControlPlaneError(
                 self._api_error_message(status_code=response.status_code, detail=message),
                 status_code=response.status_code,
             )
+
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise self._unexpected_response_error(path=path, status_code=response.status_code) from exc
 
         if not _looks_like_tidal_response(payload):
             raise self._unexpected_response_error(path=path, status_code=response.status_code)

@@ -24,10 +24,8 @@ def test_request_reports_non_json_error_body() -> None:
             },
         )
     except ControlPlaneError as exc:
-        assert (
-            str(exc)
-            == "Unexpected response from Tidal API at https://api.example.com/api/v1/tidal/actions/demo/broadcast; check TIDAL_API_BASE_URL"
-        )
+        assert str(exc) == "API returned 500: Internal Server Error"
+        assert exc.status_code == 500
     else:
         raise AssertionError("expected ControlPlaneError")
 

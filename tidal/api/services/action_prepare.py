@@ -426,18 +426,25 @@ async def prepare_enable_tokens_action(
     w3 = build_sync_web3(settings)
     enabler = AuctionTokenEnabler(w3, settings)
     normalized_auction = normalize_address(auction_address)
-    inspection = enabler.inspect_auction(normalized_auction)
-    source = enabler.resolve_source(inspection)
-    discovery = enabler.discover_tokens(
-        inspection=inspection,
-        source=source,
-        manual_tokens=[normalize_address(value) for value in extra_tokens],
-    )
-    probes = enabler.probe_tokens(
-        inspection=inspection,
-        source=source,
-        discovery=discovery,
-    )
+    try:
+        inspection = enabler.inspect_auction(normalized_auction)
+        source = enabler.resolve_source(inspection)
+        discovery = enabler.discover_tokens(
+            inspection=inspection,
+            source=source,
+            manual_tokens=[normalize_address(value) for value in extra_tokens],
+        )
+        probes = enabler.probe_tokens(
+            inspection=inspection,
+            source=source,
+            discovery=discovery,
+        )
+    except RuntimeError as exc:
+        return "error", [str(exc)], {
+            "preview": {},
+            "transactions": [],
+        }
+
     warnings = list(source.warnings) + list(discovery.notes)
     if not inspection.in_configured_factory:
         warnings.append("Auction is not in the configured factory.")
