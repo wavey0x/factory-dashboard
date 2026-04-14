@@ -434,6 +434,7 @@ tbody tr:hover td {
   width: 196px;
   min-width: 196px;
   max-width: 196px;
+  vertical-align: top;
 }
 
 .auction-cell-empty {
@@ -447,10 +448,11 @@ tbody tr:hover td {
 }
 
 .history-cell {
-  white-space: nowrap;
-  width: 212px;
-  min-width: 212px;
-  max-width: 212px;
+  white-space: normal;
+  width: 228px;
+  min-width: 228px;
+  max-width: 228px;
+  vertical-align: top;
 }
 
 .strategies-table .history-cell {
@@ -458,14 +460,16 @@ tbody tr:hover td {
 }
 
 .history-col {
-  width: 212px;
-  min-width: 212px;
-  max-width: 212px;
+  width: 228px;
+  min-width: 228px;
+  max-width: 228px;
 }
 
 .auction-value-slot {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
   width: 180px;
   min-width: 180px;
 }
@@ -479,14 +483,6 @@ tbody tr:hover td {
 .auction-secondary-row {
   display: inline-flex;
   align-items: center;
-  margin-top: 4px;
-}
-
-.auction-secondary-prefix {
-  color: var(--text-faint);
-  font-size: 10px;
-  letter-spacing: 0.02em;
-  margin-right: 6px;
 }
 
 .auction-missing-state {
@@ -843,25 +839,16 @@ tbody tr:hover td {
 }
 
 .chevron-toggle {
-  border: 0;
-  background: transparent;
-  padding: 0;
-  margin: 0;
-  cursor: pointer;
-  color: var(--text-faint);
-  font-size: 8px;
-  line-height: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 14px;
-  height: 14px;
+  width: 10px;
+  height: 10px;
   flex-shrink: 0;
-  transition: transform 160ms ease;
-}
-
-.chevron-toggle:hover {
-  color: var(--text-primary);
+  color: var(--text-faint);
+  font-size: 8px;
+  line-height: 1;
+  transition: transform 160ms ease, color 160ms ease;
 }
 
 .chevron-toggle.is-expanded {
@@ -869,7 +856,12 @@ tbody tr:hover td {
 }
 
 .kick-history {
-  margin-top: 3px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  margin-top: 2px;
 }
 
 .history-cell .kick-history,
@@ -878,18 +870,10 @@ tbody tr:hover td {
   margin-top: 0;
 }
 
-.kick-summary {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  width: 100%;
-  min-width: 0;
-}
-
-.kick-expanded {
+.kick-history-list {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 3px;
   width: 100%;
   min-width: 0;
 }
@@ -901,35 +885,41 @@ tbody tr:hover td {
   min-width: 0;
 }
 
-.kick-expanded .kick-row {
-  padding-left: 16px;
-  box-sizing: border-box;
-}
-
 .kick-row-inner {
-  display: grid;
+  display: inline-flex;
   align-items: center;
-  grid-template-columns: auto auto minmax(0, 1fr) auto;
-  column-gap: 4px;
-  width: 100%;
+  gap: 4px;
+  width: max-content;
+  max-width: 100%;
   min-width: 0;
 }
 
 .kick-history-auctionscan {
-  justify-self: end;
-}
-
-.history-cell .kick-row-inner {
-  display: inline-flex;
-  gap: 4px;
-  width: max-content;
-  max-width: 100%;
-}
-
-.history-cell .kick-history-auctionscan {
-  justify-self: auto;
   flex: 0 0 auto;
   margin-left: 1px;
+}
+
+.history-toggle-button {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.history-toggle-button:hover .chevron-toggle,
+.history-toggle-button:hover .history-toggle-label {
+  color: var(--text-secondary);
+}
+
+.history-toggle-label {
+  color: var(--text-faint);
+  font-size: 10px;
+  line-height: 1;
 }
 
 .kick-row-inner .etherscan-link {

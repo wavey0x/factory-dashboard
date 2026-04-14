@@ -1,11 +1,19 @@
-<!-- Vendored from https://auctionscan.info/favicon.svg on 2026-03-26 -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" role="img" aria-label="A">
-  <defs>
-    <style>
-      .bg{fill:#172554}
-      .letter{fill:#58aaff;font-weight:800;font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif}
-    </style>
-  </defs>
-  <circle class="bg" cx="96" cy="96" r="95"/>
-  <text class="letter" x="96" y="98" text-anchor="middle" dominant-baseline="middle" font-size="120">A</text>
+<!-- Vendored from https://auctionscan.info/favicon.svg on 2026-04-14 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <text
+    x="50%"
+    y="51%"
+    text-anchor="middle"
+    dominant-baseline="middle"
+    font-family="monospace"
+    font-size="54"
+    font-weight="900"
+    fill="#6a6a6a"
+    stroke="#6a6a6a"
+    stroke-width="1.4"
+    paint-order="stroke fill"
+    transform="translate(-1 0) scale(1.12 1.02)"
+  >
+    A
+  </text>
 </svg>

@@ -325,7 +325,7 @@ function normalizeKick(kick) {
   const chainId = normalizeChainIdValue(kick.chainId) ?? DEFAULT_CHAIN_ID;
   const auctionAddress = kick.auctionAddress || null;
   const auctionScanRoundId = kick.auctionScanRoundId ?? null;
-  const auctionScanLinkable = isAuctionScanLinkableKick(kick, chainId);
+  const auctionScanLinkable = isAuctionScanLinkableKick(kick);
   return {
     ...kick,
     chainId,
@@ -338,6 +338,7 @@ function normalizeKick(kick) {
     auctionScanLastCheckedAt: kick.auctionScanLastCheckedAt || null,
     auctionScanResolved: Boolean(kick.auctionScanResolved ?? (auctionScanRoundId != null)),
     auctionScanEligible: kick.auctionScanEligible ?? undefined,
+    auctionScanTxUrl: auctionScanLinkable ? (kick.auctionScanTxUrl || buildAuctionScanTxUrl(kick.txHash)) : null,
     auctionScanAuctionUrl:
       auctionScanLinkable ? (kick.auctionScanAuctionUrl || buildAuctionScanAuctionUrl(chainId, auctionAddress)) : null,
     auctionScanRoundUrl:
@@ -347,14 +348,16 @@ function normalizeKick(kick) {
   };
 }
 
-function isAuctionScanLinkableKick(kick, chainId = normalizeChainIdValue(kick.chainId)) {
-  return Boolean(
-    chainId
-    && kick.auctionAddress
-    && kick.txHash
-    && (kick.operationType || "kick") === "kick"
-    && kick.status === "CONFIRMED"
-  );
+function isAuctionScanLinkableKick(kick) {
+  return Boolean(kick?.txHash && kick.status === "CONFIRMED");
+}
+
+function buildAuctionScanTxUrl(txHash) {
+  if (!txHash) {
+    return null;
+  }
+  const normalized = txHash.startsWith("0x") ? txHash : `0x${txHash}`;
+  return `${AUCTIONSCAN_BASE_URL}/tx/${normalized}`;
 }
 
 function buildAuctionScanAuctionUrl(chainId, auctionAddress) {
@@ -698,18 +701,13 @@ function getAuctionScanHref(kick) {
     return null;
   }
 
-  const chainId = normalizeChainIdValue(kick.chainId);
   return (
-    kick.auctionScanRoundUrl
-    || buildAuctionScanRoundUrl(chainId, kick.auctionAddress, kick.auctionScanRoundId)
+    kick.auctionScanTxUrl
+    || buildAuctionScanTxUrl(kick.txHash)
+    || kick.auctionScanRoundUrl
     || kick.auctionScanAuctionUrl
-    || buildAuctionScanAuctionUrl(chainId, kick.auctionAddress)
     || null
   );
-}
-
-function getAuctionScanTargetLabel(kick) {
-  return kick.auctionScanRoundUrl ? "round" : "auction";
 }
 
 function AuctionScanFavicon({ className = "" }) {
@@ -737,20 +735,11 @@ function OutboundLinkGlyph({ className = "" }) {
   );
 }
 
-function AuctionScanTextLink({ kick, onOpen }) {
+function AuctionScanTextLink({ kick }) {
   const href = getAuctionScanHref(kick);
   if (!href) {
     return null;
   }
-
-  const target = getAuctionScanTargetLabel(kick);
-  const handleClick = (event) => {
-    event.stopPropagation();
-    if (!kick.auctionScanRoundUrl && onOpen) {
-      event.preventDefault();
-      onOpen(kick);
-    }
-  };
 
   return (
     <a
@@ -758,9 +747,9 @@ function AuctionScanTextLink({ kick, onOpen }) {
       target="_blank"
       rel="noopener noreferrer"
       className="kick-external-link"
-      onClick={handleClick}
+      onClick={(event) => event.stopPropagation()}
     >
-      <span>{`view ${target} on`}</span>
+      <span>view on</span>
       <AuctionScanFavicon />
       <span>auctionscan.info</span>
     </a>
@@ -769,7 +758,6 @@ function AuctionScanTextLink({ kick, onOpen }) {
 
 function AuctionScanIconLink({
   kick,
-  onOpen,
   className = "",
   iconClassName = "",
   glyphClassName = "",
@@ -779,24 +767,15 @@ function AuctionScanIconLink({
     return null;
   }
 
-  const target = getAuctionScanTargetLabel(kick);
-  const handleClick = (event) => {
-    event.stopPropagation();
-    if (!kick.auctionScanRoundUrl && onOpen) {
-      event.preventDefault();
-      onOpen(kick);
-    }
-  };
-
   return (
     <a
       href={href}
       target="_blank"
       rel="noopener noreferrer"
       className={`kick-auctionscan-link ${className}`.trim()}
-      title={`View ${target} on AuctionScan`}
-      aria-label={`View ${target} on AuctionScan`}
-      onClick={handleClick}
+      title="View on AuctionScan"
+      aria-label="View on AuctionScan"
+      onClick={(event) => event.stopPropagation()}
     >
       <AuctionScanFavicon className={`kick-auctionscan-link-icon ${iconClassName}`.trim()} />
       <OutboundLinkGlyph className={`kick-auctionscan-link-glyph ${glyphClassName}`.trim()} />
@@ -943,7 +922,6 @@ function AuctionAddressCell({
   wantAddress,
   wantSymbol,
   emptyContent = null,
-  wantLabel = null,
 }) {
   return (
     <div className="auction-value-slot">
@@ -956,7 +934,6 @@ function AuctionAddressCell({
       {!address ? (emptyContent || <span className="row-secondary mono">—</span>) : null}
       {address && wantAddress ? (
         <span className="auction-secondary-row">
-          {wantLabel ? <span className="auction-secondary-prefix">{wantLabel}</span> : null}
           <WantTokenValue address={wantAddress} symbol={wantSymbol} />
         </span>
       ) : null}
@@ -974,48 +951,43 @@ function KickHistoryCell({
   emptyContent = null,
 }) {
   const hasKicks = kicks && kicks.length > 0;
-  const hasChevron = !isMobile && kicks && kicks.length > 1;
+  const hasToggle = kicks && kicks.length > 1 && typeof onToggleExpand === "function";
 
   if (!hasKicks) {
     return emptyContent || <span className="row-secondary mono">—</span>;
   }
 
+  const visibleKicks = (isExpanded ? kicks : kicks.slice(0, 1)).slice(0, 5);
+  const displayKick = (kick) => (
+    kick.auctionAddress || !fallbackAuctionAddress
+      ? kick
+      : { ...kick, auctionAddress: fallbackAuctionAddress }
+  );
+
   return (
     <div className="kick-history" onClick={(event) => event.stopPropagation()}>
-      <div className="kick-summary">
-        {hasChevron ? (
-          <button
-            type="button"
-            className={`chevron-toggle ${isExpanded ? "is-expanded" : ""}`}
-            onClick={(event) => {
-              event.stopPropagation();
-              onToggleExpand();
-            }}
-            aria-label={isExpanded ? "Collapse kick history" : "Expand kick history"}
-          >
-            ▶
-          </button>
-        ) : null}
-        <KickRow
-          kick={kicks[0].auctionAddress || !fallbackAuctionAddress
-            ? kicks[0]
-            : { ...kicks[0], auctionAddress: fallbackAuctionAddress }}
-          nowMs={nowMs}
-        />
+      <div className="kick-history-list">
+        {visibleKicks.map((kick, index) => (
+          <div key={kick.txHash || index} className="kick-row">
+            <KickRow kick={displayKick(kick)} nowMs={nowMs} />
+          </div>
+        ))}
       </div>
-      {hasChevron && isExpanded && kicks.length > 1 ? (
-        <div className="kick-expanded">
-          {kicks.slice(1, 5).map((kick, i) => (
-            <div key={kick.txHash || i} className="kick-row">
-              <KickRow
-                kick={kick.auctionAddress || !fallbackAuctionAddress
-                  ? kick
-                  : { ...kick, auctionAddress: fallbackAuctionAddress }}
-                nowMs={nowMs}
-              />
-            </div>
-          ))}
-        </div>
+      {hasToggle ? (
+        <button
+          type="button"
+          className="history-toggle-button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggleExpand();
+          }}
+          aria-label={isExpanded ? "Collapse kick history" : "Expand kick history"}
+        >
+          <span className={`chevron-toggle ${isExpanded ? "is-expanded" : ""}`} aria-hidden="true">
+            ▶
+          </span>
+          <span className="history-toggle-label">{isExpanded ? "view less" : "view more"}</span>
+        </button>
       ) : null}
     </div>
   );
@@ -1024,9 +996,9 @@ function KickHistoryCell({
 function KickRow({ kick, nowMs }) {
   return (
     <span className="kick-row-inner">
-      <span className="kick-time mono">{formatRelativeTimestamp(kick.createdAt, nowMs)}</span>
-      <span className="kick-separator mono">·</span>
       <EtherscanTxLink txHash={kick.txHash} compact />
+      <span className="kick-separator mono">·</span>
+      <span className="kick-time mono">{formatRelativeTimestamp(kick.createdAt, nowMs)}</span>
       <KickHistoryAuctionScanLink kick={kick} />
     </span>
   );
@@ -1337,22 +1309,12 @@ function KickDetailContent({ kick, onOpenAuctionScan }) {
           <div className="kick-detail-value">{identifierValue}</div>
         </div>
       ) : null}
-      {(kick.auctionAddress || quoteRequestUrl) ? (
+      {(getAuctionScanHref(kick) || kick.auctionAddress || quoteRequestUrl) ? (
         <div className="kick-detail-item" style={{ gridColumn: "1 / -1" }}>
           <div className="kick-detail-value">
-            {kick.auctionScanRoundUrl ? (
+            {getAuctionScanHref(kick) ? (
               <div>
-                <AuctionScanTextLink kick={kick} onOpen={onOpenAuctionScan} />
-                {kick.auctionScanResolving ? (
-                  <span className="kick-link-status"> checking for round…</span>
-                ) : null}
-              </div>
-            ) : kick.auctionScanAuctionUrl ? (
-              <div>
-                <AuctionScanTextLink kick={kick} onOpen={onOpenAuctionScan} />
-                {kick.auctionScanResolving ? (
-                  <span className="kick-link-status"> checking for round…</span>
-                ) : null}
+                <AuctionScanTextLink kick={kick} />
               </div>
             ) : null}
             {kick.auctionAddress ? (
@@ -1611,16 +1573,10 @@ function KickLogPage({
   const [focusedKickId, setFocusedKickId] = useState(initialKickId);
   const [focusedRunId, setFocusedRunId] = useState(initialRunId);
   const highlightedRowRef = useRef(null);
-  const kicksRef = useRef([]);
-  const auctionScanRequestsRef = useRef(new Map());
   const pageCacheRef = useRef(new Map());
   const filterResetRef = useRef(true);
   const isMobile = useMediaQuery("(max-width: 600px)");
   const focusedView = Boolean(focusedKickId || focusedRunId);
-
-  useEffect(() => {
-    kicksRef.current = kicks;
-  }, [kicks]);
 
   useEffect(() => {
     const timerId = window.setTimeout(() => {
@@ -1764,114 +1720,11 @@ function KickLogPage({
     }
   }, [loading, focusedKickId, focusedRunId, kicks, isMobile]);
 
-  function getAuctionScanUrls(kick) {
-    if (!kick) {
-      return { roundUrl: null, auctionUrl: null };
-    }
-    return {
-      roundUrl: kick.auctionScanRoundUrl || null,
-      auctionUrl: kick.auctionScanAuctionUrl || null,
-    };
-  }
-
-  async function ensureAuctionScanLink(kickId) {
-    const current = kicksRef.current.find((kick) => kick.id === kickId);
-    if (!current) {
-      return null;
-    }
-    if (
-      current.auctionScanRoundId != null
-      || !current.auctionAddress
-      || current.operationType !== "kick"
-      || current.status !== "CONFIRMED"
-      || !current.txHash
-    ) {
-      return getAuctionScanUrls(current);
-    }
-
-    const inFlight = auctionScanRequestsRef.current.get(kickId);
-    if (inFlight) {
-      return inFlight;
-    }
-
-    setKicks((prev) => prev.map((kick) => (
-      kick.id === kickId
-        ? { ...kick, auctionScanResolving: true, auctionScanResolveError: "" }
-        : kick
-    )));
-
-    const request = (async () => {
-      try {
-        const response = await apiFetch(`/kicks/${kickId}/auctionscan`);
-        if (!response.ok) {
-          throw new Error("Unable to resolve AuctionScan link");
-        }
-        const payload = await response.json();
-        const data = payload?.data || {};
-        const nextKick = normalizeKick({
-          ...current,
-          chainId: data.chainId ?? current.chainId,
-          auctionScanEligible: data.eligible,
-          auctionScanResolved: data.resolved,
-          auctionScanRoundId: data.roundId,
-          auctionScanAuctionUrl: data.auctionUrl,
-          auctionScanRoundUrl: data.roundUrl,
-          auctionScanLastCheckedAt: data.lastCheckedAt,
-          auctionScanMatchedAt: data.matchedAt,
-          auctionScanResolving: false,
-          auctionScanResolveError: "",
-        });
-        setKicks((prev) => prev.map((kick) => (kick.id === kickId ? nextKick : kick)));
-        return getAuctionScanUrls(nextKick);
-      } catch (error) {
-        setKicks((prev) => prev.map((kick) => (
-          kick.id === kickId
-            ? {
-                ...kick,
-                auctionScanResolving: false,
-                auctionScanResolveError: error?.message || "Unable to resolve AuctionScan link",
-              }
-            : kick
-        )));
-        return getAuctionScanUrls(current);
-      } finally {
-        auctionScanRequestsRef.current.delete(kickId);
-      }
-    })();
-
-    auctionScanRequestsRef.current.set(kickId, request);
-    return request;
-  }
-
-  async function openAuctionScanLink(kick) {
-    const current = kicksRef.current.find((item) => item.id === kick.id) || kick;
-    if (current.auctionScanRoundUrl) {
-      window.open(current.auctionScanRoundUrl, "_blank", "noopener,noreferrer");
-      return;
-    }
-
-    const popup = window.open("about:blank", "_blank");
-    if (popup) {
-      try {
-        popup.opener = null;
-      } catch (error) {
-        // Ignore browser-specific opener restrictions.
-      }
-    }
-
-    const resolvedUrls = await ensureAuctionScanLink(current.id);
-    const href = resolvedUrls?.roundUrl || resolvedUrls?.auctionUrl || current.auctionScanAuctionUrl || null;
-
+  function openAuctionScanLink(kick) {
+    const href = getAuctionScanHref(kick);
     if (!href) {
-      popup?.close();
       return;
     }
-
-    if (popup) {
-      popup.location.replace(href);
-      return;
-    }
-
     window.open(href, "_blank", "noopener,noreferrer");
   }
 
@@ -1908,9 +1761,6 @@ function KickLogPage({
         setFocusedKickId(null);
       }
       navigateTo("kicks", buildNavParams({ kick_id: null }));
-    }
-    if (expanding) {
-      ensureAuctionScanLink(kick.id);
     }
   }
 
@@ -2308,7 +2158,6 @@ function FeeBurnerPage({
                       version={row.auctionVersion}
                       wantAddress={row.wantAddress}
                       wantSymbol={row.wantSymbol}
-                      wantLabel="want:"
                     />
                   </div>
                 </div>
@@ -3080,7 +2929,6 @@ export default function App() {
                           version={row.auctionVersion}
                           wantAddress={row.wantAddress}
                           wantSymbol={row.wantSymbol}
-                          wantLabel="want:"
                           emptyContent={
                             <MissingAuctionAction
                               deployState={deployStates[row.sourceAddress]}
