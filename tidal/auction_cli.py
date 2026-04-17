@@ -196,7 +196,11 @@ def enable_tokens(
     config: ConfigOption = None,
     api_base_url: ApiBaseUrlOption = None,
     api_key: ApiKeyOption = None,
-    extra_token: list[str] | None = typer.Option(None, "--extra-token", help="Extra token address to probe."),
+    extra_token: list[str] | None = typer.Option(
+        None,
+        "--extra-token",
+        help="Include a custom token address in enable discovery. Repeat to add more than one.",
+    ),
     no_confirmation: NoConfirmationOption = False,
     keystore: KeystoreOption = None,
     password_file: PasswordFileOption = None,

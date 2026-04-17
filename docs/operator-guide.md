@@ -144,6 +144,7 @@ tidal auction deploy \
 ```bash
 tidal auction enable-tokens 0xAuction
 tidal auction enable-tokens 0xAuction --extra-token 0xToken
+tidal auction enable-tokens 0xAuction --extra-token 0xTokenA --extra-token 0xTokenB
 ```
 
 ### Settle an active auction

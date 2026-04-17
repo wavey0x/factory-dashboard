@@ -29,6 +29,7 @@ Add one extra token explicitly:
 
 ```bash
 tidal auction enable-tokens 0xAuction --extra-token 0xToken
+tidal auction enable-tokens 0xAuction --extra-token 0xTokenA --extra-token 0xTokenB
 ```
 
 Settle an auction:
@@ -57,7 +58,7 @@ Shared across the mutating auction commands:
 Subcommand-specific flags:
 
 - `deploy`: `--want`, `--receiver`, `--starting-price`, optional factory and governance overrides
-- `enable-tokens`: `--extra-token`
+- `enable-tokens`: repeat `--extra-token` to include one or more custom token addresses in discovery
 - `settle`: `--token`, `--sweep`
 
 ## Behavior Notes
