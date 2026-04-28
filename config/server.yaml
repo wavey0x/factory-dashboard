@@ -40,7 +40,7 @@ kick:
 
     stable:
       start_price_buffer_bps: 100
-      min_price_buffer_bps: 150
+      min_price_buffer_bps: 250
       step_decay_rate_bps: 2
 
   profile_overrides:
