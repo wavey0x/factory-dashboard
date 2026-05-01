@@ -34,6 +34,14 @@ NoConfirmationOption = Annotated[
     ),
 ]
 
+HeadlessOption = Annotated[
+    bool,
+    typer.Option(
+        "--headless",
+        help="Run unattended with plain line logs for service automation.",
+    ),
+]
+
 AutoSettleOption = Annotated[
     bool,
     typer.Option(

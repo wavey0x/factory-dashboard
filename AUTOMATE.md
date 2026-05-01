@@ -21,22 +21,21 @@ txn_require_curve_quote: true
 
 Remove any `TXN_USD_THRESHOLD` environment override, or set it to `250` too.
 
-## Core CLI Refactor
+## Headless Kick Run
 
-Add a first-class headless mode:
+Use headless mode for timer-driven execution:
 
 ```bash
 tidal kick run --headless
 ```
 
-`--headless` should:
+`--headless`:
 
-- run unattended without a confirmation prompt
-- send at most one successful transaction per invocation, matching current `--no-confirmation` safety behavior
-- emit plain line-oriented logs, not Rich panels or spinners
-- treat normal no-op outcomes as success: no ready candidates, prepare skips, stale prepared tx skips
-- keep real failures nonzero: config errors, API errors, signing errors, broadcast errors
-- replace `--json` for `tidal kick run`; remove the JSON output path, CLI option wiring, tests, and docs for kick execution
+- runs unattended without a confirmation prompt
+- sends at most one successful transaction per invocation, matching current `--no-confirmation` safety behavior
+- emits plain line-oriented logs, not Rich panels or spinners
+- treats normal no-op outcomes as success: no ready candidates, prepare skips, stale prepared tx skips
+- keeps real failures nonzero: config errors, API errors, signing errors, broadcast errors
 
 Example log shape:
 
@@ -50,7 +49,7 @@ kick.run.complete status=ok sent=1 skipped=0
 
 ## systemd Service
 
-After `--headless` exists, no wrapper script or special systemd success codes are needed.
+No wrapper script or special systemd success codes are needed.
 The two `ExecStart=` commands run sequentially, and systemd will not start a second instance of
 the same oneshot service while the first is still active.
 

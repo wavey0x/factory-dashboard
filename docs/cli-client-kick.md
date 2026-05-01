@@ -33,6 +33,12 @@ Run unattended:
 tidal kick run --no-confirmation
 ```
 
+Run headless for service automation:
+
+```bash
+tidal kick run --headless
+```
+
 Allow prepares to continue when Curve quoting is unavailable:
 
 ```bash
@@ -47,9 +53,10 @@ tidal kick run --no-require-curve
 - `--limit`: cap how many candidates are considered
 - `--show-all`: include non-ready entries on `inspect`
 - `--no-confirmation`: skip the interactive confirmation prompt
+- `--headless`: skip confirmation, emit plain line logs, and return success for normal no-op outcomes on `run`
 - `--verbose`: show more prepare and skip detail on `run`
 - `--require-curve` and `--no-require-curve`: tighten or relax fresh quote requirements for that run
-- `--json`: emit machine-readable output; requires `--no-confirmation` on `run`
+- `--json`: emit machine-readable output for `inspect`
 
 Signing defaults to `TXN_KEYSTORE_PATH` and `TXN_KEYSTORE_PASSPHRASE`. Use `--keystore` and `--password-file` only when you need a one-off override. The sender address is inferred from the resolved keystore.
 
@@ -59,12 +66,13 @@ The client does not precompute and send a whole batch at once. Instead it repeat
 
 1. fetch the current shortlist from the API
 2. prepare the next exact candidate
-3. show a review panel
-4. sign and send locally if confirmed
+3. show a review panel unless `--headless` is used
+4. sign and send locally if confirmed, or automatically when `--headless`/`--no-confirmation` is used
 5. report broadcast and receipt data back to the API
 
 That keeps the final transaction payload aligned with the latest on-chain state.
 If a prepared transaction sits longer than `prepared_action_max_age_seconds`, the client skips it instead of sending stale quotes.
+With `--headless`, normal no-op outcomes such as no ready candidates or prepare-time skips exit successfully for timer use.
 
 ## Review And Warning Notes
 

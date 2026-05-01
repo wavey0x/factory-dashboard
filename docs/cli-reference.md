@@ -13,6 +13,7 @@ Setup and workflow guidance live elsewhere:
 ### Confirmation first
 
 Mutating transaction commands send transactions after review by default. Use `--no-confirmation` only for unattended or machine-driven execution.
+Use `tidal kick run --headless` for timer-driven kick execution that needs plain logs and successful no-op exits.
 
 ### Local signing
 
@@ -22,7 +23,7 @@ The private key stays with the machine running the CLI.
 
 ### Machine-readable output
 
-Most read and write commands accept `--json` for scripting and automation. On mutating commands, `--json` requires `--no-confirmation`.
+Read and export-oriented commands may accept `--json` for scripting. Kick execution uses `--headless` for automation logs instead of JSON output.
 
 ### Config overrides
 

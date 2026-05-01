@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import shlex
 import time
-from dataclasses import asdict
 from typing import Any
 
 import typer
@@ -17,6 +17,7 @@ from tidal.cli_options import (
     ApiKeyOption,
     AuctionAddressOption,
     ConfigOption,
+    HeadlessOption,
     JsonOption,
     KeystoreOption,
     LimitOption,
@@ -26,7 +27,6 @@ from tidal.cli_options import (
     SourceTypeOption,
     VerboseOption,
 )
-from tidal.cli_validation import require_no_confirmation_for_json
 from tidal.cli_renderers import emit_json, render_kick_inspect, render_kick_submission_summary, render_skip_panel
 from tidal.control_plane.client import ControlPlaneError
 from tidal.errors import ConfigurationError
@@ -67,6 +67,116 @@ def _prepared_action_stale_warning(max_age_seconds: int) -> str:
         f"{_format_prepared_action_age_limit(max_age_seconds)}; "
         "re-run to refresh quotes before sending."
     )
+
+
+def _headless_value(value: object) -> str:
+    if value is None:
+        return "-"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return shlex.quote(str(value))
+
+
+def _emit_headless_event(event: str, **fields: object) -> None:
+    parts = [event]
+    parts.extend(f"{key}={_headless_value(value)}" for key, value in fields.items())
+    typer.echo(" ".join(parts))
+
+
+def _emit_headless_warnings(warnings: list[str]) -> None:
+    for warning in warnings:
+        _emit_headless_event("kick.warning", message=warning)
+
+
+def _emit_headless_skip(
+    *,
+    candidate: KickInspectEntry,
+    reason: str,
+    source_name: str | None = None,
+    source_address: str | None = None,
+    auction_address: str | None = None,
+    token_symbol: str | None = None,
+    want_symbol: str | None = None,
+    blocked_token_address: str | None = None,
+    blocked_token_symbol: str | None = None,
+    blocked_reason: str | None = None,
+    next_step: str | None = None,
+) -> None:
+    _emit_headless_event(
+        "kick.candidate.skip",
+        source=candidate.source_address,
+        source_name=source_name or candidate.source_name,
+        source_address=source_address or candidate.source_address,
+        auction=auction_address or candidate.auction_address,
+        token=candidate.token_address,
+        token_symbol=token_symbol or candidate.token_symbol,
+        want_symbol=want_symbol or candidate.want_symbol,
+        reason=reason,
+        blocked_token=blocked_token_address,
+        blocked_token_symbol=blocked_token_symbol,
+        blocked_reason=blocked_reason,
+        next_step=next_step,
+    )
+
+
+def _prepared_kick_operation(data: dict[str, object]) -> dict[str, object] | None:
+    preview = data.get("preview")
+    if not isinstance(preview, dict):
+        return None
+    prepared_operations = preview.get("preparedOperations")
+    if not isinstance(prepared_operations, list) or len(prepared_operations) != 1:
+        return None
+    operation = prepared_operations[0]
+    return operation if isinstance(operation, dict) else None
+
+
+def _emit_headless_prepared(
+    data: dict[str, object],
+    *,
+    candidate: KickInspectEntry,
+    index: int,
+    total: int,
+) -> None:
+    prepared = _prepared_kick_operation(data) or {}
+    raw_transactions = data.get("transactions")
+    transactions = raw_transactions if isinstance(raw_transactions, list) else []
+    transaction = transactions[0] if transactions and isinstance(transactions[0], dict) else {}
+    _emit_headless_event(
+        "kick.prepared",
+        index=index,
+        total=total,
+        action_id=data.get("actionId"),
+        source_type=prepared.get("sourceType") or candidate.source_type,
+        source=prepared.get("sourceAddress") or candidate.source_address,
+        source_name=prepared.get("sourceName") or candidate.source_name,
+        auction=prepared.get("auctionAddress") or candidate.auction_address,
+        token=prepared.get("tokenAddress") or candidate.token_address,
+        token_symbol=prepared.get("tokenSymbol") or candidate.token_symbol,
+        want_symbol=prepared.get("wantSymbol") or candidate.want_symbol,
+        sell_amount=prepared.get("sellAmount"),
+        usd_value=prepared.get("usdValue"),
+        quote_amount=prepared.get("quoteAmount"),
+        minimum_quote=prepared.get("minimumQuote"),
+        pricing_profile=prepared.get("pricingProfileName"),
+        gas_estimate=transaction.get("gasEstimate"),
+        gas_limit=transaction.get("gasLimit"),
+    )
+
+
+def _emit_headless_broadcast_records(records: list[dict[str, object]]) -> None:
+    for record in records:
+        if not record.get("txHash"):
+            continue
+        _emit_headless_event(
+            "kick.broadcast",
+            operation=record.get("operation"),
+            sender=record.get("sender"),
+            tx_hash=record.get("txHash"),
+            receipt_status=record.get("receiptStatus"),
+            block_number=record.get("blockNumber"),
+            gas_used=record.get("gasUsed"),
+            gas_estimate=record.get("gasEstimate"),
+        )
 
 
 def _normalize_source_type_filter(value: str | None) -> str | None:
@@ -423,7 +533,7 @@ def kick_run(
     api_base_url: ApiBaseUrlOption = None,
     api_key: ApiKeyOption = None,
     no_confirmation: NoConfirmationOption = False,
-    json_output: JsonOption = False,
+    headless: HeadlessOption = False,
     source_type: SourceTypeOption = None,
     source_address: SourceAddressOption = None,
     auction_address: AuctionAddressOption = None,
@@ -438,13 +548,22 @@ def kick_run(
     ),
 ) -> None:
     del verbose
-    require_no_confirmation_for_json(json_output=json_output, no_confirmation=no_confirmation)
+    effective_no_confirmation = no_confirmation or headless
     cli_ctx = CLIContext(config, api_base_url=api_base_url, api_key=api_key)
     normalized_source_type = _normalize_source_type_filter(source_type)
     normalized_source_address = normalize_cli_address(source_address, param_hint="--source")
     normalized_auction_address = normalize_cli_address(auction_address, param_hint="--auction")
+    if headless:
+        _emit_headless_event(
+            "kick.run.start",
+            source_type=normalized_source_type,
+            source=normalized_source_address,
+            auction=normalized_auction_address,
+            limit=limit,
+            require_curve=("config" if require_curve_quote is None else require_curve_quote),
+        )
     try:
-        if json_output:
+        if headless:
             exec_ctx = cli_ctx.resolve_execution(
                 required=True,
                 required_for="kick execution",
@@ -472,9 +591,16 @@ def kick_run(
     }
     preview_fee_context: dict[str, float] | None = None
     local_warnings: list[str] = []
+    inspect_result: KickInspectResult | None = None
+    review_candidates: list[KickInspectEntry] = []
+    broadcast_records: list[dict[str, object]] = []
+    prepared_candidate_count = 0
+    prepare_skip_count = 0
+    skipped_confirmation_count = 0
+    noop_reason = "no_ready_candidates"
     try:
         with cli_ctx.control_plane_client(auth=True) as client:
-            if json_output:
+            if headless:
                 inspect_response = client.inspect_kicks(payload)
             else:
                 with progress_status("Loading kick candidates..."):
@@ -483,16 +609,12 @@ def kick_run(
             review_candidates = _candidate_review_queue(
                 inspect_result,
                 include_deferred_same_auction=_should_include_deferred_same_auction(
-                    no_confirmation=no_confirmation,
+                    no_confirmation=effective_no_confirmation,
                     source_type=normalized_source_type,
                     source_address=normalized_source_address,
                     auction_address=normalized_auction_address,
                 ),
             )
-            broadcast_records: list[dict[str, object]] = []
-            prepared_actions: list[dict[str, object]] = []
-            prepared_candidate_count = 0
-            skipped_confirmation_count = 0
             prepare_feedback_emitted = False
             broadcast_feedback_emitted = False
             terminal_auction_addresses: set[str] = set()
@@ -506,23 +628,45 @@ def kick_run(
                     prepare_payload = _candidate_prepare_payload(candidate, sender=exec_ctx.sender)
                     if require_curve_quote is not None:
                         prepare_payload["requireCurveQuote"] = require_curve_quote
-                    if json_output:
+                    if headless:
                         prepare_response = client.prepare_kicks(prepare_payload)
                     else:
                         with progress_status(f"Preparing kick {index} of {total_candidates}..."):
                             prepare_response = client.prepare_kicks(prepare_payload)
                     prepared_at_monotonic = _current_monotonic()
                     prepared_data = prepare_response["data"]
-                    prepared_actions.append(prepared_data)
                     warnings = list(prepare_response.get("warnings") or [])
                     transactions = list(prepared_data.get("transactions") or [])
                     tx_intents = [TxIntent.from_payload(tx) for tx in transactions]
 
                     if prepare_response["status"] == "noop" or not transactions:
-                        if not json_output:
-                            skip_entries = _prepare_skips(prepared_data, candidate=candidate)
-                            if skip_entries or warnings:
-                                prepare_feedback_emitted = True
+                        skip_entries = _prepare_skips(prepared_data, candidate=candidate)
+                        prepare_skip_count += max(len(skip_entries), 1)
+                        if skip_entries or warnings:
+                            prepare_feedback_emitted = True
+                        if headless:
+                            if skip_entries:
+                                for skip in skip_entries:
+                                    _emit_headless_skip(
+                                        candidate=candidate,
+                                        reason=str(skip["reason"]),
+                                        token_symbol=skip["token_symbol"],
+                                        want_symbol=skip["want_symbol"],
+                                        source_name=skip["source_name"],
+                                        source_address=skip["source_address"],
+                                        auction_address=skip["auction_address"],
+                                        blocked_token_address=skip["blocked_token_address"],
+                                        blocked_token_symbol=skip["blocked_token_symbol"],
+                                        blocked_reason=skip["blocked_reason"],
+                                        next_step=skip["next_step"],
+                                    )
+                            else:
+                                _emit_headless_skip(
+                                    candidate=candidate,
+                                    reason="prepare returned no transaction",
+                                )
+                            _emit_headless_warnings(warnings)
+                        else:
                             for skip in skip_entries:
                                 render_skip_panel(
                                     reason=str(skip["reason"]),
@@ -549,7 +693,15 @@ def kick_run(
                         continue
 
                     prepared_candidate_count += 1
-                    if not json_output:
+                    if headless:
+                        _emit_headless_prepared(
+                            prepared_data,
+                            candidate=candidate,
+                            index=index,
+                            total=total_candidates,
+                        )
+                        _emit_headless_warnings(warnings)
+                    else:
                         if preview_fee_context is None:
                             with progress_status("Loading network fee preview..."):
                                 preview_fee_context = _resolve_preview_fee_context(cli_ctx)
@@ -579,7 +731,7 @@ def kick_run(
                                 heading=f"Prepared kick action ({index}/{total_candidates})",
                             )
                         render_warnings(warnings)
-                    if not no_confirmation and not typer.confirm("Send this transaction?", default=False):
+                    if not effective_no_confirmation and not typer.confirm("Send this transaction?", default=False):
                         skipped_confirmation_count += 1
                         continue
                     if _prepared_action_is_stale(
@@ -591,12 +743,14 @@ def kick_run(
                             cli_ctx.settings.prepared_action_max_age_seconds
                         )
                         local_warnings.append(warning)
-                        if not json_output:
+                        if headless:
+                            _emit_headless_warnings([warning])
+                        else:
                             render_warnings([warning])
                         continue
                     if exec_ctx.signer is None or exec_ctx.sender is None:
                         raise typer.Exit(code=1)
-                    if json_output:
+                    if headless:
                         action_records = execute_prepared_action_sync(
                             settings=cli_ctx.settings,
                             client=client,
@@ -605,6 +759,7 @@ def kick_run(
                             signer=exec_ctx.signer,
                             transactions=tx_intents,
                         )
+                        _emit_headless_broadcast_records(action_records)
                     else:
                         typer.echo()
                         with submission_progress("Submitting transaction...") as update_progress:
@@ -617,13 +772,13 @@ def kick_run(
                                 transactions=tx_intents,
                                 progress_callback=update_progress,
                             )
-                    if not json_output and action_records:
+                    if not headless and action_records:
                         render_broadcast_result(action_records)
                         broadcast_feedback_emitted = True
                     broadcast_records.extend(action_records)
                     if action_records:
                         terminal_auction_addresses.add(candidate_auction)
-                        if no_confirmation:
+                        if effective_no_confirmation:
                             break
     except (ConfigurationError, ControlPlaneError) as exc:
         typer.echo(str(exc), err=True)
@@ -634,20 +789,34 @@ def kick_run(
 
     status = "ok" if broadcast_records else "noop"
 
-    if json_output:
-        output: dict[str, object] = {
-            "inspection": asdict(inspect_result),
-            "preparedActions": prepared_actions,
-            "broadcastRecords": broadcast_records,
-        }
-        emit_json("kick.run", status=status, data=output, warnings=local_warnings)
+    if status == "noop":
+        if inspect_result is None or inspect_result.ready_count == 0:
+            noop_reason = "no_ready_candidates"
+        elif prepared_candidate_count == 0 and prepare_skip_count:
+            noop_reason = "prepare_skipped"
+        elif prepared_candidate_count > 0 and skipped_confirmation_count == prepared_candidate_count:
+            noop_reason = "prepared_skipped"
+        else:
+            noop_reason = "no_transaction_sent"
+
+    if headless:
+        _emit_headless_event(
+            "kick.run.complete",
+            status=status,
+            reason=(None if status == "ok" else noop_reason),
+            sent=len(broadcast_records),
+            prepared=prepared_candidate_count,
+            skipped=prepare_skip_count + skipped_confirmation_count,
+            ready=(inspect_result.ready_count if inspect_result is not None else None),
+            warnings=len(local_warnings),
+        )
     else:
         if broadcast_records:
             if not broadcast_feedback_emitted:
                 render_broadcast_result(broadcast_records)
-            if no_confirmation and len(review_candidates) > 1:
+            if effective_no_confirmation and len(review_candidates) > 1:
                 typer.echo("Kick transaction sent. Ending run after the first submitted candidate.")
-        elif inspect_result.ready_count == 0:
+        elif inspect_result is None or inspect_result.ready_count == 0:
             typer.echo("No ready kick candidates.")
         elif prepared_candidate_count == 0 and prepare_feedback_emitted:
             pass
@@ -656,5 +825,5 @@ def kick_run(
         else:
             typer.echo("No kick transactions were sent.")
 
-    if status == "noop":
+    if status == "noop" and not headless:
         raise typer.Exit(code=2)

@@ -689,6 +689,63 @@ def test_operator_kick_run_no_confirmation_stops_after_first_successful_broadcas
     assert "Kick transaction sent. Ending run after the first submitted candidate." in result.output
 
 
+def test_operator_kick_run_headless_sends_one_plain_logged_transaction(tmp_path, monkeypatch) -> None:
+    config_path = _write_config(tmp_path)
+    client = _BroadcastClient()
+    prepared_actions: list[tuple[str, list[TxIntent]]] = []
+
+    monkeypatch.setattr(
+        operator_kick_cli_module.CLIContext,
+        "control_plane_client",
+        lambda self, auth=True: client,
+    )
+    monkeypatch.setattr(
+        operator_kick_cli_module.CLIContext,
+        "resolve_execution",
+        lambda self, **kwargs: SimpleNamespace(
+            signer=SimpleNamespace(),
+            sender="0x9999999999999999999999999999999999999999",
+        ),
+    )
+    monkeypatch.setattr(
+        operator_kick_cli_module.typer,
+        "confirm",
+        lambda *args, **kwargs: pytest.fail("headless should not prompt for confirmation"),
+    )
+    monkeypatch.setattr(
+        operator_kick_cli_module,
+        "_resolve_preview_fee_context",
+        lambda *_args, **_kwargs: pytest.fail("headless should not render fee preview panels"),
+    )
+
+    def fake_execute_prepared_action_sync(**kwargs):  # noqa: ANN003
+        prepared_actions.append((kwargs["action_id"], kwargs["transactions"]))
+        return [_broadcast_record(transactions=kwargs["transactions"], sender=kwargs["sender"], tx_hash="0x" + "1" * 64)]
+
+    monkeypatch.setattr(
+        operator_kick_cli_module,
+        "execute_prepared_action_sync",
+        fake_execute_prepared_action_sync,
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(operator_app, ["kick", "run", "--headless", "--config", str(config_path)])
+
+    assert result.exit_code == 0
+    assert [call["tokenAddress"] for call in client.prepare_calls] == [
+        "0x3333333333333333333333333333333333333333",
+    ]
+    assert [action_id for action_id, _ in prepared_actions] == ["action-1"]
+    assert "kick.run.start" in result.output
+    assert "kick.prepared" in result.output
+    assert "kick.broadcast" in result.output
+    assert "kick.run.complete status=ok" in result.output
+    assert "sent=1" in result.output
+    assert "Prepared Transaction" not in result.output
+    assert "Submitting transaction..." not in result.output
+    assert "Kick transaction sent. Ending run after the first submitted candidate." not in result.output
+
+
 def test_operator_kick_run_queues_deferred_same_auction_candidates_for_review(tmp_path, monkeypatch) -> None:
     config_path = _write_config(tmp_path)
     client = _BroadcastClient(
@@ -790,6 +847,35 @@ def test_operator_kick_run_prepare_noop_does_not_repeat_generic_footer(tmp_path,
     assert "Attempted Pair: CRV -> USDC" in result.output
     assert "Source:         Yearn Fee Burner (0x1111…1111)" in result.output
     assert "Auction:        0x2222222222222222222222222222222222222222" in result.output
+    assert "No kick transactions were sent." not in result.output
+
+
+def test_operator_kick_run_headless_prepare_noop_exits_success_with_plain_skip(tmp_path, monkeypatch) -> None:
+    config_path = _write_config(tmp_path)
+    client = _PrepareNoopClient()
+
+    monkeypatch.setattr(
+        operator_kick_cli_module.CLIContext,
+        "control_plane_client",
+        lambda self, auth=True: client,
+    )
+    monkeypatch.setattr(
+        operator_kick_cli_module.CLIContext,
+        "resolve_execution",
+        lambda self, **kwargs: SimpleNamespace(
+            signer=SimpleNamespace(),
+            sender="0x9999999999999999999999999999999999999999",
+        ),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(operator_app, ["kick", "run", "--headless", "--config", str(config_path)])
+
+    assert result.exit_code == 0
+    assert "kick.candidate.skip" in result.output
+    assert "reason='Candidate was skipped during prepare'" in result.output
+    assert "kick.run.complete status=noop reason=prepare_skipped" in result.output
+    assert "Skip" not in result.output
     assert "No kick transactions were sent." not in result.output
 
 
@@ -1120,6 +1206,48 @@ def test_operator_kick_run_no_confirmation_still_blocks_stale_prepared_transacti
     assert "Prepared transaction expired after 5 minutes" in result.output
 
 
+def test_operator_kick_run_headless_stale_prepared_transaction_exits_success(tmp_path, monkeypatch) -> None:
+    config_path = _write_config(tmp_path)
+    client = _BroadcastClient(
+        [
+            _ready_entry(
+                token_address="0x3333333333333333333333333333333333333333",
+                source_address="0x1111111111111111111111111111111111111111",
+                auction_address="0x2222222222222222222222222222222222222222",
+            )
+        ]
+    )
+    monotonic_values = iter([100.0, 401.0])
+
+    monkeypatch.setattr(
+        operator_kick_cli_module.CLIContext,
+        "control_plane_client",
+        lambda self, auth=True: client,
+    )
+    monkeypatch.setattr(
+        operator_kick_cli_module.CLIContext,
+        "resolve_execution",
+        lambda self, **kwargs: SimpleNamespace(
+            signer=SimpleNamespace(),
+            sender="0x9999999999999999999999999999999999999999",
+        ),
+    )
+    monkeypatch.setattr(operator_kick_cli_module, "_current_monotonic", lambda: next(monotonic_values))
+    monkeypatch.setattr(
+        operator_kick_cli_module,
+        "execute_prepared_action_sync",
+        lambda **kwargs: pytest.fail(f"stale prepared action should not broadcast: {kwargs}"),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(operator_app, ["kick", "run", "--headless", "--config", str(config_path)])
+
+    assert result.exit_code == 0
+    assert "kick.warning message='Prepared transaction expired after 5 minutes; re-run to refresh quotes before sending.'" in result.output
+    assert "kick.run.complete status=noop reason=prepared_skipped" in result.output
+    assert "skipped=1" in result.output
+
+
 def test_operator_kick_run_does_not_preflight_api_auth_before_resolving_execution(tmp_path, monkeypatch) -> None:
     config_path = _write_config(tmp_path)
     client = _PrepareNoopClient()
@@ -1150,12 +1278,12 @@ def test_operator_kick_run_does_not_preflight_api_auth_before_resolving_executio
     assert "Skip" in result.output
 
 
-def test_operator_kick_run_json_requires_no_confirmation(tmp_path) -> None:
+def test_operator_kick_run_json_option_is_removed(tmp_path) -> None:
     config_path = _write_config(tmp_path)
 
     runner = CliRunner()
     result = runner.invoke(operator_app, ["kick", "run", "--json", "--config", str(config_path)])
 
     assert result.exit_code != 0
-    assert "Invalid value for --json" in result.output
-    assert "--no-confirmation" in result.output
+    assert "No such option" in result.output
+    assert "--json" in result.output

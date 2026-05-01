@@ -118,6 +118,14 @@ For unattended execution:
 tidal kick run --no-confirmation
 ```
 
+For timer or service execution:
+
+```bash
+tidal kick run --headless
+```
+
+Headless mode skips confirmation, emits plain line-oriented logs, sends at most one successful transaction per invocation, and exits successfully for normal no-op outcomes.
+
 Useful flags:
 
 - `--limit`: cap how many candidates are considered
@@ -125,6 +133,7 @@ Useful flags:
 - `--source`: target one source address
 - `--auction`: target one auction
 - `--no-confirmation`: skip interactive confirmation
+- `--headless`: use unattended service-mode output and no-op exit behavior
 - `--verbose`: show more diagnostic detail
 - `--no-require-curve`: relax Curve quote strictness for this run
 
