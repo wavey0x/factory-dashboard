@@ -79,7 +79,7 @@ def _headless_value(value: object) -> str:
 
 def _emit_headless_event(event: str, **fields: object) -> None:
     parts = [event]
-    parts.extend(f"{key}={_headless_value(value)}" for key, value in fields.items())
+    parts.extend(f"{key}={_headless_value(value)}" for key, value in fields.items() if value is not None)
     typer.echo(" ".join(parts))
 
 
@@ -92,90 +92,37 @@ def _emit_headless_skip(
     *,
     candidate: KickInspectEntry,
     reason: str,
-    source_name: str | None = None,
-    source_address: str | None = None,
     auction_address: str | None = None,
     token_symbol: str | None = None,
-    want_symbol: str | None = None,
     blocked_token_address: str | None = None,
     blocked_token_symbol: str | None = None,
-    blocked_reason: str | None = None,
     next_step: str | None = None,
 ) -> None:
     _emit_headless_event(
         "kick.candidate.skip",
-        source=candidate.source_address,
-        source_name=source_name or candidate.source_name,
-        source_address=source_address or candidate.source_address,
         auction=auction_address or candidate.auction_address,
-        token=candidate.token_address,
-        token_symbol=token_symbol or candidate.token_symbol,
-        want_symbol=want_symbol or candidate.want_symbol,
+        token=token_symbol or candidate.token_symbol,
         reason=reason,
-        blocked_token=blocked_token_address,
-        blocked_token_symbol=blocked_token_symbol,
-        blocked_reason=blocked_reason,
+        blocked_token=blocked_token_symbol or blocked_token_address,
         next_step=next_step,
     )
 
 
-def _prepared_kick_operation(data: dict[str, object]) -> dict[str, object] | None:
-    preview = data.get("preview")
-    if not isinstance(preview, dict):
-        return None
-    prepared_operations = preview.get("preparedOperations")
-    if not isinstance(prepared_operations, list) or len(prepared_operations) != 1:
-        return None
-    operation = prepared_operations[0]
-    return operation if isinstance(operation, dict) else None
-
-
-def _emit_headless_prepared(
-    data: dict[str, object],
+def _emit_headless_broadcast_records(
+    records: list[dict[str, object]],
     *,
     candidate: KickInspectEntry,
-    index: int,
-    total: int,
 ) -> None:
-    prepared = _prepared_kick_operation(data) or {}
-    raw_transactions = data.get("transactions")
-    transactions = raw_transactions if isinstance(raw_transactions, list) else []
-    transaction = transactions[0] if transactions and isinstance(transactions[0], dict) else {}
-    _emit_headless_event(
-        "kick.prepared",
-        index=index,
-        total=total,
-        action_id=data.get("actionId"),
-        source_type=prepared.get("sourceType") or candidate.source_type,
-        source=prepared.get("sourceAddress") or candidate.source_address,
-        source_name=prepared.get("sourceName") or candidate.source_name,
-        auction=prepared.get("auctionAddress") or candidate.auction_address,
-        token=prepared.get("tokenAddress") or candidate.token_address,
-        token_symbol=prepared.get("tokenSymbol") or candidate.token_symbol,
-        want_symbol=prepared.get("wantSymbol") or candidate.want_symbol,
-        sell_amount=prepared.get("sellAmount"),
-        usd_value=prepared.get("usdValue"),
-        quote_amount=prepared.get("quoteAmount"),
-        minimum_quote=prepared.get("minimumQuote"),
-        pricing_profile=prepared.get("pricingProfileName"),
-        gas_estimate=transaction.get("gasEstimate"),
-        gas_limit=transaction.get("gasLimit"),
-    )
-
-
-def _emit_headless_broadcast_records(records: list[dict[str, object]]) -> None:
     for record in records:
         if not record.get("txHash"):
             continue
         _emit_headless_event(
             "kick.broadcast",
-            operation=record.get("operation"),
-            sender=record.get("sender"),
+            auction=candidate.auction_address,
+            token=candidate.token_symbol,
             tx_hash=record.get("txHash"),
             receipt_status=record.get("receiptStatus"),
             block_number=record.get("blockNumber"),
-            gas_used=record.get("gasUsed"),
-            gas_estimate=record.get("gasEstimate"),
         )
 
 
@@ -651,13 +598,9 @@ def kick_run(
                                         candidate=candidate,
                                         reason=str(skip["reason"]),
                                         token_symbol=skip["token_symbol"],
-                                        want_symbol=skip["want_symbol"],
-                                        source_name=skip["source_name"],
-                                        source_address=skip["source_address"],
                                         auction_address=skip["auction_address"],
                                         blocked_token_address=skip["blocked_token_address"],
                                         blocked_token_symbol=skip["blocked_token_symbol"],
-                                        blocked_reason=skip["blocked_reason"],
                                         next_step=skip["next_step"],
                                     )
                             else:
@@ -694,12 +637,6 @@ def kick_run(
 
                     prepared_candidate_count += 1
                     if headless:
-                        _emit_headless_prepared(
-                            prepared_data,
-                            candidate=candidate,
-                            index=index,
-                            total=total_candidates,
-                        )
                         _emit_headless_warnings(warnings)
                     else:
                         if preview_fee_context is None:
@@ -759,7 +696,7 @@ def kick_run(
                             signer=exec_ctx.signer,
                             transactions=tx_intents,
                         )
-                        _emit_headless_broadcast_records(action_records)
+                        _emit_headless_broadcast_records(action_records, candidate=candidate)
                     else:
                         typer.echo()
                         with submission_progress("Submitting transaction...") as update_progress:
@@ -778,7 +715,7 @@ def kick_run(
                     broadcast_records.extend(action_records)
                     if action_records:
                         terminal_auction_addresses.add(candidate_auction)
-                        if effective_no_confirmation:
+                        if effective_no_confirmation and not headless:
                             break
     except (ConfigurationError, ControlPlaneError) as exc:
         typer.echo(str(exc), err=True)

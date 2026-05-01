@@ -38,7 +38,7 @@ HeadlessOption = Annotated[
     bool,
     typer.Option(
         "--headless",
-        help="Run unattended with plain line logs for service automation.",
+        help="Run unattended with compact line logs for service automation.",
     ),
 ]
 

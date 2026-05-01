@@ -689,7 +689,7 @@ def test_operator_kick_run_no_confirmation_stops_after_first_successful_broadcas
     assert "Kick transaction sent. Ending run after the first submitted candidate." in result.output
 
 
-def test_operator_kick_run_headless_sends_one_plain_logged_transaction(tmp_path, monkeypatch) -> None:
+def test_operator_kick_run_headless_drains_ready_candidates_with_compact_logs(tmp_path, monkeypatch) -> None:
     config_path = _write_config(tmp_path)
     client = _BroadcastClient()
     prepared_actions: list[tuple[str, list[TxIntent]]] = []
@@ -734,13 +734,15 @@ def test_operator_kick_run_headless_sends_one_plain_logged_transaction(tmp_path,
     assert result.exit_code == 0
     assert [call["tokenAddress"] for call in client.prepare_calls] == [
         "0x3333333333333333333333333333333333333333",
+        "0x4444444444444444444444444444444444444444",
     ]
-    assert [action_id for action_id, _ in prepared_actions] == ["action-1"]
+    assert [action_id for action_id, _ in prepared_actions] == ["action-1", "action-2"]
     assert "kick.run.start" in result.output
-    assert "kick.prepared" in result.output
     assert "kick.broadcast" in result.output
     assert "kick.run.complete status=ok" in result.output
-    assert "sent=1" in result.output
+    assert "sent=2" in result.output
+    assert "kick.prepared" not in result.output
+    assert "sender=" not in result.output
     assert "Prepared Transaction" not in result.output
     assert "Submitting transaction..." not in result.output
     assert "Kick transaction sent. Ending run after the first submitted candidate." not in result.output

@@ -53,7 +53,7 @@ tidal kick run --no-require-curve
 - `--limit`: cap how many candidates are considered
 - `--show-all`: include non-ready entries on `inspect`
 - `--no-confirmation`: skip the interactive confirmation prompt
-- `--headless`: skip confirmation, emit plain line logs, and return success for normal no-op outcomes on `run`
+- `--headless`: skip confirmation, emit compact line logs, drain the current ready set, and return success for normal no-op outcomes on `run`
 - `--verbose`: show more prepare and skip detail on `run`
 - `--require-curve` and `--no-require-curve`: tighten or relax fresh quote requirements for that run
 - `--json`: emit machine-readable output for `inspect`
@@ -72,7 +72,7 @@ The client does not precompute and send a whole batch at once. Instead it repeat
 
 That keeps the final transaction payload aligned with the latest on-chain state.
 If a prepared transaction sits longer than `prepared_action_max_age_seconds`, the client skips it instead of sending stale quotes.
-With `--headless`, normal no-op outcomes such as no ready candidates or prepare-time skips exit successfully for timer use.
+With `--headless`, the client keeps preparing and sending the current ready queue until it is cleared, skipped, or blocked. Normal no-op outcomes such as no ready candidates or prepare-time skips exit successfully for timer use.
 
 ## Review And Warning Notes
 
