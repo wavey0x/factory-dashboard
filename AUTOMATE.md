@@ -23,10 +23,10 @@ Remove any `TXN_USD_THRESHOLD` environment override, or set it to `250` too.
 
 ## Headless Kick Run
 
-Use headless mode for timer-driven execution:
+Use headless mode for timer-driven execution from the server checkout's virtualenv:
 
 ```bash
-tidal kick run --headless
+/home/wavey/tidal/venv/bin/tidal kick run --headless
 ```
 
 `--headless`:
@@ -49,7 +49,7 @@ kick.run.complete status=ok sent=4 skipped=3
 
 ## systemd Service
 
-No wrapper script or special systemd success codes are needed.
+No wrapper script, `uv run`, or special systemd success codes are needed.
 The two `ExecStart=` commands run sequentially, and systemd will not start a second instance of
 the same oneshot service while the first is still active.
 
@@ -63,12 +63,12 @@ After=network-online.target tidal-api.service
 
 [Service]
 Type=oneshot
-User=tidal
-Group=tidal
-WorkingDirectory=/srv/tidal
+User=wavey
+Group=wavey
+WorkingDirectory=/home/wavey/tidal
 EnvironmentFile=/etc/tidal/kick.env
-ExecStart=uv run tidal kick run --headless --source-type strategy --require-curve
-ExecStart=uv run tidal kick run --headless --source-type fee-burner --no-require-curve
+ExecStart=/home/wavey/tidal/venv/bin/tidal kick run --headless --source-type strategy --require-curve
+ExecStart=/home/wavey/tidal/venv/bin/tidal kick run --headless --source-type fee-burner --no-require-curve
 TimeoutStartSec=12min
 ```
 
@@ -98,6 +98,9 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now tidal-kick.timer
 ```
 
+If the virtualenv lives somewhere else, update both `ExecStart=` paths. Prefer the absolute
+virtualenv binary path over relying on systemd `PATH`.
+
 ## Environment
 
 Use `/etc/tidal/kick.env`:
@@ -116,7 +119,7 @@ TXN_KEYSTORE_PASSPHRASE=<keystore-passphrase>
 ```bash
 sudo systemctl start tidal-kick.service
 journalctl -u tidal-kick.service -n 100 --no-pager
-uv run tidal logs kicks --limit 20
+/home/wavey/tidal/venv/bin/tidal logs kicks --limit 20
 ```
 
 Keep scanner automation running separately. Kick selection depends on fresh cached balances and
