@@ -5,7 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from eth_abi import decode as abi_decode
 from eth_utils import to_checksum_address
+from hexbytes import HexBytes
 from sqlalchemy import select
 from web3 import Web3
 
@@ -15,6 +17,7 @@ from tidal.chain.contracts.abis import (
     AUCTION_KICKER_ABI,
     ERC20_ABI,
     FEE_BURNER_ABI,
+    MULTICALL3_ABI,
     STRATEGY_ABI,
 )
 from tidal.config import MonitoredFeeBurner
@@ -281,8 +284,17 @@ class AuctionTokenEnabler:
     ) -> list[TokenProbe]:
         probes: list[TokenProbe] = []
         enabled_tokens = set(inspection.enabled_tokens)
+        discovered_tokens = sorted(discovery.tokens_by_address)
+        enabled_by_auction_state = self._read_auction_token_enabled_many(
+            inspection.auction_address,
+            [
+                token_address
+                for token_address in discovered_tokens
+                if token_address != inspection.want and token_address not in enabled_tokens
+            ],
+        )
 
-        for token_address in sorted(discovery.tokens_by_address):
+        for token_address in discovered_tokens:
             origins = tuple(sorted(discovery.tokens_by_address[token_address]))
             symbol = self._read_token_symbol(token_address)
 
@@ -302,6 +314,21 @@ class AuctionTokenEnabler:
                 continue
 
             if token_address in enabled_tokens:
+                probes.append(
+                    TokenProbe(
+                        token_address=token_address,
+                        origins=origins,
+                        symbol=symbol,
+                        decimals=None,
+                        raw_balance=None,
+                        normalized_balance=None,
+                        status="skip",
+                        reason="already_enabled",
+                    )
+                )
+                continue
+
+            if enabled_by_auction_state.get(token_address) is True:
                 probes.append(
                     TokenProbe(
                         token_address=token_address,
@@ -552,6 +579,93 @@ class AuctionTokenEnabler:
             address=to_checksum_address(normalize_address(kicker_address)),
             abi=AUCTION_KICKER_ABI,
         )
+
+    def _read_auction_token_enabled_many(
+        self,
+        auction_address: str,
+        token_addresses: list[str],
+    ) -> dict[str, bool | None]:
+        normalized_auction = normalize_address(auction_address)
+        normalized_tokens = sorted({normalize_address(token) for token in token_addresses})
+        if not normalized_tokens:
+            return {}
+
+        if not bool(getattr(self.settings, "multicall_enabled", True)):
+            return {
+                token_address: self._read_auction_token_enabled_direct(normalized_auction, token_address)
+                for token_address in normalized_tokens
+            }
+
+        raw_multicall_address = str(getattr(self.settings, "multicall_address", "") or "").strip()
+        if not raw_multicall_address:
+            return {
+                token_address: self._read_auction_token_enabled_direct(normalized_auction, token_address)
+                for token_address in normalized_tokens
+            }
+
+        try:
+            multicall_address = normalize_address(raw_multicall_address)
+        except Exception:  # noqa: BLE001
+            return {
+                token_address: self._read_auction_token_enabled_direct(normalized_auction, token_address)
+                for token_address in normalized_tokens
+            }
+
+        auction = self._auction_contract(normalized_auction)
+        calls: list[tuple[str, dict[str, object]]] = []
+        for token_address in normalized_tokens:
+            fn = auction.functions.auctions(to_checksum_address(token_address))
+            calls.append(
+                (
+                    token_address,
+                    {
+                        "target": to_checksum_address(normalized_auction),
+                        "allowFailure": True,
+                        "callData": bytes(HexBytes(fn._encode_transaction_data())),
+                    },
+                )
+            )
+
+        output: dict[str, bool | None] = {}
+        batch_size = max(int(getattr(self.settings, "multicall_auction_batch_calls", 100) or 100), 1)
+        multicall = self.w3.eth.contract(
+            address=to_checksum_address(multicall_address),
+            abi=MULTICALL3_ABI,
+        )
+        try:
+            for index in range(0, len(calls), batch_size):
+                chunk = calls[index : index + batch_size]
+                raw_results = multicall.functions.aggregate3([call for _, call in chunk]).call()
+                for (token_address, _call), raw_result in zip(chunk, raw_results, strict=True):
+                    success = bool(raw_result["success"] if isinstance(raw_result, dict) else raw_result[0])
+                    return_data = raw_result["returnData"] if isinstance(raw_result, dict) else raw_result[1]
+                    if not success:
+                        output[token_address] = None
+                        continue
+                    output[token_address] = self._decode_auction_token_enabled(bytes(return_data))
+        except Exception:  # noqa: BLE001
+            return {
+                token_address: self._read_auction_token_enabled_direct(normalized_auction, token_address)
+                for token_address in normalized_tokens
+            }
+
+        for token_address in normalized_tokens:
+            if token_address not in output or output[token_address] is None:
+                output[token_address] = self._read_auction_token_enabled_direct(normalized_auction, token_address)
+        return output
+
+    def _read_auction_token_enabled_direct(self, auction_address: str, token_address: str) -> bool | None:
+        try:
+            raw = self._auction_contract(auction_address).functions.auctions(
+                to_checksum_address(token_address)
+            ).call()
+            return int(raw[1]) != 0
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _decode_auction_token_enabled(self, return_data: bytes) -> bool:
+        _kicked, scaler, _initial_available = abi_decode(["uint64", "uint64", "uint128"], return_data)
+        return int(scaler) != 0
 
     def _enable_tokens_function(
         self,

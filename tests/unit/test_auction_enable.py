@@ -1,7 +1,15 @@
+from eth_abi import encode
 import pytest
 
 from tidal.config import MonitoredFeeBurner
-from tidal.ops.auction_enable import AuctionInspection, AuctionTokenEnabler, parse_manual_token_input, resolve_source_type
+from tidal.ops.auction_enable import (
+    AuctionInspection,
+    AuctionTokenEnabler,
+    SourceResolution,
+    TokenDiscovery,
+    parse_manual_token_input,
+    resolve_source_type,
+)
 
 
 class _FakeEnableFn:
@@ -67,6 +75,86 @@ class _FakeWeb3:
         self.eth = _FakeEth(contract, gas_estimate)
 
 
+class _FakeAuctionStateCall:
+    def __init__(self, token: str, direct_value: tuple[int, int, int] | None = None) -> None:
+        self.token = token
+        self.direct_value = direct_value
+
+    def _encode_transaction_data(self) -> bytes:
+        return f"auctions:{self.token}".encode()
+
+    def call(self):
+        if self.direct_value is None:
+            raise RuntimeError("direct call unavailable")
+        return self.direct_value
+
+
+class _FakeAuctionStateFunctions:
+    def __init__(self, direct_values: dict[str, tuple[int, int, int]] | None = None) -> None:
+        self.direct_values = direct_values or {}
+        self.direct_calls = 0
+
+    def auctions(self, token: str) -> _FakeAuctionStateCall:
+        normalized = token.lower()
+        value = self.direct_values.get(normalized)
+        call = _FakeAuctionStateCall(normalized, value)
+        original_call = call.call
+
+        def tracked_call():
+            self.direct_calls += 1
+            return original_call()
+
+        call.call = tracked_call  # type: ignore[method-assign]
+        return call
+
+
+class _FakeAggregateCall:
+    def __init__(self, calls: list[dict[str, object]], scalers_by_token: dict[str, int]) -> None:
+        self.calls = calls
+        self.scalers_by_token = scalers_by_token
+
+    def call(self):
+        output = []
+        for item in self.calls:
+            token = bytes(item["callData"]).decode().split(":", 1)[1].lower()
+            scaler = self.scalers_by_token.get(token)
+            if scaler is None:
+                output.append((False, b""))
+                continue
+            output.append((True, encode(["uint64", "uint64", "uint128"], [0, scaler, 0])))
+        return output
+
+
+class _FakeMulticallFunctions:
+    def __init__(self, scalers_by_token: dict[str, int]) -> None:
+        self.scalers_by_token = scalers_by_token
+        self.calls = 0
+
+    def aggregate3(self, calls: list[dict[str, object]]) -> _FakeAggregateCall:
+        self.calls += 1
+        return _FakeAggregateCall(calls, self.scalers_by_token)
+
+
+class _FakeEnabledEth:
+    def __init__(self, *, auction_functions: _FakeAuctionStateFunctions, multicall_functions: _FakeMulticallFunctions) -> None:
+        self.auction_functions = auction_functions
+        self.multicall_functions = multicall_functions
+
+    def contract(self, *, address: str, abi):  # noqa: ANN001
+        del abi
+        if address.lower() == "0xca11bde05977b3631167028862be2a173976ca11":
+            return _FakeContract(self.multicall_functions)
+        return _FakeContract(self.auction_functions)
+
+
+class _FakeEnabledWeb3:
+    def __init__(self, *, auction_functions: _FakeAuctionStateFunctions, multicall_functions: _FakeMulticallFunctions) -> None:
+        self.eth = _FakeEnabledEth(
+            auction_functions=auction_functions,
+            multicall_functions=multicall_functions,
+        )
+
+
 def test_build_execution_plan_uses_auction_kicker_and_keeper_auth() -> None:
     enable_fn = _FakeEnableFn()
     contract = _FakeContract(
@@ -102,6 +190,103 @@ def test_build_execution_plan_uses_auction_kicker_and_keeper_auth() -> None:
     assert plan.gas_estimate == 210_000
     assert plan.sender_authorized is True
     assert plan.authorization_target == "0x3333333333333333333333333333333333333333"
+
+
+def test_read_auction_token_enabled_many_uses_multicall_scaler() -> None:
+    enabled_token = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    disabled_token = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    auction_functions = _FakeAuctionStateFunctions()
+    multicall_functions = _FakeMulticallFunctions(
+        {
+            enabled_token: 10**18,
+            disabled_token: 0,
+        }
+    )
+    enabler = AuctionTokenEnabler(
+        _FakeEnabledWeb3(
+            auction_functions=auction_functions,
+            multicall_functions=multicall_functions,
+        ),
+        type(
+            "Settings",
+            (),
+            {
+                "multicall_enabled": True,
+                "multicall_address": "0xca11bde05977b3631167028862be2a173976ca11",
+                "multicall_auction_batch_calls": 10,
+            },
+        )(),
+    )
+
+    result = enabler._read_auction_token_enabled_many(
+        "0x1111111111111111111111111111111111111111",
+        [enabled_token, disabled_token],
+    )
+
+    assert result == {
+        enabled_token: True,
+        disabled_token: False,
+    }
+    assert multicall_functions.calls == 1
+    assert auction_functions.direct_calls == 0
+
+
+def test_probe_tokens_skips_enabled_token_from_auction_state(monkeypatch) -> None:
+    enabled_token = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    disabled_token = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    source_address = "0x3333333333333333333333333333333333333333"
+    enabler = AuctionTokenEnabler(
+        _FakeWeb3(_FakeContract(_FakeKickerFunctions(owner="0x1", keepers={}, enable_fn=_FakeEnableFn()))),
+        type("Settings", (), {})(),
+    )
+    monkeypatch.setattr(
+        enabler,
+        "_read_auction_token_enabled_many",
+        lambda auction_address, token_addresses: {
+            enabled_token: True,
+            disabled_token: False,
+        },
+    )
+    monkeypatch.setattr(enabler, "_read_token_symbol", lambda token_address: "TOK")
+    monkeypatch.setattr(enabler, "_read_token_decimals", lambda token_address: 18)
+    monkeypatch.setattr(enabler, "_read_token_balance", lambda token_address, holder_address: 1)
+    monkeypatch.setattr(
+        enabler,
+        "_auction_contract",
+        lambda auction_address: _FakeContract(
+            type("_Functions", (), {"enable": lambda _self, token: _FakeEnableFn()})()
+        ),
+    )
+
+    probes = enabler.probe_tokens(
+        inspection=AuctionInspection(
+            auction_address="0x1111111111111111111111111111111111111111",
+            governance="0xb634316e06cc0b358437cbadd4dc94f1d3a92b3b",
+            want="0x2222222222222222222222222222222222222222",
+            receiver=source_address,
+            version="1.0.4",
+            in_configured_factory=True,
+            governance_matches_required=True,
+            enabled_tokens=(),
+        ),
+        source=SourceResolution(
+            source_type="fee_burner",
+            source_address=source_address,
+            source_name="Fee Burner",
+        ),
+        discovery=TokenDiscovery(
+            tokens_by_address={
+                enabled_token: {"manual"},
+                disabled_token: {"manual"},
+            },
+            notes=[],
+        ),
+    )
+
+    probes_by_token = {probe.token_address: probe for probe in probes}
+    assert probes_by_token[enabled_token].status == "skip"
+    assert probes_by_token[enabled_token].reason == "already_enabled"
+    assert probes_by_token[disabled_token].status == "eligible"
 
 
 def test_build_execution_plan_rejects_governance_mismatch() -> None:
