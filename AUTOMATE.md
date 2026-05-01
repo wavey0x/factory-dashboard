@@ -35,7 +35,7 @@ tidal kick run --headless
 - emit plain line-oriented logs, not Rich panels or spinners
 - treat normal no-op outcomes as success: no ready candidates, prepare skips, stale prepared tx skips
 - keep real failures nonzero: config errors, API errors, signing errors, broadcast errors
-- keep `--json` as data output for scripts, separate from headless operator logs
+- replace `--json` for `tidal kick run`; remove the JSON output path, CLI option wiring, tests, and docs for kick execution
 
 Example log shape:
 
