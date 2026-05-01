@@ -51,6 +51,70 @@ With `--no-confirmation`, `tidal kick run` submits at most one prepared candidat
 that invocation. One full automation cycle can therefore send up to one strategy kick and one
 fee-burner kick.
 
+The wrapper below is a deployable bridge for the current CLI. The better long-term target is a
+first-class headless output mode in `tidal kick run` so systemd logs are plain operational text
+instead of Rich review panels.
+
+## Core Headless Mode Refactor
+
+The current CLI already has `--json`, but that is data output rather than operator logs. It is
+useful for machines, but awkward for `journalctl` because it emits one large response after the
+run. The non-JSON path is better for humans, but it renders review and warning information through
+Rich panels. In a non-TTY service, progress spinners are suppressed, but panels are still
+presentation-oriented.
+
+Add a renderer mode to the operator CLI:
+
+```bash
+tidal kick run --output rich
+tidal kick run --output text
+tidal kick run --output json
+```
+
+Recommended defaults:
+
+- `rich` when stdout is a TTY
+- `text` when stdout is not a TTY
+- `json` only when explicitly requested
+
+Keep output format separate from send policy. `--output text` should not imply
+`--no-confirmation`; unattended sending should still require the existing explicit
+`--no-confirmation` flag.
+
+For `text`, emit one stable line per important event:
+
+```text
+kick.run.start source_type=strategy require_curve=true
+kick.candidate.skip source=... auction=... token=... reason="curve quote unavailable"
+kick.prepared source=... auction=... sell="123.45 TOKEN" usd_value=456.78 quote="..."
+kick.broadcast tx_hash=... auction=... token=...
+kick.receipt status=success tx_hash=... block=...
+kick.run.noop reason="no ready candidates"
+kick.run.complete status=ok sent=1 skipped=0
+```
+
+Implementation shape:
+
+1. Introduce an `OutputFormat` enum and shared option in `tidal/cli_options.py`.
+2. Teach `tidal/cli_renderers.py` to render the same review data as either Rich panels or plain
+   line-oriented text.
+3. Update `progress_status` and warning/skip/prepared/broadcast renderers to select the active
+   renderer instead of calling Rich directly.
+4. Keep `--json` data-only for scripts, either as a compatibility alias for `--output json` or as
+   the existing flag until the CLI surface is cleaned up.
+5. Add a timer-specific exit option, for example `--noop-exit-zero`, so "no ready candidates" does
+   not require a shell wrapper just to normalize exit code `2`.
+
+After that refactor, the systemd command strategy can shrink to:
+
+```bash
+tidal kick run --source-type strategy --require-curve --no-confirmation --output text --noop-exit-zero
+tidal kick run --source-type fee-burner --no-require-curve --no-confirmation --output text --noop-exit-zero
+```
+
+The remaining value of a wrapper would only be serialization with `flock` and grouping both
+source-type passes into one timer cycle.
+
 ## Environment
 
 Keep secrets out of unit files. Put them in an environment file readable only by the service
