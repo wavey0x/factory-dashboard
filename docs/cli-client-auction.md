@@ -25,6 +25,8 @@ Enable discovered tokens for an auction:
 tidal auction enable-tokens 0xAuction
 ```
 
+For configured fee burners, the API also accepts the fee-burner address or its configured want token and resolves the cached auction mapping.
+
 Add one extra token explicitly:
 
 ```bash

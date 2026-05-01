@@ -192,7 +192,11 @@ def deploy(
 
 @app.command("enable-tokens")
 def enable_tokens(
-    auction_address: str = typer.Argument(..., metavar="AUCTION", help="Auction address to inspect."),
+    auction_address: str = typer.Argument(
+        ...,
+        metavar="AUCTION",
+        help="Auction address to inspect. Configured fee-burner address/want aliases are accepted.",
+    ),
     config: ConfigOption = None,
     api_base_url: ApiBaseUrlOption = None,
     api_key: ApiKeyOption = None,

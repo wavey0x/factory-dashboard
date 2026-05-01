@@ -11,6 +11,7 @@ from tidal.api.services.action_prepare import (
     prepare_kick_action,
     prepare_settle_action,
 )
+from tidal.config import MonitoredFeeBurner
 from tidal.ops.auction_enable import AuctionInspection, SourceResolution, TokenDiscovery, TokenProbe
 from tidal.auction_settlement import AuctionLotPreview, AuctionSettlementDecision, AuctionSettlementInspection, AuctionSettlementOperation
 from tidal.transaction_service.planner import KickPlanner
@@ -29,6 +30,26 @@ class _FailingWeb3Client:
             "6e6f7420656e61626c6564000000000000000000000000000000000000000000"
         )
         raise RuntimeError((payload, payload))
+
+
+class _FakeMappingResult:
+    def __init__(self, rows: list[dict[str, object]]) -> None:
+        self._rows = rows
+
+    def mappings(self) -> "_FakeMappingResult":
+        return self
+
+    def all(self) -> list[dict[str, object]]:
+        return self._rows
+
+
+class _FakeAliasSession:
+    def __init__(self, rows: list[dict[str, object]]) -> None:
+        self._rows = rows
+
+    def execute(self, statement):  # noqa: ANN001
+        del statement
+        return _FakeMappingResult(self._rows)
 
 
 def _kick_settings() -> SimpleNamespace:
@@ -379,6 +400,143 @@ async def test_prepare_enable_tokens_action_targets_auction_kicker(monkeypatch) 
     assert data["transactions"][0]["data"] == execution_plan.data
     assert data["preview"]["executionTarget"] == execution_plan.to_address
     assert data["preview"]["previewSenderAuthorized"] is True
+
+
+@pytest.mark.asyncio
+async def test_prepare_enable_tokens_action_resolves_fee_burner_want_alias(monkeypatch) -> None:
+    auction_address = "0x1111111111111111111111111111111111111111"
+    want_address = "0x2222222222222222222222222222222222222222"
+    fee_burner_address = "0x3333333333333333333333333333333333333333"
+    inspect_calls: list[str] = []
+    inspection = AuctionInspection(
+        auction_address=auction_address,
+        governance="0xb634316e06cc0b358437cbadd4dc94f1d3a92b3b",
+        want=want_address,
+        receiver=fee_burner_address,
+        version="1.0.0",
+        in_configured_factory=True,
+        governance_matches_required=True,
+        enabled_tokens=(),
+    )
+    source = SourceResolution(
+        source_type="fee_burner",
+        source_address=fee_burner_address,
+        source_name="yCRV Fee Burner",
+        warnings=(),
+    )
+    eligible_probe = TokenProbe(
+        token_address="0x4444444444444444444444444444444444444444",
+        origins=("manual",),
+        symbol="CRV",
+        decimals=18,
+        raw_balance=1,
+        normalized_balance="1",
+        status="eligible",
+        reason="eligible",
+    )
+    execution_plan = SimpleNamespace(
+        to_address="0x5555555555555555555555555555555555555555",
+        data="0xdeadbeef",
+        call_succeeded=True,
+        gas_estimate=210000,
+        error_message=None,
+        sender_authorized=True,
+        authorization_target="0x5555555555555555555555555555555555555555",
+    )
+
+    def inspect_auction(address: str) -> AuctionInspection:
+        inspect_calls.append(address)
+        return inspection
+
+    enabler = SimpleNamespace(
+        inspect_auction=inspect_auction,
+        resolve_source=lambda inspection: source,
+        discover_tokens=lambda **kwargs: TokenDiscovery(tokens_by_address={eligible_probe.token_address: {"manual"}}, notes=[]),
+        probe_tokens=lambda **kwargs: [eligible_probe],
+        build_execution_plan=lambda **kwargs: execution_plan,
+    )
+    created_action: dict[str, object] = {}
+
+    def create_action(*args, **kwargs):  # noqa: ANN002, ANN003
+        del args
+        created_action.update(kwargs)
+        return "action-enable"
+
+    monkeypatch.setattr("tidal.api.services.action_prepare.build_sync_web3", lambda settings: object())
+    monkeypatch.setattr("tidal.api.services.action_prepare.AuctionTokenEnabler", lambda w3, settings: enabler)
+    monkeypatch.setattr("tidal.api.services.action_prepare.create_prepared_action", create_action)
+
+    status, warnings, data = await prepare_enable_tokens_action(
+        settings=SimpleNamespace(
+            chain_id=1,
+            txn_max_gas_limit=500000,
+            monitored_fee_burners=[
+                MonitoredFeeBurner(
+                    address=fee_burner_address,
+                    want_address=want_address,
+                    label="yCRV Fee Burner",
+                )
+            ],
+        ),
+        session=_FakeAliasSession(
+            [
+                {
+                    "address": fee_burner_address,
+                    "name": "yCRV Fee Burner",
+                    "auction_address": auction_address,
+                    "want_address": want_address,
+                    "auction_error_message": None,
+                }
+            ]
+        ),
+        operator_id="tester",
+        auction_address=want_address,
+        sender="0x6666666666666666666666666666666666666666",
+        extra_tokens=[],
+    )
+
+    assert status == "ok"
+    assert warnings == ["Resolved yCRV Fee Burner want token to auction 0x1111111111111111111111111111111111111111."]
+    assert inspect_calls == [auction_address]
+    assert data["transactions"][0]["to"] == execution_plan.to_address
+    assert created_action["resource_address"] == auction_address
+    assert created_action["auction_address"] == auction_address
+
+
+@pytest.mark.asyncio
+async def test_prepare_enable_tokens_action_errors_when_fee_burner_want_mapping_missing(monkeypatch) -> None:
+    want_address = "0x2222222222222222222222222222222222222222"
+    fee_burner_address = "0x3333333333333333333333333333333333333333"
+    enabler = SimpleNamespace(
+        inspect_auction=lambda auction: (_ for _ in ()).throw(AssertionError(f"unexpected inspect: {auction}")),
+    )
+
+    monkeypatch.setattr("tidal.api.services.action_prepare.build_sync_web3", lambda settings: object())
+    monkeypatch.setattr("tidal.api.services.action_prepare.AuctionTokenEnabler", lambda w3, settings: enabler)
+
+    status, warnings, data = await prepare_enable_tokens_action(
+        settings=SimpleNamespace(
+            chain_id=1,
+            txn_max_gas_limit=500000,
+            monitored_fee_burners=[
+                MonitoredFeeBurner(
+                    address=fee_burner_address,
+                    want_address=want_address,
+                    label="yCRV Fee Burner",
+                )
+            ],
+        ),
+        session=_FakeAliasSession([]),
+        operator_id="tester",
+        auction_address=want_address,
+        sender="0x6666666666666666666666666666666666666666",
+        extra_tokens=[],
+    )
+
+    assert status == "error"
+    assert "is yCRV Fee Burner's want token, not an auction address" in warnings[0]
+    assert "Run tidal-server scan run" in warnings[0]
+    assert data == {"preview": {}, "transactions": []}
 
 
 @pytest.mark.asyncio

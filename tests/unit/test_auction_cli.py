@@ -394,6 +394,7 @@ def test_operator_auction_enable_tokens_help_mentions_repeatable_extra_token() -
     result = runner.invoke(operator_app, ["auction", "enable-tokens", "--help"])
 
     assert result.exit_code == 0
+    assert "fee-burner address/want aliases" in result.output
     assert "custom token address in enable" in result.output
     assert "Repeat to add more than one." in result.output
 

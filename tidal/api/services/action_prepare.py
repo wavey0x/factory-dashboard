@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
 from typing import Any
 
 from eth_utils import to_checksum_address
-from sqlalchemy import text
+from sqlalchemy import or_, select, text
 from sqlalchemy.orm import Session
 
 from tidal.api.errors import APIError
@@ -35,6 +35,7 @@ from tidal.ops.deploy import (
 from tidal.ops.kick_inspect import inspect_kick_candidates
 from tidal.pricing.token_price_agg import TokenPriceAggProvider
 from tidal.runtime import build_txn_service, build_web3_client
+from tidal.persistence import models
 from tidal.persistence.repositories import TokenRepository
 from tidal.transaction_service.kick_shared import _GAS_ESTIMATE_BUFFER, _format_execution_error
 
@@ -59,6 +60,12 @@ LEFT JOIN tokens t ON t.address = stbl.token_address
 WHERE s.address = :strategy_address
 ORDER BY t.symbol, stbl.token_address
 """
+
+
+@dataclass(slots=True)
+class _AuctionAddressResolution:
+    auction_address: str
+    warnings: list[str]
 
 
 async def prepare_kick_action(
@@ -414,6 +421,113 @@ def _build_deploy_prepare_payload(
     return warnings, request_payload, preview_payload, tx
 
 
+def _load_fee_burner_alias_rows(session: Session, normalized_address: str) -> list[dict[str, object]]:
+    try:
+        result = session.execute(
+            select(
+                models.fee_burners.c.address,
+                models.fee_burners.c.name,
+                models.fee_burners.c.auction_address,
+                models.fee_burners.c.want_address,
+                models.fee_burners.c.auction_error_message,
+            ).where(
+                or_(
+                    models.fee_burners.c.address == normalized_address,
+                    models.fee_burners.c.want_address == normalized_address,
+                )
+            )
+        )
+        return [dict(row) for row in result.mappings().all()]
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _resolve_enable_tokens_auction_alias(
+    session: Session,
+    settings: Settings,
+    requested_address: str,
+) -> _AuctionAddressResolution | None:
+    normalized_address = normalize_address(requested_address)
+    candidates: dict[str, dict[str, object]] = {}
+
+    for fee_burner in getattr(settings, "monitored_fee_burners", []) or []:
+        try:
+            fee_burner_address = normalize_address(fee_burner.address)
+            want_address = normalize_address(fee_burner.want_address)
+        except Exception:  # noqa: BLE001
+            continue
+        if normalized_address not in {fee_burner_address, want_address}:
+            continue
+        candidates[fee_burner_address] = {
+            "address": fee_burner_address,
+            "want_address": want_address,
+            "name": fee_burner.label or "fee burner",
+            "role": "fee burner address" if normalized_address == fee_burner_address else "want token",
+            "auction_address": None,
+            "auction_error_message": None,
+        }
+
+    for row in _load_fee_burner_alias_rows(session, normalized_address):
+        try:
+            fee_burner_address = normalize_address(str(row["address"]))
+        except Exception:  # noqa: BLE001
+            continue
+        try:
+            want_address = normalize_address(str(row["want_address"])) if row.get("want_address") else None
+        except Exception:  # noqa: BLE001
+            want_address = None
+        if normalized_address not in {fee_burner_address, want_address}:
+            continue
+        candidate = candidates.setdefault(
+            fee_burner_address,
+            {
+                "address": fee_burner_address,
+                "want_address": want_address,
+                "name": row.get("name") or "fee burner",
+                "role": "fee burner address" if normalized_address == fee_burner_address else "want token",
+                "auction_address": None,
+                "auction_error_message": None,
+            },
+        )
+        candidate["name"] = row.get("name") or candidate.get("name") or "fee burner"
+        candidate["want_address"] = want_address or candidate.get("want_address")
+        candidate["auction_address"] = row.get("auction_address") or candidate.get("auction_address")
+        candidate["auction_error_message"] = row.get("auction_error_message") or candidate.get("auction_error_message")
+
+    if not candidates:
+        return None
+
+    if len(candidates) > 1:
+        raise RuntimeError(
+            f"{to_checksum_address(normalized_address)} matches multiple fee burners; pass the auction address"
+        )
+
+    candidate = next(iter(candidates.values()))
+    source_name = str(candidate.get("name") or "fee burner").strip() or "fee burner"
+    role = str(candidate.get("role") or "fee burner address")
+    raw_auction_address = candidate.get("auction_address")
+    if raw_auction_address:
+        try:
+            auction_address = normalize_address(str(raw_auction_address))
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(
+                f"cached auction mapping for {source_name} is invalid; run tidal-server scan run"
+            ) from exc
+        return _AuctionAddressResolution(
+            auction_address=auction_address,
+            warnings=[f"Resolved {source_name} {role} to auction {to_checksum_address(auction_address)}."],
+        )
+
+    message = (
+        f"{to_checksum_address(normalized_address)} is {source_name}'s {role}, not an auction address; "
+        "no cached auction mapping is available. Run tidal-server scan run, or pass the auction address."
+    )
+    mapping_error = str(candidate.get("auction_error_message") or "").strip()
+    if mapping_error:
+        message = f"{message} Last mapping error: {mapping_error}"
+    raise RuntimeError(message)
+
+
 async def prepare_enable_tokens_action(
     settings: Settings,
     session: Session,
@@ -426,6 +540,18 @@ async def prepare_enable_tokens_action(
     w3 = build_sync_web3(settings)
     enabler = AuctionTokenEnabler(w3, settings)
     normalized_auction = normalize_address(auction_address)
+    resolution_warnings: list[str] = []
+    try:
+        resolution = _resolve_enable_tokens_auction_alias(session, settings, normalized_auction)
+    except RuntimeError as exc:
+        return "error", [str(exc)], {
+            "preview": {},
+            "transactions": [],
+        }
+    if resolution is not None:
+        normalized_auction = resolution.auction_address
+        resolution_warnings.extend(resolution.warnings)
+
     try:
         inspection = enabler.inspect_auction(normalized_auction)
         source = enabler.resolve_source(inspection)
@@ -440,12 +566,12 @@ async def prepare_enable_tokens_action(
             discovery=discovery,
         )
     except RuntimeError as exc:
-        return "error", [str(exc)], {
+        return "error", [*resolution_warnings, str(exc)], {
             "preview": {},
             "transactions": [],
         }
 
-    warnings = list(source.warnings) + list(discovery.notes)
+    warnings = resolution_warnings + list(source.warnings) + list(discovery.notes)
     if not inspection.in_configured_factory:
         warnings.append("Auction is not in the configured factory.")
     eligible = [probe for probe in probes if probe.status == "eligible"]
