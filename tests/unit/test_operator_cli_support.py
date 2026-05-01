@@ -193,3 +193,34 @@ async def test_broadcast_prepared_action_requires_typed_intents() -> None:
             signer=_CapturingSigner(),
             transactions=[{"operation": "kick"}],
         )
+
+
+@pytest.mark.asyncio
+async def test_broadcast_prepared_action_rejects_underestimated_gas_limit(monkeypatch) -> None:
+    web3_built = False
+
+    def build_web3_client(_settings):  # noqa: ANN001
+        nonlocal web3_built
+        web3_built = True
+        return _FakeWeb3Client()
+
+    monkeypatch.setattr("tidal.operator_cli_support.build_web3_client", build_web3_client)
+    tx = _kick_tx_intent(sender="0x9999999999999999999999999999999999999999")
+    tx.gas_estimate = 1_526_206
+    tx.gas_limit = 500_000
+
+    with pytest.raises(RuntimeError, match="gas limit 500,000 is below estimated gas 1,526,206"):
+        await broadcast_prepared_action(
+            settings=SimpleNamespace(
+                txn_max_priority_fee_gwei=2,
+                txn_max_base_fee_gwei=0.5,
+                chain_id=1,
+            ),
+            client=_FakeClient(),
+            action_id="action-1",
+            sender="0x9999999999999999999999999999999999999999",
+            signer=_CapturingSigner(),
+            transactions=[tx],
+        )
+
+    assert web3_built is False
