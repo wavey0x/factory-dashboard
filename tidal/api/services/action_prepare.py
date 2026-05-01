@@ -68,6 +68,12 @@ class _AuctionAddressResolution:
     warnings: list[str]
 
 
+@dataclass(slots=True)
+class _EnableTokenBatch:
+    tokens: list[str]
+    execution_plan: Any
+
+
 async def prepare_kick_action(
     session: Session,
     settings: Settings,
@@ -528,6 +534,78 @@ def _resolve_enable_tokens_auction_alias(
     raise RuntimeError(message)
 
 
+def _gas_limit_from_estimate(settings: Settings, gas_estimate: int | None) -> int | None:
+    if gas_estimate is None:
+        return None
+    return min(int(gas_estimate * _GAS_ESTIMATE_BUFFER), settings.txn_max_gas_limit)
+
+
+def _enable_tokens_transaction(
+    settings: Settings,
+    *,
+    execution_plan: Any,
+    sender: str | None,
+) -> dict[str, object]:
+    return {
+        "operation": "enable-tokens",
+        "to": normalize_address(execution_plan.to_address),
+        "data": execution_plan.data,
+        "value": "0x0",
+        "chainId": settings.chain_id,
+        "sender": sender,
+        "gasEstimate": execution_plan.gas_estimate,
+        "gasLimit": _gas_limit_from_estimate(settings, execution_plan.gas_estimate),
+    }
+
+
+def _build_enable_token_batches(
+    enabler: AuctionTokenEnabler,
+    *,
+    inspection: Any,
+    selected_tokens: list[str],
+    caller_address: str | None,
+    gas_cap: int,
+) -> list[_EnableTokenBatch]:
+    batches: list[_EnableTokenBatch] = []
+    current_tokens: list[str] = []
+    current_plan: Any | None = None
+
+    for token_address in selected_tokens:
+        tentative_tokens = [*current_tokens, token_address]
+        tentative_plan = enabler.build_execution_plan(
+            inspection=inspection,
+            tokens=tentative_tokens,
+            caller_address=caller_address,
+        )
+        if (
+            tentative_plan.gas_estimate is not None
+            and int(tentative_plan.gas_estimate) > gas_cap
+            and current_tokens
+        ):
+            if current_plan is not None:
+                batches.append(_EnableTokenBatch(tokens=current_tokens, execution_plan=current_plan))
+            tentative_tokens = [token_address]
+            tentative_plan = enabler.build_execution_plan(
+                inspection=inspection,
+                tokens=tentative_tokens,
+                caller_address=caller_address,
+            )
+
+        if tentative_plan.gas_estimate is not None and int(tentative_plan.gas_estimate) > gas_cap:
+            raise RuntimeError(
+                "enable-tokens batch for "
+                f"{to_checksum_address(token_address)} estimates {int(tentative_plan.gas_estimate):,} gas, "
+                f"above txn_max_gas_limit {gas_cap:,}"
+            )
+
+        current_tokens = tentative_tokens
+        current_plan = tentative_plan
+
+    if current_plan is not None:
+        batches.append(_EnableTokenBatch(tokens=current_tokens, execution_plan=current_plan))
+    return batches
+
+
 async def prepare_enable_tokens_action(
     settings: Settings,
     session: Session,
@@ -601,10 +679,12 @@ async def prepare_enable_tokens_action(
     }
 
     try:
-        execution_plan = enabler.build_execution_plan(
+        batches = _build_enable_token_batches(
+            enabler,
             inspection=inspection,
-            tokens=selected_tokens,
+            selected_tokens=selected_tokens,
             caller_address=sender,
+            gas_cap=int(settings.txn_max_gas_limit),
         )
     except RuntimeError as exc:
         warnings.append(str(exc))
@@ -613,8 +693,20 @@ async def prepare_enable_tokens_action(
             "transactions": [],
         }
 
-    if execution_plan.error_message:
-        warnings.append(execution_plan.error_message)
+    execution_plans = [batch.execution_plan for batch in batches]
+    execution_plan = execution_plans[0]
+    seen_execution_errors: set[str] = set()
+    for plan in execution_plans:
+        if plan.error_message and plan.error_message not in seen_execution_errors:
+            warnings.append(plan.error_message)
+            seen_execution_errors.add(plan.error_message)
+
+    execution_gas_estimate = (
+        sum(int(plan.gas_estimate) for plan in execution_plans)
+        if all(plan.gas_estimate is not None for plan in execution_plans)
+        else None
+    )
+    execution_error_message = next((plan.error_message for plan in execution_plans if plan.error_message), None)
 
     preview_payload.update(
         {
@@ -623,26 +715,25 @@ async def prepare_enable_tokens_action(
             "previewSenderAuthorized": execution_plan.sender_authorized,
             "authorizationTarget": execution_plan.authorization_target,
             "executionPreview": {
-                "call_succeeded": execution_plan.call_succeeded,
-                "gas_estimate": execution_plan.gas_estimate,
-                "error_message": execution_plan.error_message,
+                "call_succeeded": all(plan.call_succeeded for plan in execution_plans),
+                "gas_estimate": execution_gas_estimate,
+                "error_message": execution_error_message,
             },
+            "executionBatches": [
+                {
+                    "tokens": batch.tokens,
+                    "call_succeeded": batch.execution_plan.call_succeeded,
+                    "gas_estimate": batch.execution_plan.gas_estimate,
+                    "error_message": batch.execution_plan.error_message,
+                }
+                for batch in batches
+            ],
         }
     )
-    tx = {
-        "operation": "enable-tokens",
-        "to": normalize_address(execution_plan.to_address),
-        "data": execution_plan.data,
-        "value": "0x0",
-        "chainId": settings.chain_id,
-        "sender": sender,
-        "gasEstimate": execution_plan.gas_estimate,
-        "gasLimit": (
-            min(int(execution_plan.gas_estimate * _GAS_ESTIMATE_BUFFER), settings.txn_max_gas_limit)
-            if execution_plan.gas_estimate is not None
-            else None
-        ),
-    }
+    transactions = [
+        _enable_tokens_transaction(settings, execution_plan=batch.execution_plan, sender=sender)
+        for batch in batches
+    ]
     action_id = create_prepared_action(
         session,
         operator_id=operator_id,
@@ -654,7 +745,7 @@ async def prepare_enable_tokens_action(
             "extraTokens": extra_tokens,
         },
         preview_payload=preview_payload,
-        transactions=[tx],
+        transactions=transactions,
         resource_address=normalized_auction,
         auction_address=normalized_auction,
         source_address=source.source_address,
@@ -663,7 +754,7 @@ async def prepare_enable_tokens_action(
         "actionId": action_id,
         "actionType": "enable_tokens",
         "preview": preview_payload,
-        "transactions": [tx],
+        "transactions": transactions,
     }
 
 

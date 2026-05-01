@@ -403,6 +403,98 @@ async def test_prepare_enable_tokens_action_targets_auction_kicker(monkeypatch) 
 
 
 @pytest.mark.asyncio
+async def test_prepare_enable_tokens_action_splits_batches_over_gas_cap(monkeypatch) -> None:
+    inspection = AuctionInspection(
+        auction_address="0x1111111111111111111111111111111111111111",
+        governance="0xb634316e06cc0b358437cbadd4dc94f1d3a92b3b",
+        want="0x2222222222222222222222222222222222222222",
+        receiver="0x3333333333333333333333333333333333333333",
+        version="1.0.0",
+        in_configured_factory=True,
+        governance_matches_required=True,
+        enabled_tokens=(),
+    )
+    source = SourceResolution(
+        source_type="strategy",
+        source_address="0x3333333333333333333333333333333333333333",
+        source_name="Test Strategy",
+        warnings=(),
+    )
+    tokens = [
+        "0x4444444444444444444444444444444444444444",
+        "0x5555555555555555555555555555555555555555",
+        "0x7777777777777777777777777777777777777777",
+    ]
+    probes = [
+        TokenProbe(
+            token_address=token,
+            origins=("manual",),
+            symbol=f"TOK{index}",
+            decimals=18,
+            raw_balance=1,
+            normalized_balance="1",
+            status="eligible",
+            reason="eligible",
+        )
+        for index, token in enumerate(tokens, 1)
+    ]
+    build_calls: list[list[str]] = []
+
+    def build_execution_plan(**kwargs):  # noqa: ANN003
+        batch_tokens = list(kwargs["tokens"])
+        build_calls.append(batch_tokens)
+        return SimpleNamespace(
+            to_address="0x8888888888888888888888888888888888888888",
+            data="0x" + "".join(token[-2:] for token in batch_tokens),
+            call_succeeded=True,
+            gas_estimate=300000 * len(batch_tokens),
+            error_message=None,
+            sender_authorized=True,
+            authorization_target="0x8888888888888888888888888888888888888888",
+        )
+
+    enabler = SimpleNamespace(
+        inspect_auction=lambda auction: inspection,
+        resolve_source=lambda inspection: source,
+        discover_tokens=lambda **kwargs: TokenDiscovery(tokens_by_address={token: {"manual"} for token in tokens}, notes=[]),
+        probe_tokens=lambda **kwargs: probes,
+        build_execution_plan=build_execution_plan,
+    )
+
+    monkeypatch.setattr("tidal.api.services.action_prepare.build_sync_web3", lambda settings: object())
+    monkeypatch.setattr("tidal.api.services.action_prepare.AuctionTokenEnabler", lambda w3, settings: enabler)
+    monkeypatch.setattr("tidal.api.services.action_prepare.create_prepared_action", lambda *args, **kwargs: "action-enable")
+
+    status, warnings, data = await prepare_enable_tokens_action(
+        settings=SimpleNamespace(
+            chain_id=1,
+            txn_max_gas_limit=500000,
+            monitored_fee_burners=[],
+        ),
+        session=_FakeAliasSession([]),
+        operator_id="tester",
+        auction_address=inspection.auction_address,
+        sender="0x6666666666666666666666666666666666666666",
+        extra_tokens=[],
+    )
+
+    assert status == "ok"
+    assert warnings == []
+    assert build_calls == [
+        [tokens[0]],
+        [tokens[0], tokens[1]],
+        [tokens[1]],
+        [tokens[1], tokens[2]],
+        [tokens[2]],
+    ]
+    assert len(data["transactions"]) == 3
+    assert [tx["gasEstimate"] for tx in data["transactions"]] == [300000, 300000, 300000]
+    assert [tx["gasLimit"] for tx in data["transactions"]] == [360000, 360000, 360000]
+    assert data["preview"]["executionPreview"]["gas_estimate"] == 900000
+    assert [batch["tokens"] for batch in data["preview"]["executionBatches"]] == [[token] for token in tokens]
+
+
+@pytest.mark.asyncio
 async def test_prepare_enable_tokens_action_resolves_fee_burner_want_alias(monkeypatch) -> None:
     auction_address = "0x1111111111111111111111111111111111111111"
     want_address = "0x2222222222222222222222222222222222222222"
