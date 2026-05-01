@@ -194,6 +194,7 @@ kick:
     assert settings.auctionscan_api_base_url == "https://auctionscan.info/api"
     assert settings.auctionscan_enrichment_batch_size == 10
     assert settings.multicall_auction_batch_calls == 100
+    assert settings.txn_usd_threshold == 250.0
     assert settings.kick_config.pricing_policy.default_profile_name == "volatile"
 
 
