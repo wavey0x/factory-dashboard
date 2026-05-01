@@ -32,8 +32,9 @@ tidal kick run --headless
 `--headless`:
 
 - runs unattended without a confirmation prompt
-- sends at most one successful transaction per invocation, matching current `--no-confirmation` safety behavior
+- keeps preparing and sending candidates until the current filtered ready set is cleared, skipped, or blocked
 - emits plain line-oriented logs, not Rich panels or spinners
+- keeps routine logs compact: start, skips, broadcasts, final summary
 - treats normal no-op outcomes as success: no ready candidates, prepare skips, stale prepared tx skips
 - keeps real failures nonzero: config errors, API errors, signing errors, broadcast errors
 
@@ -42,9 +43,8 @@ Example log shape:
 ```text
 kick.run.start source_type=strategy require_curve=true
 kick.candidate.skip token=CRV auction=0x... reason="curve quote unavailable"
-kick.prepared token=CRV auction=0x... usd_value=1234.56 gas_limit=252000
 kick.broadcast tx_hash=0x... receipt_status=CONFIRMED
-kick.run.complete status=ok sent=1 skipped=0
+kick.run.complete status=ok sent=4 skipped=3
 ```
 
 ## systemd Service
