@@ -492,3 +492,54 @@ async def test_kick_planner_falls_back_from_batch_to_individual_intents(monkeypa
     assert plan.warnings == ["Gas estimate failed: call to 0x4444…4444 failed: not enabled"]
     assert plan.skipped_during_prepare[0].result is not None
     assert plan.skipped_during_prepare[0].result.status == KickStatus.ESTIMATE_FAILED
+
+
+@pytest.mark.asyncio
+async def test_kick_planner_skips_single_kick_when_gas_estimate_exceeds_cap(monkeypatch) -> None:
+    candidate = _candidate(token_address="0x1111111111111111111111111111111111111111", usd_value=3000.0)
+    prepared = _prepared(candidate)
+    shortlist = SimpleNamespace(
+        selected_candidates=[candidate],
+        eligible_candidates=[candidate],
+        ignored_skips=[],
+        cooldown_skips=[],
+        deferred_same_auction_count=0,
+        limited_candidates=[],
+    )
+    deps = _FakeKickDeps(prepared_by_token={candidate.token_address: prepared})
+    monkeypatch.setattr(
+        planner_module,
+        "inspect_auction_settlements",
+        AsyncMock(return_value={candidate.auction_address: _inspection()}),
+    )
+
+    async def estimate_transaction_fn(web3_client, settings, *, sender, to_address, data, gas_cap):  # noqa: ANN001
+        del web3_client, settings, sender, to_address, data, gas_cap
+        return 501428, 500000, None
+
+    planner = KickPlanner(
+        session=object(),
+        settings=_settings(),
+        preparer=deps,
+        tx_builder=deps,
+        kick_tx_repository=object(),  # type: ignore[arg-type]
+        shortlist_builder=lambda *args, **kwargs: shortlist,
+        candidate_sorter=lambda candidates: list(candidates),
+        estimate_transaction_fn=estimate_transaction_fn,
+    )
+
+    plan = await planner.plan(
+        source_type="strategy",
+        source_address=candidate.source_address,
+        auction_address=candidate.auction_address,
+        token_address=None,
+        limit=1,
+        sender="0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        run_id="run-gas-cap",
+        batch=True,
+    )
+
+    assert plan.tx_intents == []
+    assert plan.warnings == ["Gas estimate 501,428 exceeds txn_max_gas_limit 500,000"]
+    assert plan.skipped_during_prepare[0].result is not None
+    assert plan.skipped_during_prepare[0].result.status == KickStatus.ESTIMATE_FAILED

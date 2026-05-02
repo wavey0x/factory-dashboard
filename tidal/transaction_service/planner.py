@@ -111,6 +111,12 @@ def _needs_manual_sweep(preview, gas_warning: str | None) -> bool:  # noqa: ANN0
     return bool(preview.path == PATH_SWEEP_AND_RESET and gas_warning and "Amount is zero." in gas_warning)
 
 
+def _gas_cap_warning(gas_estimate: int | None, gas_cap: int) -> str | None:
+    if gas_estimate is None or int(gas_estimate) <= gas_cap:
+        return None
+    return f"Gas estimate {int(gas_estimate):,} exceeds txn_max_gas_limit {gas_cap:,}"
+
+
 class KickPlanner:
     """Build a single typed kick plan for API prepare or live execution."""
 
@@ -456,7 +462,7 @@ class KickPlanner:
             )
             intent.gas_estimate = gas_estimate
             intent.gas_limit = gas_limit
-            return gas_warning
+            return gas_warning or _gas_cap_warning(gas_estimate, gas_cap)
 
         if intent.sender is None:
             return "No sender provided for gas estimation."
@@ -475,4 +481,4 @@ class KickPlanner:
             return f"Gas estimate failed: {_format_execution_error(exc)}"
         intent.gas_estimate = gas_estimate
         intent.gas_limit = min(int(gas_estimate * _GAS_ESTIMATE_BUFFER), gas_cap)
-        return None
+        return _gas_cap_warning(gas_estimate, gas_cap)

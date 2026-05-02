@@ -282,6 +282,14 @@ class _BroadcastClient:
         }
 
 
+class _UnderGasBroadcastClient(_BroadcastClient):
+    def prepare_kicks(self, body: dict[str, object]) -> dict[str, object]:
+        response = super().prepare_kicks(body)
+        response["data"]["transactions"][0]["gasEstimate"] = 501_428
+        response["data"]["transactions"][0]["gasLimit"] = 500_000
+        return response
+
+
 class _PrepareNoopClient:
     def __enter__(self) -> "_PrepareNoopClient":
         return self
@@ -1246,6 +1254,46 @@ def test_operator_kick_run_headless_stale_prepared_transaction_exits_success(tmp
 
     assert result.exit_code == 0
     assert "kick.warning message='Prepared transaction expired after 5 minutes; re-run to refresh quotes before sending.'" in result.output
+    assert "kick.run.complete status=noop reason=prepared_skipped" in result.output
+    assert "skipped=1" in result.output
+
+
+def test_operator_kick_run_headless_under_gassed_prepare_exits_success(tmp_path, monkeypatch) -> None:
+    config_path = _write_config(tmp_path)
+    client = _UnderGasBroadcastClient(
+        [
+            _ready_entry(
+                token_address="0x3333333333333333333333333333333333333333",
+                source_address="0x1111111111111111111111111111111111111111",
+                auction_address="0x2222222222222222222222222222222222222222",
+            )
+        ]
+    )
+
+    monkeypatch.setattr(
+        operator_kick_cli_module.CLIContext,
+        "control_plane_client",
+        lambda self, auth=True: client,
+    )
+    monkeypatch.setattr(
+        operator_kick_cli_module.CLIContext,
+        "resolve_execution",
+        lambda self, **kwargs: SimpleNamespace(
+            signer=SimpleNamespace(),
+            sender="0x9999999999999999999999999999999999999999",
+        ),
+    )
+    monkeypatch.setattr(
+        operator_kick_cli_module,
+        "execute_prepared_action_sync",
+        lambda **kwargs: pytest.fail(f"under-gassed prepared action should not broadcast: {kwargs}"),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(operator_app, ["kick", "run", "--headless", "--config", str(config_path)])
+
+    assert result.exit_code == 0
+    assert "kick.warning message='transaction 1 gas limit 500,000 is below estimated gas 501,428" in result.output
     assert "kick.run.complete status=noop reason=prepared_skipped" in result.output
     assert "skipped=1" in result.output
 

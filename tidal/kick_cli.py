@@ -37,6 +37,7 @@ from tidal.operator_cli_support import (
     render_broadcast_result,
     render_warnings,
     submission_progress,
+    validate_prepared_gas_limits,
 )
 from tidal.ops.kick_inspect import KickInspectEntry, KickInspectResult
 from tidal.transaction_service.types import TxIntent
@@ -668,6 +669,19 @@ def kick_run(
                                 heading=f"Prepared kick action ({index}/{total_candidates})",
                             )
                         render_warnings(warnings)
+                    gas_limit_error = None
+                    try:
+                        validate_prepared_gas_limits(tx_intents)
+                    except RuntimeError as exc:
+                        gas_limit_error = str(exc)
+                    if gas_limit_error is not None:
+                        skipped_confirmation_count += 1
+                        local_warnings.append(gas_limit_error)
+                        if headless:
+                            _emit_headless_warnings([gas_limit_error])
+                        else:
+                            render_warnings([gas_limit_error])
+                        continue
                     if not effective_no_confirmation and not typer.confirm("Send this transaction?", default=False):
                         skipped_confirmation_count += 1
                         continue
