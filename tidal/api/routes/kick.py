@@ -66,6 +66,7 @@ async def post_kick_prepare(
         limit=payload.limit,
         sender=payload.sender,
         require_curve_quote=payload.require_curve_quote,
+        txn_max_gas_limit=payload.txn_max_gas_limit,
     )
     return {"status": status, "warnings": redact_sensitive_data(warnings), "data": redact_sensitive_data(data)}
 

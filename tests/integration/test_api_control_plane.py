@@ -279,6 +279,7 @@ def test_kick_prepare_route_threads_curve_quote_override(tmp_path: Path, monkeyp
     async def fake_prepare_kick_action(session, settings, **kwargs):  # noqa: ANN001, ANN003
         del session, settings
         captured["require_curve_quote"] = kwargs.get("require_curve_quote")
+        captured["txn_max_gas_limit"] = kwargs.get("txn_max_gas_limit")
         return "noop", [], {"preview": {}, "transactions": []}
 
     monkeypatch.setattr("tidal.api.routes.kick.prepare_kick_action", fake_prepare_kick_action)
@@ -293,11 +294,13 @@ def test_kick_prepare_route_threads_curve_quote_override(tmp_path: Path, monkeyp
             "tokenAddress": "0x5000000000000000000000000000000000000005",
             "sender": "0x6000000000000000000000000000000000000006",
             "requireCurveQuote": False,
+            "txnMaxGasLimit": 2_500_000,
         },
     )
 
     assert response.status_code == 200
     assert captured["require_curve_quote"] is False
+    assert captured["txn_max_gas_limit"] == 2_500_000
 
 
 def test_auction_settle_prepare_route_threads_force_override(tmp_path: Path, monkeypatch) -> None:

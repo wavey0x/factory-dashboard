@@ -201,8 +201,9 @@ async def test_prepare_kick_action_threads_curve_quote_override(monkeypatch) -> 
     captured: dict[str, object] = {}
 
     def fake_build_txn_service(settings, session, **kwargs):  # noqa: ANN001, ANN003
-        del settings, session
+        del session
         captured["require_curve_quote"] = kwargs.get("require_curve_quote")
+        captured["txn_max_gas_limit"] = settings.txn_max_gas_limit
         return SimpleNamespace(
             planner=_build_kick_planner(
                 shortlist=shortlist,
@@ -225,9 +226,11 @@ async def test_prepare_kick_action_threads_curve_quote_override(monkeypatch) -> 
         limit=1,
         sender="0x6666666666666666666666666666666666666666",
         require_curve_quote=False,
+        txn_max_gas_limit=2_500_000,
     )
 
     assert captured["require_curve_quote"] is False
+    assert captured["txn_max_gas_limit"] == 2_500_000
     assert status == "ok"
     assert warnings == []
     assert data["actionId"] == "action-1"

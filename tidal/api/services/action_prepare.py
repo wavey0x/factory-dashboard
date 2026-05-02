@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import copy
 from dataclasses import asdict, dataclass, is_dataclass
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
 from typing import Any
@@ -74,6 +75,17 @@ class _EnableTokenBatch:
     execution_plan: Any
 
 
+def _settings_with_txn_gas_cap(settings: Settings, txn_max_gas_limit: int | None) -> Settings:
+    if txn_max_gas_limit is None:
+        return settings
+    gas_cap = int(txn_max_gas_limit)
+    if hasattr(settings, "model_copy"):
+        return settings.model_copy(update={"txn_max_gas_limit": gas_cap})
+    cloned = copy(settings)
+    setattr(cloned, "txn_max_gas_limit", gas_cap)
+    return cloned
+
+
 async def prepare_kick_action(
     session: Session,
     settings: Settings,
@@ -86,8 +98,10 @@ async def prepare_kick_action(
     limit: int | None,
     sender: str | None,
     require_curve_quote: bool | None = None,
+    txn_max_gas_limit: int | None = None,
 ) -> tuple[str, list[str], dict[str, object]]:
-    txn_service = build_txn_service(settings, session, require_curve_quote=require_curve_quote)
+    effective_settings = _settings_with_txn_gas_cap(settings, txn_max_gas_limit)
+    txn_service = build_txn_service(effective_settings, session, require_curve_quote=require_curve_quote)
     planner = txn_service.planner
     plan = await planner.plan(
         source_type=source_type,  # type: ignore[arg-type]
@@ -119,6 +133,7 @@ async def prepare_kick_action(
             "limit": limit,
             "sender": sender,
             "requireCurveQuote": require_curve_quote,
+            "txnMaxGasLimit": effective_settings.txn_max_gas_limit,
         },
         preview_payload=preview,
         transactions=transactions,

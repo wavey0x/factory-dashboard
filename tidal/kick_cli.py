@@ -574,6 +574,7 @@ def kick_run(
                     if candidate_auction in terminal_auction_addresses:
                         continue
                     prepare_payload = _candidate_prepare_payload(candidate, sender=exec_ctx.sender)
+                    prepare_payload["txnMaxGasLimit"] = cli_ctx.settings.txn_max_gas_limit
                     if require_curve_quote is not None:
                         prepare_payload["requireCurveQuote"] = require_curve_quote
                     if headless:

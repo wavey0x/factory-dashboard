@@ -553,7 +553,7 @@ def test_operator_kick_run_renders_manual_sweep_hint_for_blocking_stale_lot(tmp_
     ],
 )
 def test_operator_kick_run_threads_curve_quote_override(tmp_path, monkeypatch, flag_args, expected) -> None:
-    config_path = _write_config(tmp_path)
+    config_path = _write_config(tmp_path, extra="txn_max_gas_limit: 2500000\n")
     client = _BroadcastClient()
 
     monkeypatch.setattr(
@@ -581,6 +581,7 @@ def test_operator_kick_run_threads_curve_quote_override(tmp_path, monkeypatch, f
 
     assert result.exit_code == 2
     assert client.prepare_calls
+    assert all(call["txnMaxGasLimit"] == 2_500_000 for call in client.prepare_calls)
     if expected is None:
         assert all("requireCurveQuote" not in call for call in client.prepare_calls)
     else:
