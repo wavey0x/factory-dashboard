@@ -63,6 +63,9 @@ kick:
     - auction: "0xA00E6b35C23442fa9D5149Cba5dd94623fFE6693"
       token: "0x7CB20517776636eD76b68EdB3D99DCce356ABf02" # sdUSD
       profile: stable
+    - auction: "0xA00E6b35C23442fa9D5149Cba5dd94623fFE6693"
+      token: "0x501eBf66d76A96D4FB26ccead42957653e16B8B8" # evaUSDT
+      profile: stable
     - auction: "0x73b2962d10e5dda7768c55dbe8f24a78149ced0c"
       token: "0x865377367054516e17014CcdED1e7d814EDC9ce4" # DOLA
       profile: stable
