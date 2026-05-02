@@ -214,8 +214,12 @@ def test_load_kick_config_accepts_packaged_kick_template(tmp_path):
         "0xA00E6b35C23442fa9D5149Cba5dd94623fFE6693",
         "0x2A8e1E676Ec238d8A992307B495b45B3fEAa5e86",
     )
+    default_profile = config.pricing_policy.profiles["volatile"]
+    semi_volatile_profile = config.pricing_policy.profiles["semi-volatile"]
 
     assert config.pricing_policy.default_profile_name == "volatile"
+    assert default_profile.outlier_floor_enabled is True
+    assert semi_volatile_profile.outlier_floor_enabled is True
     assert stable_profile.name == "stable"
     assert stable_profile.outlier_floor_enabled is True
     assert (

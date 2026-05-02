@@ -33,6 +33,13 @@ kick:
       start_price_buffer_bps: 1000
       min_price_buffer_bps: 500
       step_decay_rate_bps: 25
+      outlier_floor_enabled: true
+
+    semi-volatile:
+      start_price_buffer_bps: 1000
+      min_price_buffer_bps: 500
+      step_decay_rate_bps: 8
+      outlier_floor_enabled: true
 
     stable:
       start_price_buffer_bps: 100
