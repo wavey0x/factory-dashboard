@@ -38,6 +38,7 @@ kick:
       start_price_buffer_bps: 100
       min_price_buffer_bps: 50
       step_decay_rate_bps: 2
+      outlier_floor_enabled: true
 
   profile_overrides:
     - auction: "0xA00E6b35C23442fa9D5149Cba5dd94623fFE6693" # Fee burner v1.0.4 auction

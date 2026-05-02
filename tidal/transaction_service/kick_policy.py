@@ -25,6 +25,7 @@ class PricingProfile:
     start_price_buffer_bps: int
     min_price_buffer_bps: int
     step_decay_rate_bps: int
+    outlier_floor_enabled: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,6 +117,14 @@ def _coerce_non_negative_int(value: object, *, field_name: str) -> int:
     return output
 
 
+def _coerce_bool(value: object, *, field_name: str, profile_name: str, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    raise ValueError(f"{profile_name}.{field_name} must be a boolean")
+
+
 def _coerce_positive_decimal(value: object, *, field_name: str, scope_name: str) -> Decimal:
     try:
         output = Decimal(str(value))
@@ -165,6 +174,11 @@ def _build_pricing_policy(raw: Mapping[str, object]) -> PricingPolicy:
             step_decay_rate_bps=_coerce_bps(
                 profile_raw.get("step_decay_rate_bps"),
                 field_name="step_decay_rate_bps",
+                profile_name=profile_key,
+            ),
+            outlier_floor_enabled=_coerce_bool(
+                profile_raw.get("outlier_floor_enabled"),
+                field_name="outlier_floor_enabled",
                 profile_name=profile_key,
             ),
         )

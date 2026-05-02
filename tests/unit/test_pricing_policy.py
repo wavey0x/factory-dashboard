@@ -83,6 +83,7 @@ profiles:
     start_price_buffer_bps: 100
     min_price_buffer_bps: 50
     step_decay_rate_bps: 2
+    outlier_floor_enabled: true
 
 profile_overrides:
   - auction: "0x1111111111111111111111111111111111111111"
@@ -105,7 +106,9 @@ profile_overrides:
     )
 
     assert default_profile.name == "volatile"
+    assert default_profile.outlier_floor_enabled is False
     assert override_profile.name == "stable"
+    assert override_profile.outlier_floor_enabled is True
 
 
 def test_load_kick_config_parses_ignore_and_cooldown_rules(tmp_path):
@@ -214,6 +217,7 @@ def test_load_kick_config_accepts_packaged_kick_template(tmp_path):
 
     assert config.pricing_policy.default_profile_name == "volatile"
     assert stable_profile.name == "stable"
+    assert stable_profile.outlier_floor_enabled is True
     assert (
         config.ignore_policy.match(
             source_address="0xC69aA6Cd632A88424ceAf3688F295B856eB82287",

@@ -32,6 +32,50 @@ from tidal.transaction_service.types import AuctionInspection, KickCandidate, Ki
 logger = structlog.get_logger(__name__)
 
 
+def _is_successful_quote_status(status: str | None) -> bool:
+    if status is None:
+        return True
+    return status.lower() in {"ok", "success", "successful"}
+
+
+def _median_int(values: list[int]) -> int:
+    ordered = sorted(values)
+    midpoint = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[midpoint]
+    return (ordered[midpoint - 1] + ordered[midpoint]) // 2
+
+
+def _select_floor_quote_amount_raw(*, quote_result, profile) -> int:
+    high_amount = quote_result.amount_out_raw
+    if (
+        high_amount is None
+        or high_amount <= 0
+        or not bool(getattr(profile, "outlier_floor_enabled", False))
+    ):
+        return high_amount
+
+    successful_amounts = [
+        amount
+        for provider, amount in quote_result.provider_amounts.items()
+        if amount > 0 and _is_successful_quote_status(quote_result.provider_statuses.get(provider))
+    ]
+    non_high_amounts = [amount for amount in successful_amounts if amount < high_amount]
+    if len(non_high_amounts) < 2:
+        return high_amount
+
+    threshold_bps = profile.min_price_buffer_bps
+    matching_high_count = sum(1 for amount in successful_amounts if amount == high_amount)
+    has_nearby_provider = matching_high_count > 1 or any(
+        0 < abs(high_amount - amount) * 10_000 <= high_amount * threshold_bps
+        for amount in successful_amounts
+    )
+    if has_nearby_provider:
+        return high_amount
+
+    return _median_int(non_high_amounts)
+
+
 class KickPreparer:
     """Build prepared kick operations from shortlisted candidates."""
 
@@ -300,8 +344,12 @@ class KickPreparer:
                 ceiled_value=starting_price_unscaled,
             )
 
+        floor_quote_amount_raw = _select_floor_quote_amount_raw(
+            quote_result=quote_result,
+            profile=profile,
+        )
         minimum_price_scaled_1e18 = compute_minimum_price_scaled_1e18(
-            amount_out_raw=quote_result.amount_out_raw,
+            amount_out_raw=floor_quote_amount_raw,
             want_decimals=quote_result.token_out_decimals,
             sell_amount_raw=sell_amount,
             sell_decimals=candidate.decimals,

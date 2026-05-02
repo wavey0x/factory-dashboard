@@ -11,10 +11,12 @@ from sqlalchemy.orm import Session
 
 from tidal.persistence import models
 from tidal.persistence.repositories import KickTxRepository
+from tidal.pricing.token_price_agg import QuoteResult
 from tidal.transaction_service.kick_execute import KickExecutor
+from tidal.transaction_service.kick_policy import PricingPolicy, PricingProfile
 from tidal.transaction_service.kick_prepare import KickPreparer
 from tidal.transaction_service.kick_tx import KickTxBuilder
-from tidal.transaction_service.types import KickCandidate, KickStatus, PreparedResolveAuction
+from tidal.transaction_service.types import AuctionInspection, KickCandidate, KickStatus, PreparedKick, PreparedResolveAuction
 
 
 @pytest.fixture
@@ -42,12 +44,157 @@ def _candidate() -> KickCandidate:
     )
 
 
+def _pricing_policy(profile: PricingProfile) -> PricingPolicy:
+    return PricingPolicy(
+        default_profile_name=profile.name,
+        profiles={profile.name: profile},
+        profile_overrides={},
+    )
+
+
+async def _prepare_with_quote(profile: PricingProfile, quote_result: QuoteResult) -> PreparedKick:
+    candidate = _candidate()
+    preparer = KickPreparer(
+        web3_client=object(),
+        price_provider=SimpleNamespace(
+            quote=AsyncMock(return_value=quote_result),
+            quote_usd=AsyncMock(return_value=SimpleNamespace(price_usd="1")),
+        ),
+        usd_threshold=100.0,
+        require_curve_quote=True,
+        erc20_reader=SimpleNamespace(read_balance=AsyncMock(return_value=1000 * 10**18)),
+        pricing_policy=_pricing_policy(profile),
+        start_price_buffer_bps=1000,
+        min_price_buffer_bps=500,
+    )
+    result = await preparer.prepare_kick(
+        candidate,
+        "run-1",
+        inspection=AuctionInspection(
+            auction_address=candidate.auction_address,
+            is_active_auction=False,
+            active_tokens=(),
+        ),
+    )
+    assert isinstance(result, PreparedKick)
+    return result
+
+
+def _quote_result(*, high: int, provider_amounts: dict[str, int]) -> QuoteResult:
+    return QuoteResult(
+        amount_out_raw=high * 10**18,
+        token_out_decimals=18,
+        provider_statuses={provider: "ok" for provider in provider_amounts},
+        provider_amounts={provider: amount * 10**18 for provider, amount in provider_amounts.items()},
+    )
+
+
 class _FakeSigner:
     address = "0xcccccccccccccccccccccccccccccccccccccccc"
     checksum_address = "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
 
     def sign_transaction(self, tx):  # noqa: ARG002
         return b"signed"
+
+
+@pytest.mark.asyncio
+async def test_kick_preparer_uses_non_high_provider_median_for_stable_outlier_floor() -> None:
+    profile = PricingProfile(
+        name="stable",
+        start_price_buffer_bps=100,
+        min_price_buffer_bps=250,
+        step_decay_rate_bps=2,
+        outlier_floor_enabled=True,
+    )
+    quote = _quote_result(
+        high=1200,
+        provider_amounts={
+            "bad": 1200,
+            "curve": 1000,
+            "defillama": 1002,
+            "enso": 998,
+        },
+    )
+
+    prepared = await _prepare_with_quote(profile, quote)
+
+    assert prepared.starting_price_unscaled == 1212
+    assert prepared.minimum_quote_unscaled == 975
+    assert prepared.minimum_price_scaled_1e18 == 975_000_000_000_000_000
+    assert prepared.quote_amount_str == "1200"
+
+
+@pytest.mark.asyncio
+async def test_kick_preparer_keeps_high_floor_when_stable_quote_has_nearby_provider() -> None:
+    profile = PricingProfile(
+        name="stable",
+        start_price_buffer_bps=100,
+        min_price_buffer_bps=250,
+        step_decay_rate_bps=2,
+        outlier_floor_enabled=True,
+    )
+    quote = _quote_result(
+        high=1200,
+        provider_amounts={
+            "bad": 1200,
+            "curve": 1180,
+            "defillama": 1002,
+            "enso": 998,
+        },
+    )
+
+    prepared = await _prepare_with_quote(profile, quote)
+
+    assert prepared.minimum_quote_unscaled == 1170
+    assert prepared.minimum_price_scaled_1e18 == 1_170_000_000_000_000_000
+
+
+@pytest.mark.asyncio
+async def test_kick_preparer_keeps_high_floor_when_stable_outlier_lacks_non_high_depth() -> None:
+    profile = PricingProfile(
+        name="stable",
+        start_price_buffer_bps=100,
+        min_price_buffer_bps=250,
+        step_decay_rate_bps=2,
+        outlier_floor_enabled=True,
+    )
+    quote = _quote_result(
+        high=1200,
+        provider_amounts={
+            "bad": 1200,
+            "curve": 1000,
+        },
+    )
+
+    prepared = await _prepare_with_quote(profile, quote)
+
+    assert prepared.minimum_quote_unscaled == 1170
+    assert prepared.minimum_price_scaled_1e18 == 1_170_000_000_000_000_000
+
+
+@pytest.mark.asyncio
+async def test_kick_preparer_keeps_high_floor_when_outlier_floor_disabled() -> None:
+    profile = PricingProfile(
+        name="volatile",
+        start_price_buffer_bps=1000,
+        min_price_buffer_bps=250,
+        step_decay_rate_bps=15,
+        outlier_floor_enabled=False,
+    )
+    quote = _quote_result(
+        high=1200,
+        provider_amounts={
+            "bad": 1200,
+            "curve": 1000,
+            "defillama": 1002,
+            "enso": 998,
+        },
+    )
+
+    prepared = await _prepare_with_quote(profile, quote)
+
+    assert prepared.minimum_quote_unscaled == 1170
+    assert prepared.minimum_price_scaled_1e18 == 1_170_000_000_000_000_000
 
 
 @pytest.mark.asyncio
