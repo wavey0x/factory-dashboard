@@ -25,6 +25,7 @@ from tidal.operator_cli_support import (
     render_broadcast_result,
     submission_progress,
     render_warnings,
+    validate_prepared_gas_limits,
 )
 from tidal.transaction_service.types import TxIntent
 
@@ -75,10 +76,31 @@ def _handle_prepared_action(
     broadcast_records: list[dict[str, object]] = []
     transactions = data.get("transactions") or []
     tx_intents = [TxIntent.from_payload(tx) for tx in transactions] if isinstance(transactions, list) else []
+    gas_limit_error: str | None = None
+    if response["status"] == "ok":
+        try:
+            validate_prepared_gas_limits(tx_intents)
+        except RuntimeError as exc:
+            gas_limit_error = str(exc)
     if not json_output:
         if response["status"] == "ok" and isinstance(transactions, list) and transactions:
             render_action_preview(data, heading="Prepared action")
         render_warnings(list(response.get("warnings") or []))
+        if gas_limit_error:
+            render_status_panel(
+                "Preparation Failed",
+                [
+                    "Prepared transaction gas limit is below its estimate.",
+                    gas_limit_error,
+                ],
+                border_style="red",
+            )
+    if gas_limit_error:
+        if json_output:
+            output = dict(data)
+            output["broadcastRecords"] = broadcast_records
+            emit_json(command_name, status="error", data=output, warnings=[gas_limit_error])
+        raise typer.Exit(code=1)
     try:
         with cli_ctx.control_plane_client() as client:
             if response["status"] == "ok":

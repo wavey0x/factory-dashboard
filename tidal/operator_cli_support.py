@@ -35,7 +35,7 @@ def render_warnings(warnings: list[str]) -> None:
         typer.echo()
 
 
-def _validate_prepared_gas_limits(transactions: list[TxIntent]) -> None:
+def validate_prepared_gas_limits(transactions: list[TxIntent]) -> None:
     for index, tx in enumerate(transactions, 1):
         if tx.gas_estimate is None or tx.gas_limit is None:
             continue
@@ -148,7 +148,7 @@ async def broadcast_prepared_action(
 ) -> list[dict[str, Any]]:  # noqa: ANN001
     if any(not isinstance(tx, TxIntent) for tx in transactions):
         raise TypeError("transactions must be TxIntent instances")
-    _validate_prepared_gas_limits(transactions)
+    validate_prepared_gas_limits(transactions)
     report_outbox = outbox or ActionReportOutbox()
     try:
         report_outbox.flush_pending(client)

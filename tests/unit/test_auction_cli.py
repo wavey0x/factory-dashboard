@@ -84,6 +84,15 @@ class _EnableTokensClient:
         }
 
 
+class _UnderGasEnableTokensClient(_EnableTokensClient):
+    def prepare_enable_tokens(self, auction_address: str, payload: dict[str, object]) -> dict[str, object]:
+        response = super().prepare_enable_tokens(auction_address, payload)
+        response["data"]["transactions"][0]["gasEstimate"] = 1_526_206
+        response["data"]["transactions"][0]["gasLimit"] = 500_000
+        response["data"]["preview"]["executionPreview"]["gas_estimate"] = 1_526_206
+        return response
+
+
 class _NoopEnableTokensClient:
     def __enter__(self) -> "_NoopEnableTokensClient":
         return self
@@ -434,6 +443,60 @@ def test_operator_auction_enable_tokens_forwards_client_gas_cap(tmp_path, monkey
 
     assert result.exit_code == 0
     assert client.calls[0][1]["txnMaxGasLimit"] == 2_000_000
+
+
+def test_operator_auction_enable_tokens_rejects_under_gassed_prepare(tmp_path, monkeypatch) -> None:
+    config_path = _write_config(tmp_path)
+    client = _UnderGasEnableTokensClient()
+    executed = False
+
+    monkeypatch.setattr(
+        operator_auction_cli_module.CLIContext,
+        "verify_authenticated_api_access",
+        lambda self: None,
+    )
+    monkeypatch.setattr(
+        operator_auction_cli_module.CLIContext,
+        "control_plane_client",
+        lambda self, auth=True: client,
+    )
+    monkeypatch.setattr(
+        operator_auction_cli_module.CLIContext,
+        "resolve_execution",
+        lambda self, **kwargs: SimpleNamespace(
+            signer=SimpleNamespace(),
+            sender="0x9999999999999999999999999999999999999999",
+        ),
+    )
+
+    def fake_execute_prepared_action_sync(**kwargs):  # noqa: ANN003
+        nonlocal executed
+        executed = True
+        return []
+
+    monkeypatch.setattr(
+        operator_auction_cli_module,
+        "execute_prepared_action_sync",
+        fake_execute_prepared_action_sync,
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        operator_app,
+        [
+            "auction",
+            "enable-tokens",
+            "0xe92af59d00becd5f70d2ba11ae1a74751503a185",
+            "--config",
+            str(config_path),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert executed is False
+    assert "Preparation Failed" in result.output
+    assert "gas limit 500,000 is below estimated gas 1,526,206" in result.output
+    assert "Send this transaction?" not in result.output
 
 
 def test_operator_auction_enable_tokens_help_mentions_repeatable_extra_token() -> None:
