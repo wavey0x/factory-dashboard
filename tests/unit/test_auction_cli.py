@@ -389,6 +389,53 @@ def test_operator_auction_enable_tokens_forwards_repeated_extra_tokens(tmp_path,
     ]
 
 
+def test_operator_auction_enable_tokens_forwards_client_gas_cap(tmp_path, monkeypatch) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("db_path: ./test.db\ntxn_max_gas_limit: 2000000\n", encoding="utf-8")
+    client = _EnableTokensClient()
+
+    monkeypatch.setattr(
+        operator_auction_cli_module.CLIContext,
+        "verify_authenticated_api_access",
+        lambda self: None,
+    )
+    monkeypatch.setattr(
+        operator_auction_cli_module.CLIContext,
+        "control_plane_client",
+        lambda self, auth=True: client,
+    )
+    monkeypatch.setattr(
+        operator_auction_cli_module.CLIContext,
+        "resolve_execution",
+        lambda self, **kwargs: SimpleNamespace(
+            signer=SimpleNamespace(),
+            sender="0x9999999999999999999999999999999999999999",
+        ),
+    )
+    monkeypatch.setattr(operator_auction_cli_module.typer, "confirm", lambda *args, **kwargs: True)
+    monkeypatch.setattr(
+        operator_auction_cli_module,
+        "execute_prepared_action_sync",
+        lambda **kwargs: [],
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        operator_app,
+        [
+            "auction",
+            "enable-tokens",
+            "0xe92af59d00becd5f70d2ba11ae1a74751503a185",
+            "--config",
+            str(config_path),
+            "--no-confirmation",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert client.calls[0][1]["txnMaxGasLimit"] == 2_000_000
+
+
 def test_operator_auction_enable_tokens_help_mentions_repeatable_extra_token() -> None:
     runner = CliRunner()
     result = runner.invoke(operator_app, ["auction", "enable-tokens", "--help"])

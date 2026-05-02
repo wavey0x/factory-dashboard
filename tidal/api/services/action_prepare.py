@@ -534,10 +534,10 @@ def _resolve_enable_tokens_auction_alias(
     raise RuntimeError(message)
 
 
-def _gas_limit_from_estimate(settings: Settings, gas_estimate: int | None) -> int | None:
+def _gas_limit_from_estimate(gas_estimate: int | None, *, gas_cap: int) -> int | None:
     if gas_estimate is None:
         return None
-    return min(int(gas_estimate * _GAS_ESTIMATE_BUFFER), settings.txn_max_gas_limit)
+    return min(int(gas_estimate * _GAS_ESTIMATE_BUFFER), gas_cap)
 
 
 def _enable_tokens_transaction(
@@ -545,6 +545,7 @@ def _enable_tokens_transaction(
     *,
     execution_plan: Any,
     sender: str | None,
+    gas_cap: int,
 ) -> dict[str, object]:
     return {
         "operation": "enable-tokens",
@@ -554,7 +555,7 @@ def _enable_tokens_transaction(
         "chainId": settings.chain_id,
         "sender": sender,
         "gasEstimate": execution_plan.gas_estimate,
-        "gasLimit": _gas_limit_from_estimate(settings, execution_plan.gas_estimate),
+        "gasLimit": _gas_limit_from_estimate(execution_plan.gas_estimate, gas_cap=gas_cap),
     }
 
 
@@ -614,6 +615,7 @@ async def prepare_enable_tokens_action(
     auction_address: str,
     sender: str | None,
     extra_tokens: list[str],
+    txn_max_gas_limit: int | None = None,
 ) -> tuple[str, list[str], dict[str, object]]:
     w3 = build_sync_web3(settings)
     enabler = AuctionTokenEnabler(w3, settings)
@@ -665,6 +667,7 @@ async def prepare_enable_tokens_action(
         }
 
     selected_tokens = [probe.token_address for probe in eligible]
+    gas_cap = int(txn_max_gas_limit or settings.txn_max_gas_limit)
     preview_payload = {
         "inspection": _serialize(inspection),
         "source": _serialize(source),
@@ -684,7 +687,7 @@ async def prepare_enable_tokens_action(
             inspection=inspection,
             selected_tokens=selected_tokens,
             caller_address=sender,
-            gas_cap=int(settings.txn_max_gas_limit),
+            gas_cap=gas_cap,
         )
     except RuntimeError as exc:
         warnings.append(str(exc))
@@ -728,10 +731,11 @@ async def prepare_enable_tokens_action(
                 }
                 for batch in batches
             ],
+            "txnMaxGasLimit": gas_cap,
         }
     )
     transactions = [
-        _enable_tokens_transaction(settings, execution_plan=batch.execution_plan, sender=sender)
+        _enable_tokens_transaction(settings, execution_plan=batch.execution_plan, sender=sender, gas_cap=gas_cap)
         for batch in batches
     ]
     action_id = create_prepared_action(
@@ -743,6 +747,7 @@ async def prepare_enable_tokens_action(
             "auctionAddress": normalized_auction,
             "sender": sender,
             "extraTokens": extra_tokens,
+            "txnMaxGasLimit": gas_cap,
         },
         preview_payload=preview_payload,
         transactions=transactions,

@@ -93,6 +93,7 @@ async def post_enable_tokens_prepare(
         auction_address=auction,
         sender=payload.sender,
         extra_tokens=payload.extra_tokens,
+        txn_max_gas_limit=payload.txn_max_gas_limit,
     )
     return {"status": status, "warnings": redact_sensitive_data(warnings), "data": redact_sensitive_data(data)}
 

@@ -29,6 +29,7 @@ Client-side config values that are often useful in `~/.tidal/cli/config.yaml`:
 - `tidal_api_base_url`
 - `tidal_api_request_timeout_seconds`
 - `prepared_action_max_age_seconds`
+- `txn_max_gas_limit` for API-prepared auction management actions such as `enable-tokens`
 - shared RPC timeout settings if you also do local prepare/send work
 
 For API-backed `tidal` workflows, prepared kick behavior comes from the server's tracked `config/server.yaml`, not the workstation.

@@ -226,6 +226,7 @@ def enable_tokens(
     payload = {
         "sender": exec_ctx.sender,
         "extraTokens": [normalize_cli_address(value, param_hint="--extra-token") for value in extra_token or []],
+        "txnMaxGasLimit": cli_ctx.settings.txn_max_gas_limit,
     }
     try:
         with cli_ctx.control_plane_client() as client:

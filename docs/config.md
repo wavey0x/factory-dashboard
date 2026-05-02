@@ -51,6 +51,7 @@ The client scaffold is intentionally narrow. It is for:
   `chain_id`, `auction_kicker_address`, `txn_*`, `rpc_timeout_seconds`, `rpc_retry_attempts`
 
 `prepared_action_max_age_seconds` is a CLI-side safety guard. If you wait too long between prepare and send, the client skips that prepared transaction and tells you to re-run.
+For `tidal auction enable-tokens`, the client sends `txn_max_gas_limit` with the prepare request so operators can choose whether to split enables into smaller transactions or allow a larger batch.
 
 Normal API-backed workstation use does not need a local kick-policy file anymore.
 

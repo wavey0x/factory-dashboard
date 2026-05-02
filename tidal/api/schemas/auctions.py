@@ -20,6 +20,7 @@ class AuctionDeployPrepareRequest(BaseModel):
 class AuctionEnableTokensPrepareRequest(BaseModel):
     sender: str | None = None
     extra_tokens: list[str] = Field(default_factory=list, alias="extraTokens")
+    txn_max_gas_limit: int | None = Field(default=None, alias="txnMaxGasLimit", ge=21_000)
 
     model_config = {"populate_by_name": True}
 

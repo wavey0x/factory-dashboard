@@ -26,6 +26,7 @@ tidal auction enable-tokens 0xAuction
 ```
 
 For configured fee burners, the API also accepts the fee-burner address or its configured want token and resolves the cached auction mapping.
+The `enable-tokens` prepare request uses `txn_max_gas_limit` from `~/.tidal/cli/config.yaml` to decide how many enable calls can be placed in each transaction.
 
 Add one extra token explicitly:
 
