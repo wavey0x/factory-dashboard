@@ -21,6 +21,7 @@ from tidal.cli_options import (
     JsonOption,
     KeystoreOption,
     LimitOption,
+    MinUsdValueOption,
     NoConfirmationOption,
     PasswordFileOption,
     SourceAddressOption,
@@ -163,7 +164,12 @@ def _inspect_result_from_api(data: dict[str, object]) -> KickInspectResult:
     )
 
 
-def _candidate_prepare_payload(candidate: KickInspectEntry, *, sender: str | None) -> dict[str, object]:
+def _candidate_prepare_payload(
+    candidate: KickInspectEntry,
+    *,
+    sender: str | None,
+    min_usd_value: float | None = None,
+) -> dict[str, object]:
     payload = {
         "sourceType": candidate.source_type,
         "sourceAddress": candidate.source_address,
@@ -171,6 +177,7 @@ def _candidate_prepare_payload(candidate: KickInspectEntry, *, sender: str | Non
         "tokenAddress": candidate.token_address,
         "limit": 1,
         "sender": sender,
+        "minUsdValue": min_usd_value,
     }
     return payload
 
@@ -447,6 +454,7 @@ def kick_inspect(
     source_address: SourceAddressOption = None,
     auction_address: AuctionAddressOption = None,
     limit: LimitOption = None,
+    min_usd_value: MinUsdValueOption = None,
     show_all: bool = typer.Option(False, "--show-all", help="Show deferred and limited candidates."),
 ) -> None:
     cli_ctx = CLIContext(config, api_base_url=api_base_url, api_key=api_key)
@@ -455,6 +463,7 @@ def kick_inspect(
         "sourceAddress": normalize_cli_address(source_address, param_hint="--source"),
         "auctionAddress": normalize_cli_address(auction_address, param_hint="--auction"),
         "limit": limit,
+        "minUsdValue": min_usd_value,
     }
     try:
         with cli_ctx.control_plane_client(auth=False) as client:
@@ -486,6 +495,7 @@ def kick_run(
     source_address: SourceAddressOption = None,
     auction_address: AuctionAddressOption = None,
     limit: LimitOption = None,
+    min_usd_value: MinUsdValueOption = None,
     keystore: KeystoreOption = None,
     password_file: PasswordFileOption = None,
     verbose: VerboseOption = False,
@@ -508,6 +518,7 @@ def kick_run(
             source=normalized_source_address,
             auction=normalized_auction_address,
             limit=limit,
+            min_usd_value=min_usd_value,
             require_curve=("config" if require_curve_quote is None else require_curve_quote),
         )
     try:
@@ -534,6 +545,7 @@ def kick_run(
         "sourceAddress": normalized_source_address,
         "auctionAddress": normalized_auction_address,
         "limit": limit,
+        "minUsdValue": min_usd_value,
         "sender": exec_ctx.sender,
         "includeLiveInspection": False,
     }
@@ -573,7 +585,11 @@ def kick_run(
                     candidate_auction = candidate.auction_address.lower()
                     if candidate_auction in terminal_auction_addresses:
                         continue
-                    prepare_payload = _candidate_prepare_payload(candidate, sender=exec_ctx.sender)
+                    prepare_payload = _candidate_prepare_payload(
+                        candidate,
+                        sender=exec_ctx.sender,
+                        min_usd_value=min_usd_value,
+                    )
                     prepare_payload["txnMaxGasLimit"] = cli_ctx.settings.txn_max_gas_limit
                     if require_curve_quote is not None:
                         prepare_payload["requireCurveQuote"] = require_curve_quote

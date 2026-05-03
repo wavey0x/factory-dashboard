@@ -75,14 +75,26 @@ class _EnableTokenBatch:
     execution_plan: Any
 
 
-def _settings_with_txn_gas_cap(settings: Settings, txn_max_gas_limit: int | None) -> Settings:
-    if txn_max_gas_limit is None:
+def _settings_with_kick_overrides(
+    settings: Settings,
+    *,
+    txn_max_gas_limit: int | None,
+    min_usd_value: float | None,
+) -> Settings:
+    updates: dict[str, object] = {}
+    if txn_max_gas_limit is not None:
+        updates["txn_max_gas_limit"] = int(txn_max_gas_limit)
+    if min_usd_value is not None:
+        updates["txn_usd_threshold"] = float(min_usd_value)
+
+    if not updates:
         return settings
-    gas_cap = int(txn_max_gas_limit)
+
     if hasattr(settings, "model_copy"):
-        return settings.model_copy(update={"txn_max_gas_limit": gas_cap})
+        return settings.model_copy(update=updates)
     cloned = copy(settings)
-    setattr(cloned, "txn_max_gas_limit", gas_cap)
+    for key, value in updates.items():
+        setattr(cloned, key, value)
     return cloned
 
 
@@ -97,10 +109,15 @@ async def prepare_kick_action(
     token_address: str | None,
     limit: int | None,
     sender: str | None,
+    min_usd_value: float | None = None,
     require_curve_quote: bool | None = None,
     txn_max_gas_limit: int | None = None,
 ) -> tuple[str, list[str], dict[str, object]]:
-    effective_settings = _settings_with_txn_gas_cap(settings, txn_max_gas_limit)
+    effective_settings = _settings_with_kick_overrides(
+        settings,
+        txn_max_gas_limit=txn_max_gas_limit,
+        min_usd_value=min_usd_value,
+    )
     txn_service = build_txn_service(effective_settings, session, require_curve_quote=require_curve_quote)
     planner = txn_service.planner
     plan = await planner.plan(
@@ -131,6 +148,7 @@ async def prepare_kick_action(
             "auctionAddress": auction_address,
             "tokenAddress": token_address,
             "limit": limit,
+            "minUsdValue": min_usd_value,
             "sender": sender,
             "requireCurveQuote": require_curve_quote,
             "txnMaxGasLimit": effective_settings.txn_max_gas_limit,
@@ -159,11 +177,17 @@ def inspect_kicks(
     auction_address: str | None,
     token_address: str | None,
     limit: int | None,
+    min_usd_value: float | None,
     include_live_inspection: bool,
 ) -> dict[str, object]:
+    effective_settings = _settings_with_kick_overrides(
+        settings,
+        txn_max_gas_limit=None,
+        min_usd_value=min_usd_value,
+    )
     result = inspect_kick_candidates(
         session,
-        settings,
+        effective_settings,
         source_type=source_type,  # type: ignore[arg-type]
         source_address=source_address,
         auction_address=auction_address,

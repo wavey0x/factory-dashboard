@@ -11,6 +11,7 @@ class KickInspectRequest(BaseModel):
     auction_address: str | None = Field(default=None, alias="auctionAddress")
     token_address: str | None = Field(default=None, alias="tokenAddress")
     limit: int | None = Field(default=None, ge=1)
+    min_usd_value: float | None = Field(default=None, alias="minUsdValue", ge=0)
     include_live_inspection: bool = Field(default=True, alias="includeLiveInspection")
 
     model_config = {"populate_by_name": True}

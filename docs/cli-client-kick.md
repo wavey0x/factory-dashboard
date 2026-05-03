@@ -45,12 +45,19 @@ Allow prepares to continue when Curve quoting is unavailable:
 tidal kick run --no-require-curve
 ```
 
+Lower the candidate USD threshold for a one-off run:
+
+```bash
+tidal kick run --min-usd-value 200
+```
+
 ## Important Flags
 
 - `--source-type`: filter to `strategy` or `fee-burner`
 - `--source`: target one source address
 - `--auction`: target one auction address
 - `--limit`: cap how many candidates are considered
+- `--min-usd-value`: override `txn_usd_threshold` for candidate selection in this inspect or run
 - `--show-all`: include non-ready entries on `inspect`
 - `--no-confirmation`: skip the interactive confirmation prompt
 - `--headless`: skip confirmation, emit compact line logs, drain the current ready set, and return success for normal no-op outcomes on `run`

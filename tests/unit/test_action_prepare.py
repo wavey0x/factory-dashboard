@@ -5,6 +5,7 @@ import pytest
 
 from tidal.api.services.action_prepare import (
     _estimate_transaction,
+    inspect_kicks,
     load_strategy_deploy_defaults,
     prepare_deploy_browser_action,
     prepare_enable_tokens_action,
@@ -204,6 +205,7 @@ async def test_prepare_kick_action_threads_curve_quote_override(monkeypatch) -> 
         del session
         captured["require_curve_quote"] = kwargs.get("require_curve_quote")
         captured["txn_max_gas_limit"] = settings.txn_max_gas_limit
+        captured["txn_usd_threshold"] = settings.txn_usd_threshold
         return SimpleNamespace(
             planner=_build_kick_planner(
                 shortlist=shortlist,
@@ -225,18 +227,72 @@ async def test_prepare_kick_action_threads_curve_quote_override(monkeypatch) -> 
         token_address=candidate.token_address,
         limit=1,
         sender="0x6666666666666666666666666666666666666666",
+        min_usd_value=200,
         require_curve_quote=False,
         txn_max_gas_limit=2_500_000,
     )
 
     assert captured["require_curve_quote"] is False
     assert captured["txn_max_gas_limit"] == 2_500_000
+    assert captured["txn_usd_threshold"] == 200.0
     assert status == "ok"
     assert warnings == []
     assert data["actionId"] == "action-1"
     preview_item = data["preview"]["preparedOperations"][0]
     assert preview_item["startingPriceDisplay"] == "2,750 USDC (+10.00% buffer)"
     assert preview_item["minimumQuoteDisplay"] == "2,375 USDC (-0.50% buffer)"
+
+
+def test_inspect_kicks_applies_min_usd_value_override(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_inspect_kick_candidates(session, settings, **kwargs):  # noqa: ANN001, ANN003
+        del session, kwargs
+        captured["txn_usd_threshold"] = settings.txn_usd_threshold
+        return {
+            "source_type": None,
+            "source_address": None,
+            "auction_address": None,
+            "limit": None,
+            "eligible_count": 0,
+            "selected_count": 0,
+            "ready_count": 0,
+            "resolve_first_count": 0,
+            "blocked_live_count": 0,
+            "preview_failed_count": 0,
+            "ignored_count": 0,
+            "cooldown_count": 0,
+            "deferred_same_auction_count": 0,
+            "limited_count": 0,
+            "ready": [],
+            "resolve_first": [],
+            "blocked_live": [],
+            "preview_failed": [],
+            "ignored_skips": [],
+            "cooldown_skips": [],
+            "deferred_same_auction": [],
+            "limited": [],
+        }
+
+    monkeypatch.setattr(
+        "tidal.api.services.action_prepare.inspect_kick_candidates",
+        fake_inspect_kick_candidates,
+    )
+
+    data = inspect_kicks(
+        session=object(),
+        settings=_kick_settings(),
+        source_type=None,
+        source_address=None,
+        auction_address=None,
+        token_address=None,
+        limit=None,
+        min_usd_value=200,
+        include_live_inspection=False,
+    )
+
+    assert captured["txn_usd_threshold"] == 200.0
+    assert data["ready_count"] == 0
 
 
 @pytest.mark.asyncio

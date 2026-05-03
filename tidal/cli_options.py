@@ -113,6 +113,15 @@ LimitOption = Annotated[
     ),
 ]
 
+MinUsdValueOption = Annotated[
+    float | None,
+    typer.Option(
+        "--min-usd-value",
+        min=0,
+        help="Override the minimum cached USD value for kick candidate selection.",
+    ),
+]
+
 ApiBaseUrlOption = Annotated[
     str | None,
     typer.Option(

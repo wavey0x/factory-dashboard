@@ -51,6 +51,8 @@ A candidate is excluded early if:
 - cached USD value is below `txn_usd_threshold`
 - enabled-token scan for that auction succeeded and the token is not currently enabled
 
+`tidal kick inspect --min-usd-value <amount>` and `tidal kick run --min-usd-value <amount>` override `txn_usd_threshold` for that request only.
+
 Optional filters are then applied:
 
 - `source_type`

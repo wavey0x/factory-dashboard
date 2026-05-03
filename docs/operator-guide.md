@@ -133,6 +133,7 @@ Useful flags:
 - `--source-type`: `strategy` or `fee-burner`
 - `--source`: target one source address
 - `--auction`: target one auction
+- `--min-usd-value`: override the server `txn_usd_threshold` for this inspect or run
 - `--no-confirmation`: skip interactive confirmation
 - `--headless`: use unattended service-mode output, drain the ready queue, and use no-op success exits
 - `--verbose`: show more diagnostic detail

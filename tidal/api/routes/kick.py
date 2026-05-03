@@ -30,6 +30,7 @@ def post_kick_inspect(
         auction_address=payload.auction_address,
         token_address=payload.token_address,
         limit=payload.limit,
+        min_usd_value=payload.min_usd_value,
         include_live_inspection=payload.include_live_inspection,
     )
     status = "ok" if any(
@@ -64,6 +65,7 @@ async def post_kick_prepare(
         auction_address=payload.auction_address,
         token_address=payload.token_address,
         limit=payload.limit,
+        min_usd_value=payload.min_usd_value,
         sender=payload.sender,
         require_curve_quote=payload.require_curve_quote,
         txn_max_gas_limit=payload.txn_max_gas_limit,

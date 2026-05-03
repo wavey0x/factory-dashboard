@@ -280,6 +280,7 @@ def test_kick_prepare_route_threads_curve_quote_override(tmp_path: Path, monkeyp
         del session, settings
         captured["require_curve_quote"] = kwargs.get("require_curve_quote")
         captured["txn_max_gas_limit"] = kwargs.get("txn_max_gas_limit")
+        captured["min_usd_value"] = kwargs.get("min_usd_value")
         return "noop", [], {"preview": {}, "transactions": []}
 
     monkeypatch.setattr("tidal.api.routes.kick.prepare_kick_action", fake_prepare_kick_action)
@@ -295,12 +296,14 @@ def test_kick_prepare_route_threads_curve_quote_override(tmp_path: Path, monkeyp
             "sender": "0x6000000000000000000000000000000000000006",
             "requireCurveQuote": False,
             "txnMaxGasLimit": 2_500_000,
+            "minUsdValue": 200,
         },
     )
 
     assert response.status_code == 200
     assert captured["require_curve_quote"] is False
     assert captured["txn_max_gas_limit"] == 2_500_000
+    assert captured["min_usd_value"] == 200.0
 
 
 def test_auction_settle_prepare_route_threads_force_override(tmp_path: Path, monkeypatch) -> None:
@@ -395,6 +398,51 @@ def test_kick_inspect_route_returns_ok_for_resolve_first_only_results(tmp_path: 
 
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
+
+
+def test_kick_inspect_route_threads_min_usd_value(tmp_path: Path, monkeypatch) -> None:
+    settings = _make_settings(tmp_path)
+    _init_db(settings)
+    captured: dict[str, object] = {}
+
+    def fake_inspect_kicks(*args, **kwargs):  # noqa: ANN001, ANN003
+        del args
+        captured["min_usd_value"] = kwargs.get("min_usd_value")
+        return {
+            "source_type": None,
+            "source_address": None,
+            "auction_address": None,
+            "limit": None,
+            "eligible_count": 0,
+            "selected_count": 0,
+            "ready_count": 0,
+            "resolve_first_count": 0,
+            "blocked_live_count": 0,
+            "preview_failed_count": 0,
+            "ignored_count": 0,
+            "cooldown_count": 0,
+            "deferred_same_auction_count": 0,
+            "limited_count": 0,
+            "ready": [],
+            "resolve_first": [],
+            "blocked_live": [],
+            "preview_failed": [],
+            "ignored_skips": [],
+            "cooldown_skips": [],
+            "deferred_same_auction": [],
+            "limited": [],
+        }
+
+    monkeypatch.setattr("tidal.api.routes.kick.inspect_kicks", fake_inspect_kicks)
+
+    client = TestClient(create_app(settings))
+    response = client.post(
+        "/api/v1/tidal/kick/inspect",
+        json={"minUsdValue": 200},
+    )
+
+    assert response.status_code == 200
+    assert captured["min_usd_value"] == 200.0
 
 
 def test_public_browser_deploy_prepare_route_is_unauthenticated(tmp_path: Path, monkeypatch) -> None:

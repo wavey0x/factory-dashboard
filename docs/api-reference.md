@@ -107,6 +107,7 @@ Auth behavior:
   "auctionAddress": "0x...",
   "tokenAddress": "0x...",
   "limit": 5,
+  "minUsdValue": 200,
   "includeLiveInspection": true
 }
 ```
@@ -118,7 +119,8 @@ Adds:
 ```json
 {
   "sender": "0x...",
-  "requireCurveQuote": true
+  "requireCurveQuote": true,
+  "minUsdValue": 200
 }
 ```
 
