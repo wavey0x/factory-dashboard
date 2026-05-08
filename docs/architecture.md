@@ -19,7 +19,7 @@ The design splits shared state from signing authority. The server owns the datab
 |---|---|---|
 | Scanner | Builds the cached dataset: sources, balances, auctions, prices, logos, enabled tokens | `tidal/scanner/service.py` |
 | Persistence | Shared SQLite schema, migrations, repository helpers | `tidal/persistence/`, `alembic/` |
-| Transaction service | Selects candidates, inspects auctions, prepares actions, and supports server-owned scan-side auto-settle | `tidal/transaction_service/` |
+| Transaction service | Selects candidates, inspects auctions, prepares actions, and supports server-owned scan-side auction maintenance | `tidal/transaction_service/` |
 | API | Exposes read models and action preparation over HTTP | `tidal/api/app.py` |
 | Read models | Dashboard rows, kick logs, scan logs, run details | `tidal/read/` |
 | CLI client | API-backed inspection and action execution with local wallet signing | `tidal/cli.py` |

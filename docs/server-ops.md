@@ -56,7 +56,13 @@ Scan with auto-settle enabled for that invocation:
 tidal-server scan run --config config/server.yaml --auto-settle --no-confirmation
 ```
 
-When `--auto-settle` is used, the server also needs valid local wallet configuration such as:
+Scan with token auto-enable enabled for that invocation:
+
+```bash
+tidal-server scan run --config config/server.yaml --auto-enable-tokens --no-confirmation
+```
+
+When either transaction automation flag is used, the server also needs valid local wallet configuration such as:
 
 - `TXN_KEYSTORE_PATH`
 - `TXN_KEYSTORE_PASSPHRASE`
@@ -88,10 +94,10 @@ Set them explicitly only when you need a non-default bind.
 
 Most scanner, pricing, multicall, and reconcile tuning also now defaults in code. Only override those via environment variables when you are intentionally tuning a deployment.
 
-Scan auto-settle is not configured in `server.yaml`.
-Enable it explicitly with `--auto-settle` when needed.
+Scan auto-settle and token auto-enable are not configured in `server.yaml`.
+Enable them explicitly with `--auto-settle` or `--auto-enable-tokens` when needed.
 
-For scan-side auto-settle, keep `TXN_KEYSTORE_PATH` and `TXN_KEYSTORE_PASSPHRASE` in the service environment. Use `--keystore` and `--password-file` only for one-off overrides when running `tidal`.
+For scan-side transaction automation, keep `TXN_KEYSTORE_PATH` and `TXN_KEYSTORE_PASSPHRASE` in the service environment. Use `--keystore` and `--password-file` only for one-off overrides when running `tidal`.
 
 ## API Key Management
 

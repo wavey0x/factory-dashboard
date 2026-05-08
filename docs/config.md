@@ -169,8 +169,8 @@ Current defaults from `tidal/config.py` include:
 - `cooldown_minutes = 60` in `config/server.yaml`
 - `tidal_api_request_timeout_seconds = 30`
 
-Scan auto-settle is not a config setting.
-Enable it per invocation with `tidal-server scan run --auto-settle --no-confirmation`.
+Scan auto-settle and token auto-enable are not config settings.
+Enable them per invocation with `tidal-server scan run --auto-settle --auto-enable-tokens --no-confirmation`.
 
 ## Rule Of Thumb
 

@@ -36,6 +36,7 @@ from tidal.scanner.discovery import StrategyDiscoveryService
 from tidal.scanner.auction_mapper import StrategyAuctionMapper
 from tidal.scanner.auction_state import AuctionStateReader
 from tidal.scanner.auction_settler import AuctionSettlementService
+from tidal.scanner.auction_token_enabler import AuctionTokenEnablementService
 from tidal.scanner.fee_burner import FeeBurnerTokenResolver
 from tidal.scanner.reward_token_resolver import RewardTokenResolver
 from tidal.scanner.service import ScannerService
@@ -49,7 +50,13 @@ from tidal.transaction_service.service import TxnService
 from tidal.transaction_service.signer import TransactionSigner
 
 
-def build_scanner_service(settings: Settings, session, *, auto_settle: bool = False) -> ScannerService:
+def build_scanner_service(
+    settings: Settings,
+    session,
+    *,
+    auto_settle: bool = False,
+    auto_enable_tokens: bool = False,
+) -> ScannerService:
     web3_client = Web3Client(
         settings.rpc_url,
         timeout_seconds=settings.rpc_timeout_seconds,
@@ -128,8 +135,8 @@ def build_scanner_service(settings: Settings, session, *, auto_settle: bool = Fa
 
     alert_sink = NullAlertSink()
 
-    auction_settler = None
-    if auto_settle:
+    signer = None
+    if auto_settle or auto_enable_tokens:
         resolved_keystore_path = settings.resolved_txn_keystore_path
         if resolved_keystore_path is None or not settings.txn_keystore_passphrase:
             raise ValueError("TXN_KEYSTORE_PATH and TXN_KEYSTORE_PASSPHRASE are required for transaction commands")
@@ -137,11 +144,29 @@ def build_scanner_service(settings: Settings, session, *, auto_settle: bool = Fa
             str(resolved_keystore_path),
             settings.txn_keystore_passphrase,
         )
+
+    auction_settler = None
+    if auto_settle:
         auction_settler = AuctionSettlementService(
             web3_client=web3_client,
             signer=signer,
             kick_tx_repository=kick_tx_repository,
             token_metadata_service=token_metadata_service,
+            max_base_fee_gwei=settings.txn_max_base_fee_gwei,
+            max_priority_fee_gwei=settings.txn_max_priority_fee_gwei,
+            max_gas_limit=settings.txn_max_gas_limit,
+            chain_id=settings.chain_id,
+            settings=settings,
+        )
+
+    auction_token_enabler = None
+    if auto_enable_tokens:
+        auction_token_enabler = AuctionTokenEnablementService(
+            web3_client=web3_client,
+            auction_state_reader=auction_state_reader,
+            signer=signer,
+            kick_tx_repository=kick_tx_repository,
+            auction_enabled_token_repository=auction_enabled_token_repository,
             max_base_fee_gwei=settings.txn_max_base_fee_gwei,
             max_priority_fee_gwei=settings.txn_max_priority_fee_gwei,
             max_gas_limit=settings.txn_max_gas_limit,
@@ -173,6 +198,7 @@ def build_scanner_service(settings: Settings, session, *, auto_settle: bool = Fa
         token_price_refresh_service=token_price_refresh_service,
         balance_reader=BalanceReader(erc20_reader),
         auction_settler=auction_settler,
+        auction_token_enabler=auction_token_enabler,
         monitored_fee_burners=settings.monitored_fee_burners,
         fee_burner_token_resolver=FeeBurnerTokenResolver(
             fee_burner_reader,

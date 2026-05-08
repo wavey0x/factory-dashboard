@@ -10,7 +10,7 @@ import typer
 
 from tidal.cli_context import CLIContext
 from tidal.cli_exit_codes import scan_exit_code
-from tidal.cli_options import AutoSettleOption, ConfigOption, JsonOption, NoConfirmationOption
+from tidal.cli_options import AutoEnableTokensOption, AutoSettleOption, ConfigOption, JsonOption, NoConfirmationOption
 from tidal.cli_validation import require_no_confirmation_for_unattended
 from tidal.cli_renderers import emit_json, render_scan_summary
 from tidal.errors import ConfigurationError
@@ -20,20 +20,27 @@ from tidal.runtime import build_scanner_service
 app = typer.Typer(help="Scanner commands", no_args_is_help=True)
 
 
-def _require_scan_runtime(ctx: CLIContext, *, auto_settle: bool) -> None:
+def _require_scan_runtime(ctx: CLIContext, *, auto_settle: bool, auto_enable_tokens: bool) -> None:
     ctx.require_rpc()
-    if auto_settle:
+    if auto_settle or auto_enable_tokens:
         if not ctx.settings.resolved_txn_keystore_path or not ctx.settings.txn_keystore_passphrase:
             raise ConfigurationError("TXN_KEYSTORE_PATH and TXN_KEYSTORE_PASSPHRASE are required for transaction commands")
 
 
-def _require_scan_confirmation_policy(*, auto_settle: bool, no_confirmation: bool) -> None:
+def _require_scan_confirmation_policy(
+    *,
+    auto_settle: bool,
+    auto_enable_tokens: bool,
+    no_confirmation: bool,
+) -> None:
     if auto_settle:
         require_no_confirmation_for_unattended(no_confirmation=no_confirmation, command_name="scan auto-settle")
+    if auto_enable_tokens:
+        require_no_confirmation_for_unattended(no_confirmation=no_confirmation, command_name="scan auto-enable-tokens")
 
 
-def _run_scan_once(*, ctx: CLIContext, auto_settle: bool) -> object:
-    _require_scan_runtime(ctx, auto_settle=auto_settle)
+def _run_scan_once(*, ctx: CLIContext, auto_settle: bool, auto_enable_tokens: bool) -> object:
+    _require_scan_runtime(ctx, auto_settle=auto_settle, auto_enable_tokens=auto_enable_tokens)
     scan_start = time.monotonic()
     step_start = scan_start
 
@@ -48,7 +55,12 @@ def _run_scan_once(*, ctx: CLIContext, auto_settle: bool) -> object:
             step_start = time.monotonic()
 
     with ctx.session() as session:
-        scanner = build_scanner_service(ctx.settings, session, auto_settle=auto_settle)
+        scanner = build_scanner_service(
+            ctx.settings,
+            session,
+            auto_settle=auto_settle,
+            auto_enable_tokens=auto_enable_tokens,
+        )
         return asyncio.run(scanner.scan_once(on_progress=show_progress))
 
 
@@ -58,14 +70,23 @@ def scan_run(
     json_output: JsonOption = False,
     no_confirmation: NoConfirmationOption = False,
     auto_settle: AutoSettleOption = False,
+    auto_enable_tokens: AutoEnableTokensOption = False,
 ) -> None:
     """Run a single scan cycle."""
 
     configure_logging(output_mode=OutputMode.TEXT)
     cli_ctx = CLIContext(config, mode="server")
     try:
-        _require_scan_confirmation_policy(auto_settle=auto_settle, no_confirmation=no_confirmation)
-        result = _run_scan_once(ctx=cli_ctx, auto_settle=auto_settle)
+        _require_scan_confirmation_policy(
+            auto_settle=auto_settle,
+            auto_enable_tokens=auto_enable_tokens,
+            no_confirmation=no_confirmation,
+        )
+        result = _run_scan_once(
+            ctx=cli_ctx,
+            auto_settle=auto_settle,
+            auto_enable_tokens=auto_enable_tokens,
+        )
     except ConfigurationError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc

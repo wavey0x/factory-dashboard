@@ -50,6 +50,14 @@ AutoSettleOption = Annotated[
     ),
 ]
 
+AutoEnableTokensOption = Annotated[
+    bool,
+    typer.Option(
+        "--auto-enable-tokens",
+        help="Enable scan-side auction token enablement for this run.",
+    ),
+]
+
 VerboseOption = Annotated[
     bool,
     typer.Option(

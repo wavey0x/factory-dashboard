@@ -20,6 +20,18 @@ Run one scan with auto-settle enabled:
 tidal-server scan run --config config/server.yaml --auto-settle --no-confirmation
 ```
 
+Run one scan with token auto-enable enabled:
+
+```bash
+tidal-server scan run --config config/server.yaml --auto-enable-tokens --no-confirmation
+```
+
+Run the full auction maintenance pass:
+
+```bash
+tidal-server scan run --config config/server.yaml --auto-settle --auto-enable-tokens --no-confirmation
+```
+
 Emit machine-readable output:
 
 ```bash
@@ -49,15 +61,15 @@ Common server operator settings for this command:
 
 Most scanner tuning, including `SCAN_CONCURRENCY` and `RPC_TIMEOUT_SECONDS`, now defaults in code. Override it through environment variables only when you are deliberately tuning a deployment.
 
-## Auto-Settle Note
+## Auction Automation Note
 
-Auto-settle is not configured in `server.yaml`.
-It is enabled only when `--auto-settle` is passed on `scan run`.
+Auto-settle and token auto-enable are not configured in `server.yaml`.
+They are enabled only when `--auto-settle` or `--auto-enable-tokens` is passed on `scan run`.
 
-When `--auto-settle` is used, the server also needs valid local wallet configuration such as:
+When either flag is used, the server also needs valid local wallet configuration such as:
 
 - `TXN_KEYSTORE_PATH`
 - `TXN_KEYSTORE_PASSPHRASE`
 - `--no-confirmation`
 
-Without those, the scan will fail when it reaches the settlement path.
+Without those, the scan will fail before it reaches the transaction path.

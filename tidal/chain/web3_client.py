@@ -129,17 +129,18 @@ class Web3Client:
         target: str,
         call_data: bytes,
         *,
+        from_address: str | None = None,
         block_identifier: str | int = "latest",
     ) -> bytes:
         async def _call() -> bytes:
+            transaction: dict[str, Any] = {
+                "to": to_checksum_address(target),
+                "data": HexBytes(call_data),
+            }
+            if from_address is not None:
+                transaction["from"] = to_checksum_address(from_address)
             response = await asyncio.wait_for(
-                self.w3.eth.call(
-                    {
-                        "to": to_checksum_address(target),
-                        "data": HexBytes(call_data),
-                    },
-                    block_identifier=block_identifier,
-                ),
+                self.w3.eth.call(transaction, block_identifier=block_identifier),
                 timeout=self.timeout_seconds,
             )
             return bytes(response)

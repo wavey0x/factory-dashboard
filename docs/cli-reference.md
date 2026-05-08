@@ -57,6 +57,6 @@ Use `tidal-server` when:
 | Command | Use it when | Reference |
 |---|---|---|
 | `tidal-server db` | You need to apply migrations | [Server Operator: `tidal-server db`](cli-server-db.md) |
-| `tidal-server scan` | You need to run one scan cycle or an explicit scan-side auto-settle pass | [Server Operator: `tidal-server scan`](cli-server-scan.md) |
+| `tidal-server scan` | You need to run one scan cycle or an explicit scan-side auction maintenance pass | [Server Operator: `tidal-server scan`](cli-server-scan.md) |
 | `tidal-server api` | You need to serve the FastAPI control plane | [Server Operator: `tidal-server api`](cli-server-api.md) |
 | `tidal-server auth` | You need to create, list, or revoke API keys | [Server Operator: `tidal-server auth`](cli-server-auth.md) |

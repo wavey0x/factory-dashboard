@@ -23,6 +23,10 @@ from tidal.persistence.repositories import (
 )
 from tidal.scanner.service import ScannerService
 from tidal.scanner.auction_mapper import AuctionMappingRefreshResult, FeeBurnerAuctionRefreshResult
+from tidal.scanner.auction_token_enabler import (
+    AuctionTokenEnablementPassResult,
+    AuctionTokenEnablementStats,
+)
 from tidal.scanner.token_metadata import TokenMetadataService
 from tidal.types import BalancePair, DiscoveredStrategy
 
@@ -196,6 +200,35 @@ class FakeAuctionScanService:
         return self.result
 
 
+class FakeAuctionTokenEnabler:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    async def enable_missing_tokens(
+        self,
+        *,
+        run_id: str,
+        candidates,
+        enabled_tokens_by_auction,
+    ):  # noqa: ANN001
+        self.calls.append(
+            {
+                "run_id": run_id,
+                "candidates": list(candidates),
+                "enabled_tokens_by_auction": enabled_tokens_by_auction,
+            }
+        )
+        return AuctionTokenEnablementPassResult(
+            stats=AuctionTokenEnablementStats(
+                auctions_seen=len({candidate.source.auction_address for candidate in candidates}),
+                candidates_seen=len(candidates),
+                eligible_tokens=len(candidates),
+                tokens_confirmed=len(candidates),
+            ),
+            errors=[],
+        )
+
+
 class FakeStrategyAuctionMapper:
     def __init__(self, *, fail_refresh: bool = False) -> None:
         self.fail_refresh = fail_refresh
@@ -290,6 +323,7 @@ async def test_scanner_persists_lowercase_and_zero_balances() -> None:
             token_price_refresh_service=fake_token_price_refresh_service,
             balance_reader=FakeBalanceReader(),
             auction_settler=None,
+            auction_token_enabler=None,
             monitored_fee_burners=[],
             fee_burner_token_resolver=FakeFeeBurnerTokenResolver(),
             name_reader=fake_name_reader,
@@ -375,6 +409,86 @@ async def test_scanner_persists_lowercase_and_zero_balances() -> None:
 
 
 @pytest.mark.asyncio
+async def test_scanner_auto_enable_runs_after_balance_reads_with_positive_balance_candidates() -> None:
+    engine = create_engine("sqlite:///:memory:", future=True)
+    models.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        vault_repo = VaultRepository(session)
+        strategy_repo = StrategyRepository(session)
+        fee_burner_repo = FeeBurnerRepository(session)
+        token_repo = TokenRepository(session)
+        strategy_token_repo = StrategyTokenRepository(session)
+        fee_burner_token_repo = FeeBurnerTokenRepository(session)
+        balance_repo = BalanceRepository(session)
+        fee_burner_balance_repo = FeeBurnerTokenBalanceRepository(session)
+        auction_enabled_token_repo = AuctionEnabledTokenRepository(session)
+        auction_enabled_token_scan_repo = AuctionEnabledTokenScanRepository(session)
+        scan_run_repo = ScanRunRepository(session)
+        scan_item_error_repo = ScanItemErrorRepository(session)
+
+        fake_erc20 = FakeERC20Reader()
+        token_metadata_service = TokenMetadataService(
+            chain_id=1,
+            token_repository=token_repo,
+            erc20_reader=fake_erc20,
+        )
+        fake_auto_enabler = FakeAuctionTokenEnabler()
+        scanner = ScannerService(
+            session=session,
+            chain_id=1,
+            concurrency=5,
+            multicall_enabled=True,
+            web3_client=FakeWeb3Client(),
+            strategy_auction_mapper=FakeStrategyAuctionMapper(),
+            strategy_discovery_service=FakeDiscoveryService(),
+            reward_token_resolver=FakeRewardTokenResolver(),
+            token_metadata_service=token_metadata_service,
+            token_price_refresh_service=FakeTokenPriceRefreshService(),
+            balance_reader=FakeBalanceReader(),
+            auction_settler=None,
+            auction_token_enabler=fake_auto_enabler,
+            monitored_fee_burners=[],
+            fee_burner_token_resolver=FakeFeeBurnerTokenResolver(),
+            name_reader=FakeNameReader(),
+            vault_repository=vault_repo,
+            strategy_repository=strategy_repo,
+            fee_burner_repository=fee_burner_repo,
+            strategy_token_repository=strategy_token_repo,
+            fee_burner_token_repository=fee_burner_token_repo,
+            balance_repository=balance_repo,
+            fee_burner_balance_repository=fee_burner_balance_repo,
+            auction_state_reader=FakeAuctionStateReader(
+                values_by_auction={"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": ["0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"]}
+            ),
+            auction_enabled_token_repository=auction_enabled_token_repo,
+            auction_enabled_token_scan_repository=auction_enabled_token_scan_repo,
+            scan_run_repository=scan_run_repo,
+            scan_item_error_repository=scan_item_error_repo,
+            auctionscan_service=None,
+            auctionscan_enrichment_batch_size=0,
+            alert_sink=NullAlertSink(),
+        )
+
+        result = await scanner.scan_once()
+
+        assert result.status == "SUCCESS"
+        assert len(fake_auto_enabler.calls) == 1
+        call = fake_auto_enabler.calls[0]
+        candidates = call["candidates"]
+        assert len(candidates) == 3
+        assert {candidate.source.source_address for candidate in candidates} == {
+            "0x1111111111111111111111111111111111111111"
+        }
+        assert all(candidate.balance_raw == 1_000_000 for candidate in candidates)
+        assert call["enabled_tokens_by_auction"] == {
+            "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": {
+                "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+            }
+        }
+
+
+@pytest.mark.asyncio
 async def test_scanner_persists_fee_burner_rows_and_balances() -> None:
     engine = create_engine("sqlite:///:memory:", future=True)
     models.metadata.create_all(engine)
@@ -418,6 +532,7 @@ async def test_scanner_persists_fee_burner_rows_and_balances() -> None:
             token_price_refresh_service=FakeTokenPriceRefreshService(),
             balance_reader=FakeBalanceReader(),
             auction_settler=None,
+            auction_token_enabler=None,
             monitored_fee_burners=[fee_burner],
             fee_burner_token_resolver=FakeFeeBurnerTokenResolver(
                 tokens_by_burner={fee_burner.address.lower(): {"0xcccccccccccccccccccccccccccccccccccccccc"}}
@@ -521,6 +636,7 @@ async def test_scanner_uses_cached_auction_mapping_when_refresh_fails() -> None:
             token_price_refresh_service=FakeTokenPriceRefreshService(),
             balance_reader=FakeBalanceReader(),
             auction_settler=None,
+            auction_token_enabler=None,
             monitored_fee_burners=[],
             fee_burner_token_resolver=FakeFeeBurnerTokenResolver(),
             name_reader=FakeNameReader(),
@@ -559,6 +675,7 @@ async def test_scanner_uses_cached_auction_mapping_when_refresh_fails() -> None:
             token_price_refresh_service=FakeTokenPriceRefreshService(),
             balance_reader=FakeBalanceReader(),
             auction_settler=None,
+            auction_token_enabler=None,
             monitored_fee_burners=[],
             fee_burner_token_resolver=FakeFeeBurnerTokenResolver(),
             name_reader=FakeNameReader(),
@@ -659,6 +776,7 @@ async def test_scanner_runs_auctionscan_enrichment_at_end() -> None:
             token_price_refresh_service=FakeTokenPriceRefreshService(),
             balance_reader=FakeBalanceReader(),
             auction_settler=None,
+            auction_token_enabler=None,
             monitored_fee_burners=[],
             fee_burner_token_resolver=FakeFeeBurnerTokenResolver(),
             name_reader=FakeNameReader(),
@@ -728,6 +846,7 @@ async def test_scanner_keeps_scan_success_when_auctionscan_enrichment_fails() ->
             token_price_refresh_service=FakeTokenPriceRefreshService(),
             balance_reader=FakeBalanceReader(),
             auction_settler=None,
+            auction_token_enabler=None,
             monitored_fee_burners=[],
             fee_burner_token_resolver=FakeFeeBurnerTokenResolver(),
             name_reader=FakeNameReader(),

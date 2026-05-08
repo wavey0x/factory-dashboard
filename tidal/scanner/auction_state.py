@@ -81,6 +81,17 @@ class AuctionStateReader:
             decoder=lambda data: int(abi_decode(["uint256"], data)[0]),
         )
 
+    async def read_auction_token_enabled_many(
+        self,
+        pairs: list[tuple[str, str]],
+    ) -> dict[tuple[str, str], bool | None]:
+        return await self._read_arg_many(
+            pairs,
+            "auctions",
+            direct_transform=lambda value: int(value[1]) != 0,
+            decoder=lambda data: int(abi_decode(["uint64", "uint64", "uint128"], data)[1]) != 0,
+        )
+
     async def _read_noarg_many(
         self,
         auction_addresses: list[str],

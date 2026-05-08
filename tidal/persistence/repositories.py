@@ -455,6 +455,27 @@ class AuctionEnabledTokenRepository:
     def __init__(self, session: Session):
         self.session = session
 
+    def mark_tokens_enabled(self, auction_address: str, token_addresses: Iterable[str], now_iso: str) -> None:
+        for token_address in sorted(set(token_addresses)):
+            stmt = insert(models.auction_enabled_tokens_latest).values(
+                auction_address=auction_address,
+                token_address=token_address,
+                active=1,
+                first_seen_at=now_iso,
+                last_seen_at=now_iso,
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=[
+                    models.auction_enabled_tokens_latest.c.auction_address,
+                    models.auction_enabled_tokens_latest.c.token_address,
+                ],
+                set_={
+                    "active": 1,
+                    "last_seen_at": now_iso,
+                },
+            )
+            self.session.execute(stmt)
+
     def refresh_for_auction(self, auction_address: str, token_addresses: Iterable[str], now_iso: str) -> None:
         normalized_tokens = sorted(set(token_addresses))
         self.session.execute(

@@ -14,6 +14,11 @@ from tidal.constants import ADDITIONAL_DISCOVERY_VAULTS, CORE_REWARD_TOKENS
 from tidal.normalizers import normalize_address, to_decimal_string
 from tidal.pricing.service import PriceToken
 from tidal.scanner.auction_settler import AuctionSettlementStats, AuctionSource
+from tidal.scanner.auction_token_enabler import (
+    AuctionEnableCandidate,
+    AuctionEnableSource,
+    AuctionTokenEnablementStats,
+)
 from tidal.time import utcnow, utcnow_iso
 from tidal.types import BalancePair, BalanceResult, ScanItemError, ScanRunResult
 
@@ -29,6 +34,7 @@ class _Pair:
     source_address: str
     token_address: str
     decimals: int
+    token_symbol: str | None
 
 
 def determine_scan_status(*, pairs_seen: int, pairs_failed: int) -> str:
@@ -57,6 +63,7 @@ class ScannerService:
         token_price_refresh_service,
         balance_reader,
         auction_settler,
+        auction_token_enabler,
         monitored_fee_burners: list[MonitoredFeeBurner],
         fee_burner_token_resolver,
         name_reader,
@@ -88,6 +95,7 @@ class ScannerService:
         self.token_price_refresh_service = token_price_refresh_service
         self.balance_reader = balance_reader
         self.auction_settler = auction_settler
+        self.auction_token_enabler = auction_token_enabler
         self.monitored_fee_burners = monitored_fee_burners
         self.fee_burner_token_resolver = fee_burner_token_resolver
         self.name_reader = name_reader
@@ -108,7 +116,7 @@ class ScannerService:
         self.alert_sink = alert_sink
 
     async def scan_once(self, on_progress: ProgressCallback | None = None) -> ScanRunResult:
-        _TOTAL_STEPS = 10
+        _TOTAL_STEPS = 11
 
         def _progress(step: int, label: str, detail: str = "") -> None:
             if on_progress is not None:
@@ -186,7 +194,8 @@ class ScannerService:
             "source": "none",
         }
         stage_h_stats = asdict(AuctionSettlementStats())
-        stage_i_stats = {
+        stage_i_stats = asdict(AuctionTokenEnablementStats())
+        stage_j_stats = {
             "candidates_seen": 0,
             "kicks_checked": 0,
             "kicks_resolved": 0,
@@ -380,6 +389,7 @@ class ScannerService:
         _progress(4, "Reading auction enabled tokens")
         stage_g_stats["auctions_seen"] = len(auction_addresses)
         stage_g_stats["source"] = "fresh"
+        enabled_tokens_by_auction: dict[str, set[str]] = {}
         enabled_tokens_scanned_at = utcnow_iso()
         try:
             enabled_tokens_block_number = await self.web3_client.get_block_number()
@@ -410,6 +420,10 @@ class ScannerService:
                         enabled_tokens,
                         enabled_tokens_scanned_at,
                     )
+                    enabled_tokens_by_auction[auction_address] = {
+                        normalize_address(token_address)
+                        for token_address in enabled_tokens
+                    }
                     self.auction_enabled_token_scan_repository.upsert(
                         auction_address=auction_address,
                         scanned_at=enabled_tokens_scanned_at,
@@ -534,6 +548,7 @@ class ScannerService:
                         source_address=strategy_address,
                         token_address=token_address,
                         decimals=metadata.decimals,
+                        token_symbol=metadata.symbol,
                     )
                 )
 
@@ -574,6 +589,7 @@ class ScannerService:
                         source_address=fee_burner_address,
                         token_address=token_address,
                         decimals=metadata.decimals,
+                        token_symbol=metadata.symbol,
                     )
                 )
 
@@ -581,6 +597,22 @@ class ScannerService:
         _progress(7, "Resolving tokens", f"{pairs_seen} pairs")
         block_number = await self.web3_client.get_block_number()
         scanned_at = utcnow()
+        enable_sources_by_key: dict[tuple[str, str], AuctionEnableSource] = {}
+        for source_type, rows, factory_verified in [
+            ("strategy", strategy_auction_rows, stage_e_stats["source"] == "fresh"),
+            ("fee_burner", fee_burner_auction_rows, stage_f_stats["source"] == "fresh"),
+        ]:
+            for row in rows:
+                if not row["auction_address"]:
+                    continue
+                source_address = normalize_address(row["address"])
+                enable_sources_by_key[(source_type, source_address)] = AuctionEnableSource(
+                    source_type=source_type,
+                    source_address=source_address,
+                    auction_address=normalize_address(row["auction_address"]),
+                    want_address=normalize_address(row["want_address"]) if row["want_address"] else None,
+                    factory_verified=bool(factory_verified),
+                )
 
         _progress(8, "Reading balances")
         balance_pairs = [
@@ -590,6 +622,7 @@ class ScannerService:
         balance_values, stage_c_stats = await self.balance_reader.read_many(balance_pairs)
 
         tokens_with_balance: set[str] = set()
+        auto_enable_candidates: list[AuctionEnableCandidate] = []
         for pair in pairs:
             key = BalancePair(source_address=pair.source_address, token_address=pair.token_address)
             raw_balance = balance_values.get(key)
@@ -611,6 +644,19 @@ class ScannerService:
                 tokens_with_balance.add(pair.token_address)
 
             normalized = to_decimal_string(raw_balance, pair.decimals)
+            if raw_balance > 0:
+                enable_source = enable_sources_by_key.get((pair.source_type, pair.source_address))
+                if enable_source is not None:
+                    auto_enable_candidates.append(
+                        AuctionEnableCandidate(
+                            source=enable_source,
+                            token_address=pair.token_address,
+                            decimals=pair.decimals,
+                            balance_raw=raw_balance,
+                            normalized_balance=normalized,
+                            token_symbol=pair.token_symbol,
+                        )
+                    )
             result = BalanceResult(
                 source_address=pair.source_address,
                 token_address=pair.token_address,
@@ -627,6 +673,24 @@ class ScannerService:
 
         _progress(8, "Reading balances", f"{pairs_succeeded} succeeded, {pairs_failed} failed")
 
+        _progress(9, "Enabling auction tokens")
+        if self.auction_token_enabler is not None:
+            enablement_result = await self.auction_token_enabler.enable_missing_tokens(
+                run_id=run_id,
+                candidates=auto_enable_candidates,
+                enabled_tokens_by_auction=enabled_tokens_by_auction,
+            )
+            stage_i_stats = asdict(enablement_result.stats)
+            errors.extend(enablement_result.errors)
+        _progress(
+            9,
+            "Enabling auction tokens",
+            (
+                f"{stage_i_stats['tokens_confirmed']} enabled, "
+                f"{stage_i_stats['eligible_tokens']} eligible"
+            ),
+        )
+
         price_token_map = {
             pair.token_address: pair.decimals
             for pair in pairs
@@ -638,23 +702,23 @@ class ScannerService:
             PriceToken(address=token_address, decimals=decimals)
             for token_address, decimals in price_token_map.items()
         ]
-        _progress(9, "Refreshing prices")
+        _progress(10, "Refreshing prices")
         stage_d_stats, price_errors = await self.token_price_refresh_service.refresh_many(
             run_id=run_id,
             tokens=price_tokens,
         )
         errors.extend(price_errors)
-        _progress(9, "Refreshing prices", f"{stage_d_stats['tokens_succeeded']}/{stage_d_stats['tokens_seen']} tokens, {price_tokens_skipped} skipped")
+        _progress(10, "Refreshing prices", f"{stage_d_stats['tokens_succeeded']}/{stage_d_stats['tokens_seen']} tokens, {price_tokens_skipped} skipped")
 
-        _progress(10, "Enriching AuctionScan")
-        stage_i_stats = await self._enrich_auctionscan_rounds(errors=errors)
+        _progress(11, "Enriching AuctionScan")
+        stage_j_stats = await self._enrich_auctionscan_rounds(errors=errors)
         _progress(
-            10,
+            11,
             "Enriching AuctionScan",
             (
-                f"{stage_i_stats['kicks_checked']} checked, "
-                f"{stage_i_stats['kicks_resolved']} resolved, "
-                f"{stage_i_stats['kicks_failed']} failed"
+                f"{stage_j_stats['kicks_checked']} checked, "
+                f"{stage_j_stats['kicks_resolved']} resolved, "
+                f"{stage_j_stats['kicks_failed']} failed"
             ),
         )
 
@@ -745,11 +809,23 @@ class ScannerService:
             settlement_failed=stage_h_stats["settlements_failed"],
             settlement_submitted=stage_h_stats["settlements_submitted"],
             settlement_skipped_high_base_fee=stage_h_stats["skipped_high_base_fee"],
-            auctionscan_candidates_seen=stage_i_stats["candidates_seen"],
-            auctionscan_kicks_checked=stage_i_stats["kicks_checked"],
-            auctionscan_kicks_resolved=stage_i_stats["kicks_resolved"],
-            auctionscan_kicks_unresolved=stage_i_stats["kicks_unresolved"],
-            auctionscan_kicks_failed=stage_i_stats["kicks_failed"],
+            enable_auctions_seen=stage_i_stats["auctions_seen"],
+            enable_candidates_seen=stage_i_stats["candidates_seen"],
+            enable_skipped_unverified_sources=stage_i_stats["skipped_unverified_sources"],
+            enable_already_enabled_tokens=stage_i_stats["already_enabled_tokens"],
+            enable_eligible_tokens=stage_i_stats["eligible_tokens"],
+            enable_preview_failed_tokens=stage_i_stats["preview_failed_tokens"],
+            enable_transactions_attempted=stage_i_stats["enable_transactions_attempted"],
+            enable_transactions_confirmed=stage_i_stats["enable_transactions_confirmed"],
+            enable_transactions_failed=stage_i_stats["enable_transactions_failed"],
+            enable_transactions_submitted=stage_i_stats["enable_transactions_submitted"],
+            enable_tokens_confirmed=stage_i_stats["tokens_confirmed"],
+            enable_skipped_high_base_fee=stage_i_stats["skipped_high_base_fee"],
+            auctionscan_candidates_seen=stage_j_stats["candidates_seen"],
+            auctionscan_kicks_checked=stage_j_stats["kicks_checked"],
+            auctionscan_kicks_resolved=stage_j_stats["kicks_resolved"],
+            auctionscan_kicks_unresolved=stage_j_stats["kicks_unresolved"],
+            auctionscan_kicks_failed=stage_j_stats["kicks_failed"],
         )
 
         return ScanRunResult(
