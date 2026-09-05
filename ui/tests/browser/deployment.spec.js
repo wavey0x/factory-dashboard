@@ -180,6 +180,8 @@ for (const theme of ["light", "dark"]) {
       expect(await page.evaluate(() => window.walletFixture.sends)).toBe(0);
       for (const width of [320, 390, 768]) {
         await page.setViewportSize({ width, height: 700 });
+        // visualViewport resize updates the dialog bounds on the next animation frame.
+        await expect.poll(() => modal.evaluate(node => node.getBoundingClientRect().bottom)).toBeLessThanOrEqual(688);
         expect(await modal.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
         const box = await modal.boundingBox();
         expect(box.x).toBeGreaterThanOrEqual(12);

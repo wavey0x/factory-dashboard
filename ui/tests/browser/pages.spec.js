@@ -60,7 +60,8 @@ for (const theme of ["light", "dark"]) {
     const support = await detail.locator(".log-detail-support").boundingBox();
     expect(execution.y).toBe(support.y);
     expect(support.x).toBeGreaterThan(execution.x + execution.width);
-    expect((await detail.boundingBox()).height).toBeLessThan(410);
+    // Section/divider breathing room is intentional; field rows remain compact.
+    expect((await detail.boundingBox()).height).toBeLessThan(450);
     const fields = await detail.locator(".log-detail-group").first().locator(".kick-detail-value").evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().x));
     expect(new Set(fields).size).toBe(1);
     expect(await contrastRatio(detail.locator(".kick-detail-label").first())).toBeGreaterThanOrEqual(4.5);
@@ -91,6 +92,85 @@ for (const theme of ["light", "dark"]) {
     await page.keyboard.press("Escape");
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(first.getByRole("button", { name: "Show details for log 1", exact: true })).toBeFocused();
+  });
+
+  test(`${theme}: log gutters align details and keep large USD values clear of the edge`, async ({ page }, testInfo) => {
+    await page.emulateMedia({ colorScheme: theme });
+    const state = await mockPublicApi(page);
+    state.logsData = { total: 1, hasMore: false, kicks: [log(1, { usdValue: "1234567890.12" })] };
+    await page.goto("/logs");
+    const first = page.locator('[data-log-id="1"]');
+    const table = page.locator(".kick-log-table");
+    const detail = page.locator(".log-detail-content");
+    const textBox = locator => locator.evaluate(node => {
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const box = range.getBoundingClientRect();
+      return { left: box.left, right: box.right, height: box.height };
+    });
+
+    for (const width of [961, 1024, 1440, 1920]) {
+      await page.setViewportSize({ width, height: 1000 });
+      await expect(first.locator(".log-usd-cell")).toHaveText("$1,234,567,890.12");
+      const tableBox = await table.boundingBox();
+      const usdBox = await textBox(first.locator(".log-usd-cell"));
+      const usdHeader = await textBox(table.locator("th").last());
+      const timeHeader = await textBox(table.locator("th").first());
+      const timeBox = await textBox(first.locator("time"));
+      const activityCell = await first.locator(".log-activity-cell").boundingBox();
+      const timeCell = await first.locator(".kick-time-cell").boundingBox();
+      expect(activityCell.width).toBeCloseTo(timeCell.width * 2, 0);
+      expect((await first.locator(".log-usd-cell").boundingBox()).width).toBeCloseTo(152, 0);
+      expect(tableBox.x + tableBox.width - usdBox.right).toBeCloseTo(16, 0);
+      expect(usdHeader.right).toBeCloseTo(usdBox.right, 0);
+      expect(timeBox.left - tableBox.x).toBeCloseTo(16, 0);
+      expect(timeHeader.left).toBeCloseTo(timeBox.left, 0);
+      expect(usdBox.height).toBeLessThan(20);
+      for (const link of await first.locator(".log-transaction-cell a").all()) {
+        const box = await link.boundingBox();
+        expect(usdBox.left - box.x - box.width).toBeGreaterThanOrEqual(8);
+      }
+      const columnsBefore = await first.locator("td").evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().x));
+      await first.getByRole("button", { name: "Show details for log 1", exact: true }).click();
+      await expect(detail).toBeVisible();
+      const columnsAfter = await first.locator("td").evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().x));
+      expect(columnsAfter).toEqual(columnsBefore);
+      const execution = await detail.locator(".log-detail-group").first().boundingBox();
+      const footer = await detail.locator(".log-detail-links").boundingBox();
+      expect(execution.x).toBeCloseTo(timeBox.left, 0);
+      expect(footer.x).toBeCloseTo(timeBox.left, 0);
+      expect(footer.x + footer.width).toBeCloseTo(usdBox.right, 0);
+      for (const group of await detail.locator(".log-detail-group").all()) {
+        await expect(group).toHaveCSS("padding-top", "16px");
+        await expect(group).toHaveCSS("padding-bottom", "16px");
+        await expect(group.locator(".kick-detail-grid")).toHaveCSS("row-gap", "6px");
+      }
+      await expect(detail.locator(".log-detail-links")).toHaveCSS("padding-top", "16px");
+      await expect(detail).toHaveCSS("padding-bottom", "20px");
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      if (width === 961 || width === 1440) {
+        await page.screenshot({ path: testInfo.outputPath(`${theme}-log-gutters-${width}.png`), animations: "disabled" });
+      }
+      await first.getByRole("button", { name: "Hide details for log 1", exact: true }).click();
+    }
+
+    // Both phone and tablet sheets get their inset once, from the scroll body.
+    for (const width of [320, 768, 960]) {
+      await page.setViewportSize({ width, height: 1000 });
+      await first.getByRole("button", { name: "Show details for log 1", exact: true }).click();
+      const dialog = page.getByRole("dialog", { name: "Activity details" });
+      await expect(dialog).toHaveCSS("transform", "none");
+      const body = page.locator(".kick-modal-body");
+      const bodyBox = await body.boundingBox();
+      const detailBox = await detail.boundingBox();
+      expect(detailBox.x - bodyBox.x).toBeCloseTo(16, 0);
+      expect(bodyBox.x + bodyBox.width - detailBox.x - detailBox.width).toBeCloseTo(16, 0);
+      await expect(detail).toHaveCSS("padding", "0px");
+      await expect(detail.locator(".log-detail-group").first()).toHaveCSS("padding-top", "10px");
+      expect(await body.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+      await page.screenshot({ path: testInfo.outputPath(`${theme}-log-gutters-mobile-${width}.png`), animations: "disabled" });
+      await dialog.getByRole("button", { name: "Close details", exact: true }).click();
+    }
   });
 }
 

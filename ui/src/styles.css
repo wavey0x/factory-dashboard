@@ -1368,18 +1368,24 @@ tbody tr:focus-within > td {
 .kick-log-page-btn:hover:not(:disabled) { border-color: var(--text-primary); }
 .kick-log-page-btn:disabled { color: var(--text-faint); cursor: default; opacity: .6; }
 .log-table-shell { overflow: visible; }
-.kick-log-table { table-layout: fixed; }
+.kick-log-table {
+  --log-edge-inset: 16px;
+  --log-usd-width: 152px;
+  table-layout: fixed;
+}
 .kick-log-table th {
   position: sticky; top: 0; z-index: 2; background: var(--bg); font-size: 11px;
 }
-.kick-log-table th:nth-child(1) { width: 11%; }
+/* Source can wrap; keep addresses and USD predictable, including on narrow desktops. */
+.kick-log-table th:nth-child(1) { width: 12%; }
 .kick-log-table th:nth-child(2) { width: 24%; }
-.kick-log-table th:nth-child(3) { width: 23%; }
+.kick-log-table th:nth-child(3) { width: auto; }
 .kick-log-table th:nth-child(4) { width: 15%; }
 .kick-log-table th:nth-child(5) { width: 17%; }
-.kick-log-table th:nth-child(6) { width: 10%; }
-.kick-log-table th:first-child, .kick-log-row > td:first-child { padding-left: 0; }
-.kick-log-table th:last-child, .kick-log-row > td:last-child { padding-right: 0; }
+.kick-log-table th:nth-child(6) { width: var(--log-usd-width); }
+.kick-log-table th:first-child, .kick-log-row > td:first-child { padding-left: var(--log-edge-inset); }
+.kick-log-table th:last-child, .kick-log-row > td:last-child { padding-right: var(--log-edge-inset); }
+.kick-log-table .kick-detail > td { padding: 0; }
 .kick-log-row { height: 54px; }
 .kick-log-row td { padding: 8px; }
 .kick-log-row.is-expanded td { border-bottom-color: transparent; }
@@ -1393,10 +1399,10 @@ tbody tr:focus-within > td {
 .log-open:hover span:last-child, .timestamp-toggle:hover { text-decoration: underline; text-underline-offset: 3px; }
 .log-result { margin-left: 18px; font-size: 11px; }
 .log-usd-cell { white-space: nowrap; font-weight: 500; }
-.log-detail-content { padding: 4px 12px 12px; }
+.log-detail-content { padding: 8px var(--log-edge-inset, 16px) 20px; }
 .log-detail-columns { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 28px; }
 .log-detail-support { min-width: 0; }
-.log-detail-group { min-width: 0; padding: 10px 0; border-top: 1px solid var(--divider-subtle); }
+.log-detail-group { min-width: 0; padding: 16px 0; border-top: 1px solid var(--divider-subtle); }
 .log-detail-group h3 { margin: 0 0 10px; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; font-weight: 500; color: var(--text-secondary); }
 .log-detail-group .kick-detail-grid { margin: 0; padding: 0; grid-template-columns: minmax(0, 1fr); gap: 6px; }
 .log-detail-group .kick-detail-item { display: grid; grid-template-columns: 128px minmax(0, 1fr); align-items: baseline; gap: 12px; }
@@ -1404,7 +1410,7 @@ tbody tr:focus-within > td {
 .log-detail-group .row-primary { white-space: normal; overflow-wrap: anywhere; }
 .log-detail-group .provider-ledger dt { min-width: 0; overflow-wrap: anywhere; }
 .log-detail-group dd { margin: 0; overflow-wrap: anywhere; word-break: normal; }
-.log-detail-links { display: flex; flex-wrap: wrap; gap: 8px 20px; padding-top: 10px; border-top: 1px solid var(--divider-subtle); }
+.log-detail-links { display: flex; flex-wrap: wrap; gap: 8px 20px; padding-top: 16px; border-top: 1px solid var(--divider-subtle); }
 .quote-provider-count { margin-bottom: 4px; }
 .quote-summary-ledger { display: grid; gap: 2px; margin: 0; }
 .quote-summary-ledger > div { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 8px; }
@@ -2054,6 +2060,10 @@ tbody tr:focus-within > td {
 }
 
 @media (max-width: 960px) {
+  /* The sheet body already owns the mobile inset; do not stack desktop padding. */
+  .log-detail-content { padding: 0; }
+  .log-detail-group { padding: 10px 0; }
+  .log-detail-links { padding-top: 10px; }
   .log-detail-columns { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .kick-detail-grid, .log-detail-group .kick-detail-grid { grid-template-columns: 1fr; }
   .kick-log-table, .kick-log-table tbody { display: block; }
@@ -2102,7 +2112,6 @@ tbody tr:focus-within > td {
   .kick-log-focusbar .refresh-status {
     flex-basis: 100%; order: 3; margin: 0; flex-wrap: wrap;
   }
-  .log-detail-content { padding: 0; }
   .log-detail-group .kick-detail-item { grid-template-columns: 88px minmax(0, 1fr); gap: 10px; }
   .quote-summary-ledger > div { grid-template-columns: minmax(0, 1fr); gap: 0; }
 }
