@@ -324,6 +324,12 @@ for (const theme of ["light", "dark"]) {
     await expect(alert).toHaveCSS("border-bottom-width", "1px");
     const headerBox = await alert.locator(".alert-card-header").boundingBox();
     const expandedBox = await alert.locator(".alert-expanded-content").boundingBox();
+    const alertBox = await alert.boundingBox();
+    expect(headerBox.x - alertBox.x).toBe(16);
+    expect(alertBox.x + alertBox.width - headerBox.x - headerBox.width).toBe(16);
+    expect(expandedBox.x + expandedBox.width).toBe(headerBox.x + headerBox.width);
+    await expect(page.locator(".alerts-meta")).toHaveCSS("padding-left", "16px");
+    await expect(page.locator(".alerts-meta")).toHaveCSS("padding-right", "16px");
     expect(expandedBox.y - headerBox.y - headerBox.height).toBe(8);
     await expect(alert.locator(".alert-next-action")).toContainText(issue.nextAction.instruction);
     await expect(alert.locator(".alert-age dt")).toHaveText("Opened");
@@ -372,6 +378,8 @@ for (const theme of ["light", "dark"]) {
     await expect(round).toBeVisible();
     await expect(round.locator(".provider-details")).toHaveAttribute("open", "");
     await page.setViewportSize({ width: 320, height: 1200 });
+    await expect(alert).toHaveCSS("padding-left", "0px");
+    await expect(alert).toHaveCSS("padding-right", "0px");
     await page.screenshot({ path: testInfo.outputPath(`${theme}-alert-mobile.png`) });
     const overflowing = await page.locator(".alerts-page *").evaluateAll(nodes => nodes.filter(node => !node.closest("thead") && node.getBoundingClientRect().right > innerWidth + .5).map(node => `${node.tagName}.${node.className}`));
     expect(overflowing).toEqual([]);
@@ -444,7 +452,9 @@ for (const theme of ["light", "dark"]) {
     expect(boxes[2].width).toBe(boxes[0].width);
     expect(boxes[1].width).toBe(boxes[0].width);
     const refresh = await page.locator(".refresh-status").boundingBox();
+    const refreshText = await page.locator(".refresh-status > span").boundingBox();
     expect(refresh.x).toBe(boxes[1].x);
+    expect(refreshText.x - boxes[1].x).toBe(16);
     const identity = await inventory.locator(".fee-burner-identity").boundingBox();
     const auction = await inventory.locator(".fee-burner-auction").boundingBox();
     expect(identity.y).toBe(auction.y);
@@ -458,7 +468,10 @@ for (const theme of ["light", "dark"]) {
     for (const cell of await table.locator("thead th:last-child, .fee-token-usd, .fee-inventory-total").all()) await expect(cell).toHaveCSS("padding-right", "18px");
     expect(boxes[1].y + boxes[1].height).toBeLessThanOrEqual(boxes[0].y);
     expect(boxes[2].y).toBeGreaterThanOrEqual(boxes[0].y + boxes[0].height);
-    expect((await table.locator(".fee-token-name").first().boundingBox()).x).toBe(boxes[0].x);
+    expect((await table.locator(".fee-token-name").first().boundingBox()).x - boxes[0].x).toBe(16);
+    expect((await inventory.locator(".fee-burner-identity .entity-cell").boundingBox()).x - boxes[0].x).toBe(16);
+    expect((await inventory.locator(".fee-activity-heading").boundingBox()).x - boxes[0].x).toBe(16);
+    await expect(table.locator("thead th").first()).toHaveCSS("padding-left", "16px");
     expect((await table.locator(".fee-inventory-total").boundingBox()).x).toBe((await table.locator(".fee-token-usd").first().boundingBox()).x);
     const copy = table.getByRole("button", { name: "Copy token address for CRV", exact: true });
     await copy.click();
@@ -496,6 +509,8 @@ for (const theme of ["light", "dark"]) {
     await expect(table.locator(".fee-token-amount").first()).toBeVisible();
     await expect(table.locator(".fee-token-usd").first()).toBeVisible();
     const usdHeading = await table.locator("thead th").last().boundingBox();
+    await expect(table.locator("thead th").first()).toHaveCSS("padding-left", "0px");
+    expect((await table.locator(".fee-token-name").first().boundingBox()).x).toBe((await table.boundingBox()).x);
     const usdCell = await table.locator(".fee-token-usd").first().boundingBox();
     expect(usdHeading.x + usdHeading.width).toBe(usdCell.x + usdCell.width);
     for (const cell of await table.locator("thead th:last-child, .fee-token-usd, .fee-inventory-total").all()) await expect(cell).toHaveCSS("padding-right", "18px");

@@ -64,6 +64,51 @@ async function fixture(page) {
 }
 
 for (const theme of ["light", "dark"]) {
+  test(`${theme}: strategy gutters align headers, rewards and expanded details without padding mobile rows`, async ({ page }, testInfo) => {
+    await page.emulateMedia({ colorScheme: theme });
+    const state = await fixture(page);
+    state.rows[0].balances[0].normalizedBalance = "1234567.89";
+    await page.goto("/");
+    const table = page.locator(".ledger-table");
+    const first = page.locator(".strategy-row").first();
+    await expect(first.locator(".reward-total")).toHaveText("$1,234,567.89");
+
+    for (const width of [781, 1024, 1440]) {
+      await page.setViewportSize({ width, height: 1000 });
+      const outer = await table.boundingBox();
+      const identity = await first.locator(".entity-open").boundingBox();
+      const value = await first.locator(".reward-total").boundingBox();
+      const heading = await table.locator(".rewards-heading .th-sort-button").boundingBox();
+      expect(identity.x - outer.x).toBeCloseTo(16, 0);
+      expect(outer.x + outer.width - value.x - value.width).toBeCloseTo(16, 0);
+      expect(heading.x + heading.width).toBeCloseTo(value.x + value.width, 0);
+      await expect(table.locator("thead th").first()).toHaveCSS("padding-left", "16px");
+      // Large totals intentionally use the existing extra line; gutters add no row padding.
+      expect((await first.boundingBox()).height).toBeLessThanOrEqual(70);
+
+      await first.getByRole("button", { name: /Expand rewards/ }).click();
+      const balance = await first.locator(".token-balance").boundingBox();
+      expect(balance.x + balance.width).toBeCloseTo(value.x + value.width, 0);
+      await first.getByRole("button", { name: /Collapse rewards/ }).click();
+      await first.locator(".entity-open").click();
+      const detail = page.locator(".ledger-table .strategy-detail-grid");
+      await expect(detail).toBeVisible();
+      const inner = await detail.boundingBox();
+      expect(inner.x - outer.x).toBeCloseTo(16, 0);
+      expect(outer.x + outer.width - inner.x - inner.width).toBeCloseTo(16, 0);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await page.screenshot({ path: testInfo.outputPath(`${theme}-strategy-gutters-${width}.png`), animations: "disabled" });
+      await first.locator(".entity-open").click();
+    }
+
+    for (const width of [780, 390, 320]) {
+      await page.setViewportSize({ width, height: 1000 });
+      await expect(first.locator(".mobile-summary-cell")).toHaveCSS("padding-left", "0px");
+      await expect(first.locator(".mobile-summary-cell")).toHaveCSS("padding-right", "2px");
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    }
+  });
+
   test(`${theme}: expanded rewards replace the summary without repeating tokens or values`, async ({
     page,
     context,
